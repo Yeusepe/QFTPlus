@@ -1,0 +1,15 @@
+[package]
+name = "qft-trainer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "GPU training for QFT+ calibrations through Meganeura (Vulkan/Metal); driven by gpu_training.py"
+
+[dependencies]
+meganeura = { git = "https://github.com/kvark/meganeura", rev = "7c29497fcab1071e8171dc34f27698c807bd378d" }
+serde_json = "1"
+
+[profile.release]
+debug = false
+strip = true

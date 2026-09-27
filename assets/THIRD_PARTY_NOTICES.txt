@@ -13,10 +13,20 @@ and SHA-256 hashes are in requirements-runtime.lock.txt and the development rele
 PyTorch uses its BSD-style license; ONNX Runtime uses MIT; ONNX uses Apache-2.0;
 OpenCV uses Apache-2.0; NumPy uses BSD-3-Clause. Consult each wheel for full terms.
 
+qft-trainer.exe (GPU calibration training) is built from src/trainer on Meganeura
+(https://github.com/kvark/meganeura, MIT) and the Rust crates listed with their
+licenses in qft-trainer-licenses.txt.
+
 VRCFaceTracking, SteamVR, and Virtual Desktop are installed separately.
 Their SDK and driver binaries are not redistributed with QFT+.
 The v8 demonstration tongue weights originate from the upstream
 n0tmast3r/Qpro-Enhanced-FT release v0.1.10, under its MIT license. They contain
 learned weights, not camera recordings. Personal calibration stays local.
+models/ava-mouth-encoder.pt is a mouth-camera encoder QFT+ trained on the Ava-256
+dataset by Meta Platforms (https://github.com/facebookresearch/ava-256). It is
+licensed under CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/),
+not under LICENSE: non-commercial use only. Changes: new weights learned from
+the dataset; no Ava-256 images are included. Cheek, lip, nose and jaw
+calibrations trained from it inherit the same terms.
 No stock Meta model or firmware is included. The eye patcher uses a compatible
 model from the user's own headset; generated models/eye files are private.

@@ -2,6 +2,7 @@ param(
     [string]$SessionPath = "",
     [string]$BaseGatePath = "",
     [string]$BaseDirectionPath = "",
+    [string]$PretrainedEncoderPath = "",
     [ValidateRange(1, 100)]
     [int]$Epochs = 24,
     [ValidateRange(8, 256)]
@@ -47,7 +48,12 @@ try {
             if (Test-Path -LiteralPath $direction) { [pscustomobject]@{ Version=$v; Gate=$_.FullName; Direction=$direction } }
         }
     } | Sort-Object Version -Descending)
-    if (-not $pairs.Count -and -not ($BaseGatePath -and $BaseDirectionPath)) { throw "No paired base tongue model was found." }
+    $fromEncoder = -not [string]::IsNullOrWhiteSpace($PretrainedEncoderPath)
+    if ($fromEncoder) {
+        if ($BaseGatePath -or $BaseDirectionPath) { throw "Choose either a base model pair to refine or a pretrained encoder, not both." }
+        if (-not (Test-Path -LiteralPath $PretrainedEncoderPath -PathType Leaf)) { throw "The pretrained mouth encoder was not found." }
+        $PretrainedEncoderPath = (Resolve-Path -LiteralPath $PretrainedEncoderPath).Path
+    } elseif (-not $pairs.Count -and -not ($BaseGatePath -and $BaseDirectionPath)) { throw "No paired base tongue model was found." }
     $base = if ($pairs.Count) { $pairs[0] } else { [pscustomobject]@{ Version=0; Gate=""; Direction="" } }
     if ($BaseGatePath -or $BaseDirectionPath) {
         if (-not (Test-Path -LiteralPath $BaseGatePath -PathType Leaf) -or -not (Test-Path -LiteralPath $BaseDirectionPath -PathType Leaf)) {
@@ -68,13 +74,20 @@ try {
     Write-Host "TRAIN_DEVICE device=$device batch=$effectiveBatchSize"
     if ($device -eq "cpu") { Write-Warning "CUDA is unavailable. CPU fallback is active; training can take substantially longer. Bundled Studio installs train on CPU. NVIDIA training needs a CUDA-enabled PyTorch runtime; see ML-VALIDATION.md." }
 
-    Write-Host "TRAIN_STAGE index=1 total=2 name=visibility epochs=$Epochs device=$device"
-    & $python .\train_tongue_model.py $cache --architecture spatial-stereo-resnet-v2 --checkpoint-focus visibility --initial-checkpoint $base.Gate --learning-rate 0.00005 --epochs $Epochs --batch-size $effectiveBatchSize --device $device --output $gateOutput
-    if ($LASTEXITCODE -ne 0) { throw "Refining tongue visibility failed." }
-    Write-Host "TRAIN_STAGE index=2 total=2 name=direction epochs=$Epochs device=$device"
-    & $python .\train_tongue_model.py $cache --architecture spatial-stereo-resnet-v2 --checkpoint-focus direction --initial-checkpoint $base.Direction --learning-rate 0.00005 --epochs $Epochs --batch-size $effectiveBatchSize --device $device --output $directionOutput
-    if ($LASTEXITCODE -ne 0) { throw "Refining tongue direction failed." }
-    Write-Host "MODEL_READY version=$version parent=$($base.Version)"
+    if ($fromEncoder) {
+        Write-Host "TRAIN_STAGE index=1 total=1 name=paired epochs=$Epochs device=$device"
+        & $python .\train_tongue_model.py $cache --architecture spatial-stereo-resnet-v2 --checkpoint-focus visibility --pretrained-encoder $PretrainedEncoderPath --epochs $Epochs --batch-size $effectiveBatchSize --device $device --output $gateOutput --direction-output $directionOutput
+        if ($LASTEXITCODE -ne 0) { throw "Training the tongue model from the pretrained encoder failed." }
+        Write-Host "MODEL_READY version=$version parent=0"
+    } else {
+        Write-Host "TRAIN_STAGE index=1 total=2 name=visibility epochs=$Epochs device=$device"
+        & $python .\train_tongue_model.py $cache --architecture spatial-stereo-resnet-v2 --checkpoint-focus visibility --initial-checkpoint $base.Gate --learning-rate 0.00005 --epochs $Epochs --batch-size $effectiveBatchSize --device $device --output $gateOutput
+        if ($LASTEXITCODE -ne 0) { throw "Refining tongue visibility failed." }
+        Write-Host "TRAIN_STAGE index=2 total=2 name=direction epochs=$Epochs device=$device"
+        & $python .\train_tongue_model.py $cache --architecture spatial-stereo-resnet-v2 --checkpoint-focus direction --initial-checkpoint $base.Direction --learning-rate 0.00005 --epochs $Epochs --batch-size $effectiveBatchSize --device $device --output $directionOutput
+        if ($LASTEXITCODE -ne 0) { throw "Refining tongue direction failed." }
+        Write-Host "MODEL_READY version=$version parent=$($base.Version)"
+    }
 }
 finally {
     Pop-Location

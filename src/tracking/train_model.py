@@ -106,9 +106,7 @@ class QuestProTrackingModel(nn.Module):
         )
         expressions = torch.sigmoid(self.expression_head(fused))
         orientations = self.eye_orientation_head(torch.cat((left_eye, right_eye), dim=1))
-        left_orientation = nn.functional.normalize(orientations[:, :4], dim=1)
-        right_orientation = nn.functional.normalize(orientations[:, 4:], dim=1)
-        return expressions, torch.cat((left_orientation, right_orientation), dim=1)
+        return expressions, nn.functional.normalize(orientations.reshape(-1, 2, 4), dim=-1).flatten(1)
 
 
 def blocked_split(
@@ -126,13 +124,10 @@ def blocked_split(
 
 
 def quaternion_loss(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    losses = []
-    for offset in (0, 4):
-        predicted = nn.functional.normalize(prediction[:, offset:offset + 4], dim=1)
-        expected = nn.functional.normalize(target[:, offset:offset + 4], dim=1)
-        dot = torch.sum(predicted * expected, dim=1).abs().clamp(max=1)
-        losses.append(1 - dot.square())
-    return torch.cat(losses).mean()
+    predicted = nn.functional.normalize(prediction.reshape(-1, 2, 4), dim=-1)
+    expected = nn.functional.normalize(target.reshape(-1, 2, 4), dim=-1)
+    dot = (predicted * expected).sum(dim=-1).abs().clamp(max=1)
+    return (1 - dot.square()).mean()
 
 
 def run_epoch(

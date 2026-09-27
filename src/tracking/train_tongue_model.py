@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import time
+import copy
 import hashlib
 import json
-import os
 import random
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+import gpu_training
 
 
 SIGNED_TARGETS = {"horizontal", "vertical", "twist"}
@@ -211,6 +213,18 @@ class SpatialStereoTongueModel(nn.Module):
         return torch.where(self.signed_mask, torch.tanh(logits), torch.sigmoid(logits))
 
 
+def load_pretrained_encoder(model: nn.Module, path: Path) -> dict:
+    if not isinstance(model, SpatialStereoTongueModel):
+        raise ValueError("A pretrained encoder requires the spatial-stereo-resnet-v2 architecture")
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    state = dict(checkpoint["encoderState"])
+    kernel = state["network.0.weight"]
+    state["network.1.running_mean"] = state["network.1.running_mean"] + kernel.sum((1, 2, 3))
+    state["network.0.weight"] = kernel * 4.0
+    model.encoder.load_state_dict(state)
+    return checkpoint
+
+
 def create_model(architecture: str, target_names: list[str]) -> nn.Module:
     if architecture == "legacy-late-fusion-v1":
         return StereoTongueModel(target_names)
@@ -254,9 +268,8 @@ def blocked_train_validation_split(
 
 def balanced_step_weights(step_ids: np.ndarray, indices: np.ndarray) -> np.ndarray:
     selected_steps = step_ids[indices]
-    unique, counts = np.unique(selected_steps, return_counts=True)
-    inverse = {int(step): 1.0 / float(count) for step, count in zip(unique, counts)}
-    weights = np.asarray([inverse[int(step)] for step in selected_steps], dtype=np.float64)
+    _, inverse, counts = np.unique(selected_steps, return_inverse=True, return_counts=True)
+    weights = 1.0 / counts[inverse]
     return weights / np.mean(weights)
 
 
@@ -271,17 +284,9 @@ def target_loss(
     expected_visible = target[:, visibility_index]
     predicted_visible = prediction[:, visibility_index]
     probability = predicted_visible.float().clamp(1e-5, 1.0 - 1e-5)
-    expected_probability = expected_visible.float()
-    visibility_loss = -(
-        expected_probability * torch.log(probability)
-        + (1.0 - expected_probability) * torch.log1p(-probability)
-    )
-    visibility_weights = torch.where(
-        expected_visible >= 0.5,
-        torch.full_like(expected_visible, 1.25),
-        torch.full_like(expected_visible, 1.70),
-    )
-    visibility_loss = torch.mean(visibility_loss * visibility_weights)
+    visibility_weights = torch.full_like(expected_visible, 1.70).masked_fill_(expected_visible >= 0.5, 1.25)
+    visibility_loss = F.binary_cross_entropy(
+        probability, expected_visible.float(), weight=visibility_weights)
 
     regression = F.smooth_l1_loss(prediction, target, beta=0.08, reduction="none")
     column_weights = torch.tensor(
@@ -308,6 +313,28 @@ def target_loss(
     return 1.8 * visibility_loss + regression_loss
 
 
+CPU_BF16 = False
+
+
+def precision(device: torch.device):
+    if device.type == "cuda":
+        return torch.amp.autocast(device_type="cuda")
+    return torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=CPU_BF16)
+
+
+def choose_cpu_precision(model: nn.Module, images: torch.Tensor) -> bool:
+    trial = copy.deepcopy(model).train()
+    def step(bf16: bool) -> float:
+        started = time.perf_counter()
+        with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=bf16):
+            output = trial(images)
+        output.float().square().mean().backward()
+        trial.zero_grad(set_to_none=True)
+        return time.perf_counter() - started
+    step(False); step(True)
+    return min(step(True) for _ in range(2)) < .8 * min(step(False) for _ in range(2))
+
+
 def run_training_epoch(
     model: nn.Module,
     loader: DataLoader,
@@ -320,15 +347,12 @@ def run_training_epoch(
     total = 0.0
     count = 0
     for images, target, _native in loader:
-        if os.environ.get("QROOT_CONTEXT"):
-            from qroot_ui import check_cancelled
-            check_cancelled()
         images = images.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=device.type == "cuda"):
+        with precision(device):
             prediction = model(images)
-            loss = target_loss(prediction, target, target_names)
+        loss = target_loss(prediction.float(), target, target_names)
         if not torch.isfinite(loss):
             raise FloatingPointError(
                 "Tongue training produced a non-finite loss; no optimizer step was applied"
@@ -383,16 +407,15 @@ def evaluate(
     natives: list[np.ndarray] = []
     with torch.no_grad():
         for images, target, native in loader:
-            if os.environ.get("QROOT_CONTEXT"):
-                from qroot_ui import check_cancelled
-                check_cancelled()
-            prediction = model(images.to(device, non_blocking=True)).cpu().numpy()
+            with precision(device):
+                prediction = model(images.to(device, non_blocking=True)).float().cpu().numpy()
             predictions.append(prediction)
             targets.append(target.numpy())
             natives.append(native.numpy())
-    prediction = np.concatenate(predictions)
-    target = np.concatenate(targets)
-    native = np.concatenate(natives)
+    return summarize(np.concatenate(predictions), np.concatenate(targets), np.concatenate(natives), target_names)
+
+
+def summarize(prediction: np.ndarray, target: np.ndarray, native: np.ndarray, target_names: list[str]) -> dict[str, object]:
     known = np.isfinite(target)
     visibility_index = target_names.index("visibility")
     known[:, np.arange(len(target_names)) != visibility_index] &= target[:, visibility_index:visibility_index+1] >= 0.5
@@ -472,6 +495,10 @@ def main() -> int:
         help="start from an existing compatible checkpoint for personal refinement",
     )
     parser.add_argument(
+        "--pretrained-encoder",
+        help="start the camera encoder from a self-supervised checkpoint (encoderState)",
+    )
+    parser.add_argument(
         "--architecture",
         choices=("legacy-late-fusion-v1", "spatial-stereo-resnet-v2"),
         default="spatial-stereo-resnet-v2",
@@ -487,6 +514,8 @@ def main() -> int:
         parser.error("epochs and batch size must be positive")
     if arguments.direction_output and arguments.initial_checkpoint:
         parser.error("Refinement of distinct parents requires separate training passes")
+    if arguments.pretrained_encoder and arguments.initial_checkpoint:
+        parser.error("--pretrained-encoder starts a new model; it cannot refine an initial checkpoint")
     outputs = {arguments.checkpoint_focus: Path(arguments.output).resolve()}
     if arguments.direction_output:
         if arguments.checkpoint_focus != "visibility":
@@ -554,8 +583,38 @@ def main() -> int:
             raise ValueError("Initial checkpoint architecture does not match the requested model")
         model.load_state_dict(initial["modelState"])
         print(f"Refining from: {initial_path}")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=arguments.learning_rate, weight_decay=1e-4)
+    pretrained = None
+    if arguments.pretrained_encoder:
+        pretrained_path = Path(arguments.pretrained_encoder).resolve()
+        source = load_pretrained_encoder(model, pretrained_path)
+        with pretrained_path.open("rb") as stream:
+            pretrained = {
+                "path": str(pretrained_path),
+                "sha256": hashlib.file_digest(stream, "sha256").hexdigest(),
+                "method": source.get("method"),
+                "license": source.get("license"),
+            }
+        print(f"Encoder initialized from: {pretrained_path} ({pretrained['license']})")
+    if arguments.initial_checkpoint:
+        for parameter in model.encoder.network[:4].parameters():
+            parameter.requires_grad_(False)
+    if device.type == "cpu":
+        global CPU_BF16
+        model = model.to(memory_format=torch.channels_last)
+        CPU_BF16 = choose_cpu_precision(model, next(iter(train_loader))[0][:8])
+        print(f"CPU precision: {'bf16' if CPU_BF16 else 'fp32'}, channels-last, {torch.get_num_threads()} threads", flush=True)
+    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],
+                                  lr=arguments.learning_rate, weight_decay=1e-4)
     scaler = torch.amp.GradScaler("cuda") if device.type == "cuda" else None
+
+    def fresh_model():
+        fresh = create_model(arguments.architecture, target_names).to(device)
+        fresh.load_state_dict(initial["modelState"])
+        for parameter in fresh.encoder.network[:4].parameters():
+            parameter.requires_grad_(False)
+        fresh = fresh.to(memory_format=torch.channels_last)
+        return fresh, torch.optim.AdamW([p for p in fresh.parameters() if p.requires_grad],
+                                        lr=arguments.learning_rate, weight_decay=1e-4)
     for output in outputs.values():
         output.parent.mkdir(parents=True, exist_ok=True)
     best_scores = {focus: float("inf") for focus in outputs}
@@ -570,101 +629,131 @@ def main() -> int:
         f"tuning frames: {len(validation_indices)}; supported outputs: {', '.join(supported)}",
         flush=True,
     )
-    for epoch in range(1, arguments.epochs + 1):
-        loss = run_training_epoch(
-            model, train_loader, optimizer, scaler, device, target_names
-        )
-        metrics = evaluate(model, validation_loader, device, target_names)
-        trained_active_maes = [
-            float(value["activeMae"])
-            for name, value in metrics["perTarget"].items()
-            if name != "visibility" and value["activeMae"] is not None
-        ]
-        balanced_active_mae = float(np.mean(trained_active_maes)) if trained_active_maes else 0.0
-        direction_values = [
-            metrics["perTarget"][name]["activeMae"]
-            for name in ("horizontal", "vertical")
-            if metrics["perTarget"][name]["activeMae"] is not None
-        ]
-        direction_active_mae = float(np.mean(direction_values)) if direction_values else 0.0
-        print(
-            f"TRAIN_EPOCH current={epoch} total={arguments.epochs} "
-            f"focus={arguments.checkpoint_focus}",
-            flush=True,
-        )
-        print(
-            f"Epoch {epoch:02d}: loss={loss:.5f} val_mae={metrics['mae']:.4f} "
-            f"active={metrics['activeMae']:.4f} direction={direction_active_mae:.4f} "
-            f"balanced_active={balanced_active_mae:.4f} "
-            f"fused_visibility_f1={metrics['fusedVisibilityF1']:.3f} "
-            f"fp={metrics['fusedVisibilityFalsePositiveRate']:.3f} "
-            f"fn={metrics['fusedVisibilityFalseNegativeRate']:.3f}",
-            flush=True,
-        )
-        for focus, output in outputs.items():
-            if focus == "direction":
-                score = (
-                    0.25 * float(metrics["mae"])
-                    + 0.25 * float(metrics["activeMae"])
-                    + direction_active_mae
-                    + 0.15 * (1.0 - float(metrics["fusedVisibilityF1"]))
+    engine = None
+    if (device.type == "cpu" and arguments.initial_checkpoint and not arguments.pretrained_encoder
+            and arguments.architecture == "spatial-stereo-resnet-v2" and gpu_training.enabled()):
+        try:
+            engine = gpu_training.TongueEngine(model, train_loader, validation_loader, target_names,
+                                               arguments.learning_rate, target_loss, summarize)
+            print(f"TRAIN_ENGINE gpu compile={engine.trainer.init['compileSeconds']:.1f}s", flush=True)
+        except Exception as reason:
+            print(f"TRAIN_ENGINE cpu reason={reason!r}", flush=True)
+            model, optimizer = fresh_model()
+
+    while True:
+        try:
+            for epoch in range(1, arguments.epochs + 1):
+                if engine is not None:
+                    loss, metrics = engine.train_epoch(), engine.evaluate()
+                else:
+                    loss = run_training_epoch(
+                        model, train_loader, optimizer, scaler, device, target_names
+                    )
+                    metrics = evaluate(model, validation_loader, device, target_names)
+                trained_active_maes = [
+                    float(value["activeMae"])
+                    for name, value in metrics["perTarget"].items()
+                    if name != "visibility" and value["activeMae"] is not None
+                ]
+                balanced_active_mae = float(np.mean(trained_active_maes)) if trained_active_maes else 0.0
+                direction_values = [
+                    metrics["perTarget"][name]["activeMae"]
+                    for name in ("horizontal", "vertical")
+                    if metrics["perTarget"][name]["activeMae"] is not None
+                ]
+                direction_active_mae = float(np.mean(direction_values)) if direction_values else 0.0
+                print(
+                    f"TRAIN_EPOCH current={epoch} total={arguments.epochs} "
+                    f"focus={arguments.checkpoint_focus}",
+                    flush=True,
                 )
-                score_description = (
-                    "0.25*mae + 0.25*active_mae + mean(horizontal,vertical)_active_mae "
-                    "+ 0.15*(1-visibility_f1)"
+                print(
+                    f"Epoch {epoch:02d}: loss={loss:.5f} val_mae={metrics['mae']:.4f} "
+                    f"active={metrics['activeMae']:.4f} direction={direction_active_mae:.4f} "
+                    f"balanced_active={balanced_active_mae:.4f} "
+                    f"fused_visibility_f1={metrics['fusedVisibilityF1']:.3f} "
+                    f"fp={metrics['fusedVisibilityFalsePositiveRate']:.3f} "
+                    f"fn={metrics['fusedVisibilityFalseNegativeRate']:.3f}",
+                    flush=True,
                 )
-            elif focus == "visibility":
-                score = (
-                    0.60 * (1.0 - float(metrics["fusedVisibilityF1"]))
-                    + 0.75 * float(metrics["fusedVisibilityFalsePositiveRate"])
-                    + 0.25 * float(metrics["fusedVisibilityFalseNegativeRate"])
-                    + 0.10 * float(metrics["perTarget"]["visibility"]["mae"])
-                )
-                score_description = (
-                    "0.60*(1-visibility_f1) + 0.75*false_positive_rate + "
-                    "0.25*false_negative_rate + 0.10*visibility_mae"
-                )
-            else:
-                score = (
-                    float(metrics["mae"])
-                    + 0.50 * float(metrics["activeMae"])
-                    + 0.50 * (1.0 - float(metrics["fusedVisibilityF1"]))
-                )
-                score_description = "mae + 0.50*active_mae + 0.50*(1-visibility_f1)"
-            if score >= best_scores[focus]:
-                continue
-            best_scores[focus] = score
-            checkpoint = {
-                "version": 3,
-                "architecture": arguments.architecture,
-                "modelState": {key: value.detach().cpu().clone() for key, value in model.state_dict().items()},
-                "targetNames": target_names,
-                "imageSize": metadata["imageSize"],
-                "supportedTargets": supported,
-                "supervisedTargets": [name for name, known in zip(target_names, supervised) if known],
-                "validation": metrics,
-                "finalTest": "not performed; use an independent capture session",
-                "trainingCaptureHashes": capture_hashes,
-                "trainingLineageComplete": bool(lineage_complete),
-                "split": ("third complete round reserved for tuning" if dataset_type == "guided-holds"
-                          else "last 20 percent of repetitions per prompt for tuning" if dataset_type == "manual-stereo-stills"
-                          else "every fifth 36-frame temporal block per prompt for tuning"),
-                "sampling": "inverse prompt-frequency balanced",
-                "checkpointScore": score_description,
-                "checkpointFocus": focus,
-                "epoch": epoch,
-                "parentCheckpoint": str(initial_path) if arguments.initial_checkpoint else None,
-                "parentCheckpointSha256": parent_hash,
-                "visibilityGate": {
-                    "formula": "w * camera_visibility + (1-w) * native_TongueOut",
-                    "cameraWeight": metrics["fusedVisibilityCameraWeight"],
-                    "threshold": metrics["fusedVisibilityThreshold"],
-                },
-            }
-            temporary = output.with_suffix(".pt.tmp")
-            torch.save(checkpoint, temporary)
-            temporary.replace(output)
-            print(f"  Saved best {focus} checkpoint: {output}", flush=True)
+                for focus, output in outputs.items():
+                    if focus == "direction":
+                        score = (
+                            0.25 * float(metrics["mae"])
+                            + 0.25 * float(metrics["activeMae"])
+                            + direction_active_mae
+                            + 0.15 * (1.0 - float(metrics["fusedVisibilityF1"]))
+                        )
+                        score_description = (
+                            "0.25*mae + 0.25*active_mae + mean(horizontal,vertical)_active_mae "
+                            "+ 0.15*(1-visibility_f1)"
+                        )
+                    elif focus == "visibility":
+                        score = (
+                            0.60 * (1.0 - float(metrics["fusedVisibilityF1"]))
+                            + 0.75 * float(metrics["fusedVisibilityFalsePositiveRate"])
+                            + 0.25 * float(metrics["fusedVisibilityFalseNegativeRate"])
+                            + 0.10 * float(metrics["perTarget"]["visibility"]["mae"])
+                        )
+                        score_description = (
+                            "0.60*(1-visibility_f1) + 0.75*false_positive_rate + "
+                            "0.25*false_negative_rate + 0.10*visibility_mae"
+                        )
+                    else:
+                        score = (
+                            float(metrics["mae"])
+                            + 0.50 * float(metrics["activeMae"])
+                            + 0.50 * (1.0 - float(metrics["fusedVisibilityF1"]))
+                        )
+                        score_description = "mae + 0.50*active_mae + 0.50*(1-visibility_f1)"
+                    if score >= best_scores[focus]:
+                        continue
+                    best_scores[focus] = score
+                    if engine is not None:
+                        engine.sync()
+                    checkpoint = {
+                        "version": 3,
+                        "architecture": arguments.architecture,
+                        "modelState": {key: value.detach().cpu().clone() for key, value in model.state_dict().items()},
+                        "targetNames": target_names,
+                        "imageSize": metadata["imageSize"],
+                        "supportedTargets": supported,
+                        "supervisedTargets": [name for name, known in zip(target_names, supervised) if known],
+                        "validation": metrics,
+                        "finalTest": "not performed; use an independent capture session",
+                        "trainingCaptureHashes": capture_hashes,
+                        "trainingLineageComplete": bool(lineage_complete),
+                        "split": ("third complete round reserved for tuning" if dataset_type == "guided-holds"
+                                  else "last 20 percent of repetitions per prompt for tuning" if dataset_type == "manual-stereo-stills"
+                                  else "every fifth 36-frame temporal block per prompt for tuning"),
+                        "sampling": "inverse prompt-frequency balanced",
+                        "checkpointScore": score_description,
+                        "checkpointFocus": focus,
+                        "epoch": epoch,
+                        "parentCheckpoint": str(initial_path) if arguments.initial_checkpoint else None,
+                        "parentCheckpointSha256": parent_hash,
+                        "pretrainedEncoder": pretrained,
+                        "visibilityGate": {
+                            "formula": "w * camera_visibility + (1-w) * native_TongueOut",
+                            "cameraWeight": metrics["fusedVisibilityCameraWeight"],
+                            "threshold": metrics["fusedVisibilityThreshold"],
+                        },
+                    }
+                    temporary = output.with_suffix(".pt.tmp")
+                    torch.save(checkpoint, temporary)
+                    temporary.replace(output)
+                    print(f"  Saved best {focus} checkpoint: {output}", flush=True)
+            break
+        except Exception as reason:
+            if engine is None:
+                raise
+            print(f"TRAIN_ENGINE cpu reason={reason!r}", flush=True)
+            engine.close()
+            engine = None
+            model, optimizer = fresh_model()
+            best_scores = {focus: float("inf") for focus in outputs}
+    if engine is not None:
+        engine.close()
     for focus, output in outputs.items():
         print(f"MODEL {output}")
     print("Training complete. Scores above are tuned validation scores, not final test accuracy.")
