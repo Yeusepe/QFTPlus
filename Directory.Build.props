@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <VrcftInstallDir Condition="'$(VrcftInstallDir)' == ''">$(QFT_VRCFT_DIR)</VrcftInstallDir>
+    <BaseOutputPath>$(LOCALAPPDATA)/QFTPlus/build/dotnet/$(MSBuildProjectName)/bin/</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(LOCALAPPDATA)/QFTPlus/build/dotnet/$(MSBuildProjectName)/obj/</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+</Project>

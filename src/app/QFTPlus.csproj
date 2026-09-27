@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>QFTPlus</AssemblyName><StartupObject>QFTPlus.Program</StartupObject>
+    <Product>QFT+</Product><Title>QFT+</Title><Description>Quest Pro face tracking</Description>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../setup/QproFaceTracking.Hub.csproj" /></ItemGroup>
+</Project>

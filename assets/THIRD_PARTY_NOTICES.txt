@@ -1,0 +1,22 @@
+QFT+ third-party notices
+
+QFT+ is independent of Meta, Virtual Desktop, VRCFaceTracking, and VRChat.
+Project source and the generated interface tones are provided under LICENSE.
+
+Android Platform Tools: upstream official binaries; platform-tools/NOTICE.txt.
+CPython 3.13.15 embedded distribution: python-runtime/LICENSE.txt.
+Frida 17.18.0: hybrid/FRIDA-COPYING; corresponding source is available at
+https://github.com/frida/frida/releases/tag/17.18.0 .
+Python libraries: original license files remain inside their unmodified wheels
+and are installed in runtime/Lib/site-packages. Pinned versions, source URLs,
+and SHA-256 hashes are in requirements-runtime.lock.txt and the development release-assets.json.
+PyTorch uses its BSD-style license; ONNX Runtime uses MIT; ONNX uses Apache-2.0;
+OpenCV uses Apache-2.0; NumPy uses BSD-3-Clause. Consult each wheel for full terms.
+
+VRCFaceTracking, SteamVR, and Virtual Desktop are installed separately.
+Their SDK and driver binaries are not redistributed with QFT+.
+The v8 demonstration tongue weights originate from the upstream
+n0tmast3r/Qpro-Enhanced-FT release v0.1.10, under its MIT license. They contain
+learned weights, not camera recordings. Personal calibration stays local.
+No stock Meta model or firmware is included. The eye patcher uses a compatible
+model from the user's own headset; generated models/eye files are private.

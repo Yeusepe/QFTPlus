@@ -1,0 +1,17 @@
+{
+  "name": "QFT+",
+  "version": "0.4.0-rc.1",
+  "transport": "automatic-usb-or-wifi",
+  "offlineComponents": true,
+  "inferenceBackends": [
+    "DirectML",
+    "CPU"
+  ],
+  "bundledEyeProfile": "qpro-independent-visual-axis-v2.json",
+  "bundledTongueModel": "qpro-stereo-tongue-v8",
+  "stockMetaModelIncluded": false,
+  "status": "release candidate",
+  "python": "3.13.15",
+  "cameraAuthentication": "per-session-256-bit-token",
+  "tongueProtocol": 2
+}
