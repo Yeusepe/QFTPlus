@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from stereo_eye_calibration import StereoEyeCalibrationController
+from stereo_eye_calibration import StereoEyeCalibrationController, _error_metrics as error_metrics
 
 
 def affine_features(values: np.ndarray) -> np.ndarray:
@@ -17,17 +17,6 @@ def affine_features(values: np.ndarray) -> np.ndarray:
     if values.ndim == 1:
         values = values.reshape(1, 2)
     return np.column_stack([np.ones(len(values), dtype=np.float64), values])
-
-
-def error_metrics(predicted: np.ndarray, expected: np.ndarray) -> dict[str, float]:
-    delta = np.asarray(predicted) - np.asarray(expected)
-    angular = np.linalg.norm(delta, axis=1)
-    return {
-        "yaw_mae_deg": float(np.mean(np.abs(delta[:, 0]))),
-        "pitch_mae_deg": float(np.mean(np.abs(delta[:, 1]))),
-        "angular_mae_deg": float(np.mean(angular)),
-        "angular_p95_deg": float(np.percentile(angular, 95)),
-    }
 
 
 def fit_axis_eye_mapping(samples: list[dict[str, Any]], eye: str) -> dict[str, Any]:

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import bisect
+import codecs
 import json
 import collections
 import socket
@@ -30,8 +32,9 @@ def _ridge_fit(features: np.ndarray, targets: np.ndarray) -> np.ndarray:
 
 
 def _error_metrics(predicted: np.ndarray, expected: np.ndarray) -> dict[str, float]:
-    errors = np.abs(predicted - expected)
-    angular = np.linalg.norm(predicted - expected, axis=1)
+    delta = np.asarray(predicted) - np.asarray(expected)
+    errors = np.abs(delta)
+    angular = np.linalg.norm(delta, axis=1)
     return {
         "yaw_mae_deg": float(np.mean(errors[:, 0])),
         "pitch_mae_deg": float(np.mean(errors[:, 1])),
@@ -388,32 +391,22 @@ def evaluate_factory_baseline(samples: list[dict[str, Any]]) -> dict[str, Any]:
 class _JsonObjectStream:
     def __init__(self) -> None:
         self.buffer = ""
-        self.depth = 0
-        self.in_string = False
-        self.escape = False
+        self.decoder = json.JSONDecoder()
 
     def feed(self, chunk: str) -> list[dict[str, Any]]:
+        self.buffer = (self.buffer + chunk).lstrip()
+        if len(self.buffer) > 1_048_576:
+            raise ValueError("VR overlay sent an oversized packet")
         objects: list[dict[str, Any]] = []
-        for character in chunk:
-            if self.depth == 0 and character.isspace():
-                continue
-            self.buffer += character
-            if self.in_string:
-                if self.escape:
-                    self.escape = False
-                elif character == "\\":
-                    self.escape = True
-                elif character == '"':
-                    self.in_string = False
-            elif character == '"':
-                self.in_string = True
-            elif character == "{":
-                self.depth += 1
-            elif character == "}":
-                self.depth -= 1
-                if self.depth == 0 and self.buffer:
-                    objects.append(json.loads(self.buffer))
-                    self.buffer = ""
+        while self.buffer:
+            if not self.buffer.startswith("{"):
+                raise ValueError("VR overlay packets must be JSON objects")
+            try:
+                packet, end = self.decoder.raw_decode(self.buffer)
+            except json.JSONDecodeError:
+                break
+            objects.append(packet)
+            self.buffer = self.buffer[end:].lstrip()
         return objects
 
 
@@ -534,6 +527,7 @@ class StereoEyeCalibrationController:
                 self.message = "In VR: read the gaze tutorial. Press Space when ready."
             print("BABBLE_ROUTINE_READY name=gazetutorialshort key=Space")
             decoder = _JsonObjectStream()
+            utf8 = codecs.getincrementaldecoder("utf-8")()
             while not self._stopping:
                 try:
                     chunk = client.recv(65536)
@@ -549,7 +543,7 @@ class StereoEyeCalibrationController:
                     if not self._stopping and self.phase != "done":
                         raise ConnectionError("BabbleCalibration disconnected")
                     break
-                for packet in decoder.feed(chunk.decode("utf-8")):
+                for packet in decoder.feed(utf8.decode(chunk)):
                     self._handle_packet(packet)
         except Exception as error:
             with self._lock:
@@ -639,14 +633,7 @@ class StereoEyeCalibrationController:
         if not history:
             return None
         timestamp_ns = int(timestamp_ns)
-        after_index = next(
-            (
-                index
-                for index, target in enumerate(history)
-                if target.received_ns >= timestamp_ns
-            ),
-            len(history),
-        )
+        after_index = bisect.bisect_left(history, timestamp_ns, key=lambda target: target.received_ns)
         before = history[after_index - 1] if after_index > 0 else None
         after = history[after_index] if after_index < len(history) else None
         if before is not None and after is not None:
