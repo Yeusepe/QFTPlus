@@ -10,6 +10,7 @@ import threading
 import tempfile
 import time
 from pathlib import Path
+from functools import lru_cache
 import numpy as np
 import torch
 from prepare_training import resize_cameras
@@ -17,7 +18,7 @@ from prepare_training import resize_cameras
 
 
 
-_cuda_lock = threading.RLock()
+_gpu_lock = threading.RLock()
 
 
 class AreaResizeModel(torch.nn.Module):
@@ -82,7 +83,7 @@ class CudaModel:
         self.model = model
         self.raw_input = getattr(model, "raw_input", False)
         self.graph = None
-        with _cuda_lock, torch.inference_mode():
+        with _gpu_lock, torch.inference_mode():
             self.inputs = torch.zeros(shape, device=next(model.parameters()).device,
                                       dtype=torch.uint8 if self.raw_input else torch.float32)
             if self.raw_input:
@@ -110,7 +111,7 @@ class CudaModel:
     def __call__(self, inputs):
         if inputs.shape != self.inputs.shape or inputs.dtype != self.inputs.dtype:
             raise ValueError("CUDA inference input shape or dtype changed")
-        with _cuda_lock, torch.inference_mode():
+        with _gpu_lock, torch.inference_mode():
             self.inputs.copy_(inputs)
             if self.graph is not None:
                 self.graph.replay()
@@ -219,10 +220,17 @@ class TensorRTTongue(torch.nn.Module):
         return self.output.float()
 
 
-def prepare_tongue_pair(gate, direction, size):
+def prepare_tongue_pair(gate, direction, size, *, selected="cuda:0", checkpoint=None):
     """Use one graph, with optional compiled execution and FP32 fallback."""
-    with _cuda_lock, torch.inference_mode():
+    with _gpu_lock, torch.inference_mode():
         pair = TonguePair(optimize_for_inference(gate), optimize_for_inference(direction)).eval()
+        if selected == "directml":
+            buffer = io.BytesIO()
+            torch.save(pair.state_dict(), buffer)
+            key = Path(checkpoint).parent / ("tongue-pair-" + hashlib.sha256(buffer.getvalue()).hexdigest()[:16] + ".pt")
+            if not key.exists():
+                key.write_bytes(buffer.getvalue())
+            return prepare_model(pair, key, (1, 2, size, size), selected)
         precision = os.environ.get("QFT_TONGUE_TENSORRT", "mixed")
         if precision not in ("off", "fp32", "mixed"):
             raise ValueError("QFT_TONGUE_TENSORRT must be off, fp32 or mixed")
@@ -270,6 +278,42 @@ def select_device(requested="auto"):
     return requested
 
 
+@lru_cache(maxsize=16)
+def directml_vendor(device_id):
+    if os.name != "nt":
+        return None
+    import ctypes
+    import uuid
+    class Description(ctypes.Structure):
+        _fields_ = [("name", ctypes.c_wchar*128), ("vendor", ctypes.c_uint32),
+                    ("device", ctypes.c_uint32), ("subsystem", ctypes.c_uint32), ("revision", ctypes.c_uint32),
+                    ("video", ctypes.c_size_t), ("system", ctypes.c_size_t), ("shared", ctypes.c_size_t),
+                    ("luid_low", ctypes.c_uint32), ("luid_high", ctypes.c_int32), ("flags", ctypes.c_uint32)]
+    def method(obj, slot, *types):
+        address = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents[slot]
+        return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *types)(address)
+    factory, adapter = ctypes.c_void_p(), ctypes.c_void_p()
+    try:
+        iid = (ctypes.c_byte*16).from_buffer_copy(uuid.UUID("770aae78-f26f-4dba-a829-253c83d1b387").bytes_le)
+        create = ctypes.WinDLL("dxgi").CreateDXGIFactory1
+        create.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        create.restype = ctypes.c_long
+        if create(ctypes.byref(iid), ctypes.byref(factory)) < 0:
+            return None
+        if method(factory, 12, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p))(factory, device_id, ctypes.byref(adapter)) < 0:
+            return None
+        description = Description()
+        if method(adapter, 10, ctypes.POINTER(Description))(adapter, ctypes.byref(description)) >= 0:
+            return description.vendor
+    except (OSError, ValueError):
+        return None
+    finally:
+        for obj in (adapter, factory):
+            if obj.value:
+                method(obj, 2)(obj)
+    return None
+
+
 class DirectMLModel:
     def __init__(self, model, checkpoint, shape, precision="fp32"):
         import onnxruntime as ort
@@ -277,34 +321,50 @@ class DirectMLModel:
             raise RuntimeError("DirectML is unavailable")
         checkpoint = Path(checkpoint)
         self.raw_input = getattr(model, "raw_input", False)
+        source_model = model.model if self.raw_input else model
+        neural_shape = (1, model.count, model.size, model.size) if self.raw_input else tuple(shape)
         if precision not in ("fp32", "mixed") or (precision == "mixed" and
-                (self.raw_input or tuple(shape) != (1, 2, 224, 224))):
+                neural_shape != (1, 2, 224, 224)):
             raise ValueError("DirectML mixed precision is validated only for 224-pixel tongue inputs")
         self.precision = precision
-        source_model = model.model if self.raw_input else model
         example = torch.zeros(shape, dtype=torch.uint8 if self.raw_input else torch.float32)
-
+        sources = (source_model.gate, source_model.direction) if isinstance(source_model, TonguePair) else (source_model,)
         digest = hashlib.sha256(checkpoint.read_bytes() + Path(__file__).read_bytes()
-            + Path(sys.modules[type(source_model).__module__].__file__).read_bytes()
+            + b"".join(Path(sys.modules[type(m).__module__].__file__).read_bytes() for m in sources)
             + repr((shape, precision)).encode()).hexdigest()
-        cache = checkpoint.with_suffix(".area.onnx" if self.raw_input else
-                                       ".mixed.onnx" if precision == "mixed" else ".onnx")
+        cache = checkpoint.with_suffix((".area" if self.raw_input else "") +
+                                       (".mixed" if precision == "mixed" else "") + ".onnx")
         stamp = cache.with_suffix(".onnx.sha256")
         if not cache.exists() or not stamp.exists() or stamp.read_text() != digest:
             pending = cache.with_suffix(".onnx.tmp")
             with torch.inference_mode():
-                torch.onnx.export(model.cpu().eval(), example, str(pending),
+                export_model = source_model if precision == "mixed" else model
+                export_input = torch.zeros(neural_shape) if precision == "mixed" else example
+                torch.onnx.export(export_model.cpu().eval(), export_input, str(pending),
                                   input_names=["cameras"], opset_version=17, dynamo=False)
             if precision == "mixed":
                 import onnx
                 from onnxruntime.transformers.float16 import convert_float_to_float16
+                from onnxruntime.transformers.onnx_model import OnnxModel
                 exported = onnx.load(pending)
                 protected = [node.name for node in exported.graph.node
                              if "/encoder/network/network.0/Conv" in node.name or "/head/" in node.name]
-                if sum("/encoder/network/network.0/Conv" in name for name in protected) != 1:
+                if sum("/encoder/network/network.0/Conv" in name for name in protected) != len(sources):
                     raise ValueError("Unrecognized tongue graph; keeping FP32")
-                onnx.save(convert_float_to_float16(exported, keep_io_types=True,
-                                                   node_block_list=protected), pending)
+                exported = convert_float_to_float16(exported, keep_io_types=True, node_block_list=protected)
+                OnnxModel(exported).topological_sort()
+                if self.raw_input:
+                    resized = io.BytesIO()
+                    with torch.inference_mode():
+                        torch.onnx.export(AreaResizeModel(torch.nn.Identity(), model.size, model.count).eval(),
+                            example, resized, input_names=["cameras"], output_names=["resized"],
+                            opset_version=17, dynamo=False)
+                    preprocessing = onnx.compose.add_prefix(onnx.load_model_from_string(resized.getvalue()),
+                                                           "preprocess/", rename_inputs=False)
+                    exported = onnx.compose.merge_models(preprocessing, onnx.compose.add_prefix(exported, "network/"),
+                                                        io_map=[("preprocess/resized", "network/cameras")])
+                onnx.checker.check_model(exported)
+                onnx.save(exported, pending)
             pending.replace(cache)
             stamp.write_text(digest)
         options = ort.SessionOptions()
@@ -313,8 +373,9 @@ class DirectMLModel:
         options.intra_op_num_threads = 1
         options.inter_op_num_threads = 1
         options.add_session_config_entry("session.intra_op.allow_spinning", "0")
-        self.session = ort.InferenceSession(str(cache), sess_options=options,
-            providers=[("DmlExecutionProvider", {"device_id": max(0, min(15, int(os.environ.get("QFT_GPU_INDEX", "0"))))}), "CPUExecutionProvider"])
+        with _gpu_lock:
+            self.session = ort.InferenceSession(str(cache), sess_options=options,
+                providers=[("DmlExecutionProvider", {"device_id": max(0, min(15, int(os.environ.get("QFT_GPU_INDEX", "0"))))}), "CPUExecutionProvider"])
         if self.session.get_providers()[0] != "DmlExecutionProvider":
             raise RuntimeError("DirectML did not initialize")
         self.model = model
@@ -326,7 +387,8 @@ class DirectMLModel:
     def __call__(self, inputs):
         if not self.failed:
             try:
-                values = self.session.run(None, {"cameras": inputs.cpu().numpy()})
+                with _gpu_lock:
+                    values = self.session.run(None, {"cameras": inputs.cpu().numpy()})
                 tensors = tuple(torch.from_numpy(value) for value in values)
                 return tensors[0] if len(tensors) == 1 else tensors
             except Exception as error:
@@ -350,9 +412,14 @@ def prepare_model(model, checkpoint, shape, selected):
             result = None
 
 
-            if (type(model).__name__ == "SpatialStereoTongueModel"
+            tongue_models = (model.gate, model.direction) if isinstance(model, TonguePair) else (model,)
+            precision = os.environ.get("QFT_DIRECTML_PRECISION")
+            if precision is None:
+                adapter = max(0, min(15, int(os.environ.get("QFT_GPU_INDEX", "0"))))
+                precision = "mixed" if directml_vendor(adapter) == 0x10DE else "fp32"
+            if (all(type(member).__name__ == "SpatialStereoTongueModel" for member in tongue_models)
                     and tuple(shape) == (1, 2, 224, 224)
-                    and os.environ.get("QFT_DIRECTML_PRECISION", "mixed") == "mixed"):
+                    and precision == "mixed"):
                 try:
                     result = DirectMLModel(model, checkpoint, shape, precision="mixed")
                 except Exception as error:
@@ -361,16 +428,18 @@ def prepare_model(model, checkpoint, shape, selected):
                 result = DirectMLModel(model, checkpoint, shape)
             if raw_model is not None:
                 try:
-                    candidate = DirectMLModel(raw_model, checkpoint, raw_shape)
+                    candidate = DirectMLModel(raw_model, checkpoint, raw_shape, precision="mixed") if result.precision == "mixed" else DirectMLModel(raw_model, checkpoint, raw_shape)
                     strip = np.zeros(raw_shape, np.uint8)
                     timings = [[], []]
                     with torch.inference_mode():
-                        for iteration in range(8):
+                        for iteration in range(24):
+                            due = time.perf_counter() + 1/24
                             for index, backend in enumerate((result, candidate)):
                                 started = time.perf_counter()
                                 backend(prepare_inputs(backend, strip, shape[2], shape[1]))
-                                if iteration >= 3:
+                                if iteration >= 4:
                                     timings[index].append(time.perf_counter()-started)
+                            time.sleep(max(0, due-time.perf_counter()))
 
                     if not candidate.failed and (result.failed or
                             statistics.median(timings[1]) < .8*statistics.median(timings[0])):

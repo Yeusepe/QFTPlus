@@ -90,16 +90,29 @@ class TongueBroadcaster:
         self._last_sent = 0.0
         self._minimum_interval = 1.0 / 24.0
         self._keepalive_interval = 0.20
+        self._lock = threading.RLock()
 
     def toggle(self) -> bool:
-        self.enabled = not self.enabled
-        if not self.enabled:
-            self._send(np.zeros(12, dtype=np.float32), enabled=False)
+        self.set_enabled(not self.enabled)
         return self.enabled
+
+    def set_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            if self.enabled == bool(enabled):
+                return
+            self.enabled = bool(enabled)
+            self._last_values = None
+            self._last_sent = 0.0
+            if not self.enabled:
+                self._send(np.zeros(12, dtype=np.float32), enabled=False)
 
     def send_prediction(
         self, prediction: "TonguePrediction", target_names: list[str], *, now: float | None = None
     ) -> None:
+        with self._lock:
+            self._send_prediction(prediction, target_names, now=now)
+
+    def _send_prediction(self, prediction, target_names, *, now=None):
         if not self.enabled:
             return
         values = vrcft_tongue_values(prediction, target_names)
@@ -123,10 +136,12 @@ class TongueBroadcaster:
             received_at=self.received_at, sent_at=time.perf_counter()), self._address)
 
     def close(self) -> None:
-        try:
-            self._send(np.zeros(12, dtype=np.float32), enabled=False)
-        finally:
-            self._socket.close()
+        with self._lock:
+            try:
+                self.enabled = False
+                self._send(np.zeros(12, dtype=np.float32), enabled=False)
+            finally:
+                self._socket.close()
 
 
 @dataclass(frozen=True)
@@ -202,12 +217,13 @@ class LiveTongueModelPreview:
                 self.supported_targets.append("visibility")
         if "visibility" not in self.supported_targets:
             raise ValueError("Tongue inference requires a supported visibility gate")
-        self.paired = (selected.startswith("cuda") and self.direction_model is not None
+        self.paired = ((selected.startswith("cuda") or selected == "directml") and self.direction_model is not None
                        and self.direction_image_size == self.image_size
                        and self.image_size in (64, 96, 128, 160, 192, 224, 256))
         if self.paired:
             from inference_backend import prepare_tongue_pair
-            self.model = prepare_tongue_pair(self.model, self.direction_model, self.image_size)
+            self.model = prepare_tongue_pair(self.model, self.direction_model, self.image_size,
+                                            selected=selected, checkpoint=self.checkpoint_path)
             self.direction_model = None
         else:
             self.model = prepare_model(self.model, self.checkpoint_path, (1, 2, self.image_size, self.image_size), selected)
@@ -302,7 +318,7 @@ class LiveTongueModelPreview:
         output_text = (
             "EXPERIMENTAL VRCFT TONGUE OUTPUT ON - T disables immediately"
             if output_enabled
-            else "SAFE MODE - stock Virtual Desktop tongue active; T enables experiment"
+            else "SAFE MODE - stock streaming-app tongue active; T enables experiment"
         )
         cv2.putText(
             image, output_text, (24, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
@@ -381,6 +397,10 @@ class TongueInferenceWorker:
         )
         self._thread.start()
 
+    @property
+    def active(self) -> bool:
+        return self.render or self.broadcaster.enabled
+
     def submit(
         self,
         strip: np.ndarray,
@@ -389,6 +409,9 @@ class TongueInferenceWorker:
         received_at: float | None = None,
     ) -> None:
         with self._condition:
+            if not self.active or not self._running:
+                self._pending = None
+                return
             if self._pending is not None:
                 self._dropped_frames += 1
 
@@ -427,6 +450,8 @@ class TongueInferenceWorker:
                     strip, factory_sample, factory_names, submitted_at, received_at = self._pending
                     self._pending = None
                     dropped = self._dropped_frames
+                if not self.active:
+                    continue
                 started = time.perf_counter()
                 prediction = self.preview.predict(
                     strip, factory_sample, factory_names
