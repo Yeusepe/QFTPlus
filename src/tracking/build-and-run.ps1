@@ -5,8 +5,6 @@ param(
     [string]$ResumeSession = "",
     [string]$PupilCalibrationPath = "",
     [switch]$SkipPythonSetup,
-    [switch]$RebuildNative,
-    [switch]$RebuildManaged,
     [ValidateSet("all", "face", "eyes", "mouth")]
     [string]$CameraMode = "all",
     [ValidateRange(0, 120)]
@@ -34,7 +32,7 @@ param(
     [switch]$AllCameras,
     [switch]$PupilPreview,
     [switch]$EnablePupilDilation,
-    [ValidateSet("", "puff", "cheeks", "brows", "lips", "nose", "jaw", "mouth")]
+    [ValidateSet("", "puff", "cheeks", "brows", "pucker", "corners", "nose", "jaw", "mouth")]
     [string]$ExtraFaceCapture = "",
     [string]$ExtraFaceModel = "",
     [switch]$EnableExtraFaceOutput,
@@ -61,6 +59,7 @@ param(
     [int]$ConvergenceCalibrationSeconds = 40
 )
 
+trap { [Console]::Out.WriteLine("QFT_ERROR: " + ($_.Exception.Message -replace '\s+', ' ')); break }
 $ErrorActionPreference = "Continue"
 $relayStarted = $false
 $relayProcess = $null
@@ -107,22 +106,12 @@ $adbExecutable = Find-AdbExecutable
 
 $nativeArtifacts = @(
     (Join-Path $PSScriptRoot "libquestpro-camera-streamer-v8.so"),
-    (Join-Path $PSScriptRoot "questpro-camera-relay-v8"),
-    (Join-Path $PSScriptRoot "questpro-camera-injector")
+    (Join-Path $PSScriptRoot "questpro-camera-relay-v8")
 )
-$needsNativeBuild = $RebuildNative -or @($nativeArtifacts | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -gt 0
-$clang = $null
-if ($needsNativeBuild) {
-    $ndkRoot = $env:ANDROID_NDK_HOME
-    if (-not $ndkRoot) {
-        $ndkBase = Join-Path $env:LOCALAPPDATA "Android\Sdk\ndk"
-        if (Test-Path $ndkBase) {
-            $ndkRoot = Get-ChildItem $ndkBase -Directory | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-        }
+foreach ($artifact in $nativeArtifacts) {
+    if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
+        throw "A packaged headset component is missing: $([IO.Path]::GetFileName($artifact)). Reinstall QFT+."
     }
-    if (-not $ndkRoot) { throw "Prebuilt headset binaries are missing and Android NDK was not found." }
-    $clang = Join-Path $ndkRoot "toolchains\llvm\prebuilt\windows-x86_64\bin\clang.exe"
-    if (-not (Test-Path $clang)) { throw "clang.exe not found under $ndkRoot" }
 }
 
 Push-Location $PSScriptRoot
@@ -174,7 +163,7 @@ try {
     if ($Calibration -and $CameraMode -ne "all") { throw "Calibration requires -CameraMode all (the default)." }
     if ($Calibration -and $NoWindow) { throw "Calibration requires the visible prompt window." }
     if ($Calibration -and $RecordSeconds -gt 0) { throw "Calibration controls its own duration; do not set RecordSeconds." }
-    if ($Calibration -and $NoLabels) { throw "Calibration requires Virtual Desktop factory labels." }
+    if ($Calibration -and $NoLabels) { throw "Calibration requires factory labels from Virtual Desktop or Steam Link." }
     if ($TongueCalibration -and $NoWindow) { throw "TongueCalibration requires the visible prompt window." }
     if ($TongueCalibration -and $RecordSeconds -gt 0) { throw "TongueCalibration controls its own duration; do not set RecordSeconds." }
     if ($TongueCalibration -and $NoLabels) { throw "TongueCalibration requires the native TongueOut reference stream." }
@@ -208,7 +197,7 @@ try {
     }
     if ($ModelPreview -and $CameraMode -ne "all") { throw "ModelPreview requires -CameraMode all (the default)." }
     if ($ModelPreview -and $NoWindow) { throw "ModelPreview requires visible comparison windows." }
-    if ($ModelPreview -and $NoLabels) { throw "ModelPreview requires Virtual Desktop factory labels." }
+    if ($ModelPreview -and $NoLabels) { throw "ModelPreview requires factory labels from Virtual Desktop or Steam Link." }
     if ($ModelPreview -and -not (Test-Path -LiteralPath $ModelPath)) { throw "Model checkpoint not found: $ModelPath" }
     if ($TonguePreview -and $NoWindow -and -not $EnableTongueOutput) { throw "Hidden tongue tracking requires EnableTongueOutput." }
     if ($TonguePreview -and $NoLabels) { throw "TonguePreview requires native TongueOut confidence." }
@@ -228,8 +217,8 @@ try {
     if ($OpenSourcePreview -and $Calibration) { throw "Run OpenSourcePreview separately from calibration." }
     if ($EyeCalibration -and $Calibration) { throw "Run EyeCalibration separately from whole-face Calibration." }
     if ($EyeCalibration -and $ModelPreview) { throw "Run EyeCalibration separately from ModelPreview." }
-    if ($EyeCalibration -and $NoLabels) { throw "EyeCalibration requires the Meta/Virtual Desktop factory eye baseline." }
-    if ($HybridPreview -and $NoLabels) { throw "HybridPreview requires live Meta/Virtual Desktop signals." }
+    if ($EyeCalibration -and $NoLabels) { throw "EyeCalibration requires the Meta streaming-app factory eye baseline." }
+    if ($HybridPreview -and $NoLabels) { throw "HybridPreview requires live Meta streaming-app signals." }
     if ($HybridPreview -and -not (Test-Path -LiteralPath $HybridCalibrationPath)) { throw "Hybrid calibration not found: $HybridCalibrationPath" }
     if ($EyeCalibration -and -not (Test-Path -LiteralPath $CalibrationOverlayPath)) { throw "BabbleCalibration executable not found: $CalibrationOverlayPath" }
     if ($openSourceModelsRequired -and -not (Test-Path -LiteralPath $NextModelPath)) { throw "EyeTrackVR NEXT model not found: $NextModelPath" }
@@ -251,37 +240,16 @@ try {
 
     if ($labelsEnabled) {
         $labelBridgeExe = Join-Path $PSScriptRoot "vd-label-bridge\bin\Release\net10.0\Qpro.VirtualDesktopLabelBridge.exe"
-        if ($RebuildManaged -or -not (Test-Path -LiteralPath $labelBridgeExe)) {
-            $labelBridgeProject = Join-Path $PSScriptRoot "vd-label-bridge\Qpro.VirtualDesktopLabelBridge.csproj"
-            if (-not (Test-Path -LiteralPath $labelBridgeProject)) {
-                throw "The prebuilt Virtual Desktop label bridge is missing. Reinstall the release package."
-            }
-            & dotnet build $labelBridgeProject -c Release
-            if ($LASTEXITCODE -ne 0) { throw "Building the Virtual Desktop label bridge failed." }
+        if (-not (Test-Path -LiteralPath $labelBridgeExe -PathType Leaf)) {
+            throw "The packaged factory label bridge is missing. Reinstall QFT+."
         }
-        if (-not (Test-Path -LiteralPath $labelBridgeExe)) { throw "The Virtual Desktop label bridge executable was not produced." }
-    }
-
-    if ($needsNativeBuild) {
-        & $clang --target=aarch64-linux-android28 -std=c11 -O3 -Wall -Wextra -fPIC -shared "-Wl,-z,max-page-size=16384" .\streamer.c -o .\libquestpro-camera-streamer-v8.so
-        if ($LASTEXITCODE -ne 0) { throw "Streamer compilation failed with exit code $LASTEXITCODE" }
-        & $clang --target=aarch64-linux-android28 -std=c11 -O3 -Wall -Wextra -fPIE -pie "-DSTREAM_PORT=$StreamPort" "-Wl,-z,max-page-size=16384" .\relay.c -o .\questpro-camera-relay-v8
-        if ($LASTEXITCODE -ne 0) { throw "Relay compilation failed with exit code $LASTEXITCODE" }
-        & $clang --target=aarch64-linux-android28 -std=c11 -O2 -Wall -Wextra -fPIE -pie "-Wl,-z,max-page-size=16384" .\injector.c -o .\questpro-camera-injector -ldl
-        if ($LASTEXITCODE -ne 0) { throw "Injector compilation failed with exit code $LASTEXITCODE" }
-    }
-    else {
-        Write-Host "Using packaged Quest Pro headset binaries."
     }
 
     & $adbExecutable push .\libquestpro-camera-streamer-v8.so /data/local/tmp/libquestpro-camera-streamer-v8.so
     if ($LASTEXITCODE -ne 0) { throw "Pushing the streamer failed with exit code $LASTEXITCODE" }
     & $adbExecutable push .\questpro-camera-relay-v8 /data/local/tmp/questpro-camera-relay-v8
     if ($LASTEXITCODE -ne 0) { throw "Pushing the relay failed with exit code $LASTEXITCODE" }
-    & $adbExecutable push .\questpro-camera-injector /data/local/tmp/questpro-camera-injector
-    if ($LASTEXITCODE -ne 0) { throw "Pushing the injector failed with exit code $LASTEXITCODE" }
-
-    & $adbExecutable shell chmod 755 /data/local/tmp/questpro-camera-relay-v8 /data/local/tmp/questpro-camera-injector
+    & $adbExecutable shell chmod 755 /data/local/tmp/questpro-camera-relay-v8
     if ($LASTEXITCODE -ne 0) { throw "Marking the headset executables runnable failed with exit code $LASTEXITCODE" }
     & $adbExecutable shell chmod 644 /data/local/tmp/libquestpro-camera-streamer-v8.so
     if ($LASTEXITCODE -ne 0) { throw "Setting the streamer library permissions failed with exit code $LASTEXITCODE" }
@@ -289,9 +257,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Preparing the headset logs as Android Shell failed with exit code $LASTEXITCODE" }
 
     $null = & $adbExecutable forward --remove "tcp:$StreamPort" 2>&1
-    $injectCommand = "/data/local/tmp/questpro-camera-injector /data/local/tmp/libquestpro-camera-streamer-v8.so"
     if (-not [string]::IsNullOrWhiteSpace($AdbTarget)) {
-        $injectOutput = & $adbExecutable shell su -c $injectCommand 2>&1
+        $injectOutput = & $python .\camera_injector.py --adb $adbExecutable 2>&1
         $injectExit = $LASTEXITCODE
         @($injectOutput | ForEach-Object { $_.ToString() }) | Tee-Object -FilePath .\questpro-live-inject.txt
         if ($injectExit -ne 0) { throw "Injection failed with exit code $injectExit. Send questpro-live-inject.txt." }
@@ -331,7 +298,7 @@ try {
     }
 
     if ([string]::IsNullOrWhiteSpace($AdbTarget)) {
-        $injectOutput = & $adbExecutable shell su -c $injectCommand 2>&1
+        $injectOutput = & $python .\camera_injector.py --adb $adbExecutable 2>&1
         $injectExit = $LASTEXITCODE
         @($injectOutput | ForEach-Object { $_.ToString() }) | Tee-Object -FilePath .\questpro-live-inject.txt
         if ($injectExit -ne 0) { throw "Injection failed with exit code $injectExit. Send questpro-live-inject.txt." }
@@ -350,7 +317,7 @@ try {
         $labelBridgeProcess = Start-Process -FilePath $labelBridgeExe -ArgumentList @("--port", "$LabelsPort") -PassThru -WindowStyle Hidden -RedirectStandardOutput .\questpro-label-bridge.txt -RedirectStandardError .\questpro-label-bridge-error.txt
         Start-Sleep -Milliseconds 300
         if ($labelBridgeProcess.HasExited) {
-            throw "The Virtual Desktop label bridge exited during startup. Send questpro-label-bridge-error.txt."
+            throw "The factory label bridge exited during startup. Send questpro-label-bridge-error.txt."
         }
     }
     $receiverArguments = @(".\receiver.py", "--port", "$StreamPort")

@@ -314,3 +314,10 @@ __attribute__((constructor)) static void start_streamer(void) {
     pthread_detach(g_worker);
     log_line("STREAMER_STARTED version=8.0 cameras=all stability=counter-guarded-double-copy provider-cap=relay-max-fps ring-order=hardware-counter lifecycle=client-lease diagnostics=torn-count");
 }
+
+void qft_streamer_main(const char *data, int *unload_policy, void *state) {
+    (void)data;
+    (void)state;
+    *unload_policy = 1;
+    start_streamer();
+}
