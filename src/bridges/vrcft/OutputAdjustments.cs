@@ -32,8 +32,6 @@ internal sealed class OutputAdjustments
         => node[key] is JsonValue value && value.TryGetValue<double>(out var n) && double.IsFinite(n) ? n : fallback;
 
     internal bool Enabled(string name) => settings[name] is JsonObject || settings["*"] is JsonObject || manual.ContainsKey(name);
-    internal bool Manual(string name, double now) => now < expires && manual.ContainsKey(name);
-    internal void Reset() => filtered.Clear();
     internal float Apply(string name, float input, float neutral, float minimum, float maximum, double dt, double utcSeconds)
     {
         if (!float.IsFinite(input)) input = neutral;

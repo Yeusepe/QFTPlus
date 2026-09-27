@@ -14,29 +14,26 @@ internal sealed class ExtraFaceState
             "MouthUpperRight", "MouthLowerLeft", "MouthLowerRight" }));
     private Dictionary<string, float> _values = new();
     private long? _received;
+    private sealed record Packet(int Version, bool Enabled, Dictionary<string, float> Values);
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase, AllowDuplicateProperties = false,
+        RespectRequiredConstructorParameters = true, RespectNullableAnnotations = true
+    };
 
     internal bool Accept(byte[] packet, long now)
     {
         if (packet.Length > 4096) return false;
         try
         {
-            using var document = JsonDocument.Parse(packet);
-            var root = document.RootElement;
-            if (root.GetProperty("version").GetInt32() != 1) return false;
-            bool enabled = root.GetProperty("enabled").GetBoolean();
-            var values = new Dictionary<string, float>();
-            foreach (var entry in root.GetProperty("values").EnumerateObject())
-            {
-                float value = entry.Value.GetSingle();
-                if (!Allowed.Contains(entry.Name) || !float.IsFinite(value) || value < 0 || value > 1 ||
-                    !values.TryAdd(entry.Name, value)) return false;
-            }
-            _values = enabled ? values : new();
+            var data = JsonSerializer.Deserialize<Packet>(packet, JsonOptions);
+            if (data is not { Version: 1 } || data.Values.Any(entry => !Allowed.Contains(entry.Key) ||
+                !float.IsFinite(entry.Value) || entry.Value < 0 || entry.Value > 1)) return false;
+            _values = data.Enabled ? data.Values : new();
             _received = now;
             return true;
         }
-        catch (Exception error) when (error is JsonException or InvalidOperationException or
-            KeyNotFoundException or FormatException or OverflowException)
+        catch (JsonException)
         { return false; }
     }
 
