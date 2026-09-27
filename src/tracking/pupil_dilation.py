@@ -4,6 +4,7 @@ import socket
 import struct
 import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -12,30 +13,55 @@ import numpy as np
 from pupil_preview import detect_pupil
 
 PACKET = struct.Struct("<4sBBHff")
-PHASES = [("Bright", 12, 5), ("Dim", 16, 8), ("Check bright", 12, 5), ("Check dim", 16, 8)]
+ADAPT, RAMP, BRIGHT, DARK = 30., 5., 5., 10.
+CYCLE = 2*RAMP+BRIGHT+DARK
+DURATION = ADAPT+2*CYCLE
+LAG = .8
+HOLD = 1.
+STAGES = ["Let your eyes adjust", "Look at the circle", "Look at the circle"]
 
 
-def fit_calibration(phases):
-    if len(phases) != 4 or any(len(p) < 20 for p in phases):
-        raise ValueError("Need 20 clear paired-eye readings in each phase")
-    arrays = [np.asarray(p, dtype=float) for p in phases]
-    if any(a.shape[1:] != (2, 4) or not np.isfinite(a).all() for a in arrays):
+def stimulus(t):
+    if t < ADAPT:
+        return 0.
+    t = (t-ADAPT) % CYCLE
+    if t < RAMP:
+        return .5-.5*np.cos(np.pi*t/RAMP)
+    if t < RAMP+BRIGHT:
+        return 1.
+    if t < 2*RAMP+BRIGHT:
+        return .5+.5*np.cos(np.pi*(t-RAMP-BRIGHT)/RAMP)
+    return 0.
+
+
+def fit_calibration(samples):
+    times = np.asarray([s[0] for s in samples], dtype=float)
+    eyes = np.asarray([s[1] for s in samples], dtype=float)
+    cycles = [times < ADAPT+CYCLE, times >= ADAPT+CYCLE]
+    if any(c.sum() < 80 for c in cycles):
+        raise ValueError("Your pupils were hidden too often. Adjust the headset so it sits level, then try again")
+    if eyes.ndim != 3 or eyes.shape[1:] != (2, 4) or not np.isfinite(eyes).all() or not np.isfinite(times).all():
         raise ValueError("Invalid pupil calibration samples")
-    small, large = [np.median(a[:, :, 0], axis=0) for a in arrays[:2]]
+    diameter = eyes[:, :, 0]
+    small, large = np.percentile(diameter, (5, 95), axis=0)
     span = large-small
     if np.any((small < 10) | (large > 60) | (span < np.maximum(3, small*.1))):
-        raise ValueError("Pupil response too small; enlarge the window and repeat")
-    validation = [(np.median(a[:, :, 0], axis=0)-small)/span for a in arrays[2:]]
-    if np.any(np.abs(validation[0]) > .35) or np.any(np.abs(validation[1]-1) > .35):
-        raise ValueError("Bright/dim response did not repeat reliably")
-    all_samples = np.concatenate(arrays)
-    centers = np.median(all_samples[:, :, 1:3], axis=0)
-    if np.any(np.percentile(np.linalg.norm(all_samples[:, :, 1:3]-centers, axis=2), 90, axis=0) > 15):
-        raise ValueError("Keep looking at the centre cross throughout calibration")
+        raise ValueError("Your pupils changed size too little. Dim the room lights, then try again")
+    levels = np.asarray([stimulus(t-LAG) for t in times])
+    response = []
+    for c in cycles:
+        low, high = np.percentile(diameter[c], (5, 95), axis=0)
+        response.append([np.corrcoef(levels[c], diameter[c, i])[0, 1] for i in range(2)])
+        if np.any(np.abs(low-small) > .35*span) or np.any(np.abs(high-large) > .35*span):
+            raise ValueError("The two rounds didn't match. Keep your head still and look at the circle, then try again")
+    if not np.all(np.asarray(response) < -.5):
+        raise ValueError("Pupil size didn't follow the screen brightness. Keep looking at the circle, then try again")
+    centers = np.median(eyes[:, :, 1:3], axis=0)
+    if np.any(np.percentile(np.linalg.norm(eyes[:, :, 1:3]-centers, axis=2), 90, axis=0) > 15):
+        raise ValueError("Keep looking at the circle the whole time, then try again")
     return {"format": "qpro-relative-pupil-v1", "small": small.tolist(), "large": large.tolist(),
-            "centers": centers.tolist(), "ratios": np.median(all_samples[:, :, 3], axis=0).tolist(),
-            "checkBright": validation[0].tolist(), "checkDim": validation[1].tolist(),
-            "samplesPerPhase": list(map(len, phases))}
+            "centers": centers.tolist(), "ratios": np.median(eyes[:, :, 3], axis=0).tolist(),
+            "response": response, "samplesPerCycle": [int(c.sum()) for c in cycles]}
 
 
 def read_calibration(path):
@@ -52,27 +78,26 @@ def read_calibration(path):
 
 
 def relative_values(pupils, profile):
-    if profile is None or any(p is None for p in pupils):
+    if profile is None:
         return None
-    centers = np.asarray([p.ellipse[0] for p in pupils])
-    ratios = np.asarray([min(p.ellipse[1])/max(p.ellipse[1]) for p in pupils])
-    diameter = np.asarray([p.diameter_px for p in pupils])
     small, large = np.asarray(profile["small"]), np.asarray(profile["large"])
     span = large-small
-    if (np.any(np.linalg.norm(centers-profile["centers"], axis=1) > 25)
-            or np.any(np.abs(ratios-profile["ratios"]) > .18)
-            or np.any((diameter < small-.12*span) | (diameter > large+.12*span))):
+    values = np.full(2, np.nan)
+    for i, pupil in enumerate(pupils):
+        if pupil is not None and small[i]-.35*span[i] <= pupil.diameter_px <= large[i]+.35*span[i]:
+            values[i] = (pupil.diameter_px-small[i])/span[i]
+    if np.isnan(values).all():
         return None
-    return np.clip((diameter-small)/span, 0, 1)
+    return np.clip(np.where(np.isnan(values), np.nanmean(values), values), 0, 1)
 
 
 class PupilDilation:
-    def __init__(self, path="calibration/qpro-pupil-dilation.json", enabled=False, *, render=True):
+    def __init__(self, path="calibration/qpro-pupil-dilation.json", enabled=False, *, render=True, asynchronous=False):
         self.path = Path(path)
         self.enabled = enabled
         self.render = render
         self.profile = None
-        self.message = "Maximize this window in Virtual Desktop. Press C to calibrate (56 seconds)."
+        self.message = f"Dim the room lights, maximize this window in your headset desktop, then press C ({DURATION:.0f} seconds)."
         if self.path.exists():
             try:
                 self.profile = read_calibration(self.path)
@@ -81,16 +106,22 @@ class PupilDilation:
                 self.message = f"Calibration unavailable: {error}. Press C."
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.phase = None
+        self.level = 0.
         self.result = "idle"
         self.samples = []
         self.started = 0.0
         self.last_detection = -1.0
         self.last_valid = -1.0
+        self.last_pair = 0.
         self.last_fingerprint = None
         self.filtered = None
-        self.last_pupils = None
-        self.last_pupil_time = 0.0
+        self.last_pupils = [0., 0.]
+        self.last_pupil_time = [-1e9, -1e9]
+        self.detected_pupils = [None, None]
         self.image = np.zeros((800, 1200, 3), np.uint8)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pupil-detection") if asynchronous else None
+        self._pending = None
+        self._closed = False
         self.send(False)
 
     def send(self, valid, values=(.5, .5)):
@@ -99,97 +130,124 @@ class PupilDilation:
 
     def handle_key(self, key):
         if key.lower() == "c":
+            if self._pending is not None:
+                self._pending.result()
+                self._pending = None
             self.phase = 0
+            self.level = 0.
             self.result = "running"
-            self.samples = [[] for _ in PHASES]
-            self.started = time.monotonic()
+            self.samples = []
+            self.started = self.last_pair = time.monotonic()
             self.profile = None
             self.filtered = None
             self.last_valid = -1
-            self.message = "Look at the centre cross. Keep your head and the window still; blink normally."
+            self.message = "Look at the circle. Keep your head still and blink normally."
             self.send(False)
 
-    def update(self, strip):
+    def update(self, strip, *, preview=False):
         if strip.shape != (400, 2000):
             raise ValueError("Pupil dilation requires all five cameras")
+        if self._closed:
+            return self.image
+        if self._pending is not None:
+            if not self._pending.done():
+                return self.image
+            self._pending.result()
+            self._pending = None
+        if not (self.enabled or self.render or preview or self.phase is not None):
+            return self.image
         now = time.monotonic()
         if now-self.last_detection < .125:
             return self.image
         self.last_detection = now
+        if self._executor is not None and self.phase is None and not self.render:
+            self._pending = self._executor.submit(self._update, strip.copy())
+            return self.image
+        return self._update(strip)
+
+    def _update(self, strip):
+        now = time.monotonic()
         fingerprint = zlib.crc32(strip[:, :800].tobytes())
         fresh = fingerprint != self.last_fingerprint
         self.last_fingerprint = fingerprint
         pupils = []
         for i in range(2):
+            if not fresh:
+                pupils.append(None)
+                continue
             options = {}
             if self.profile is not None:
                 small, large = self.profile["small"][i], self.profile["large"][i]
-                margin = (large-small)*.12
-                options = {"center": self.profile["centers"][i], "diameter_range": (small-margin, large+margin)}
-            pupils.append(detect_pupil(strip[:, i*400:(i+1)*400], **options) if fresh else None)
-        if all(p is not None for p in pupils):
-            diameters = np.asarray([p.diameter_px for p in pupils])
-            if (self.last_pupils is not None and now-self.last_pupil_time < .4
-                    and np.any(np.abs(diameters-self.last_pupils) > np.maximum(3, self.last_pupils*.16))):
-                pupils = [None, None]
-            else:
-                self.last_pupils, self.last_pupil_time = diameters, now
+                options = {"diameter_range": (small-(large-small)*.35, large+(large-small)*.35)}
+            pupil = detect_pupil(strip[:, i*400:(i+1)*400], **options)
+            if pupil is not None:
+                last, seen = self.last_pupils[i], self.last_pupil_time[i]
+                self.last_pupils[i], self.last_pupil_time[i] = pupil.diameter_px, now
+                if now-seen > .25 or abs(pupil.diameter_px-last) > max(3, last*.16):
+                    pupil = None
+            pupils.append(pupil)
         self.detected_pupils = pupils
-        phase = self.phase
-        if phase is not None:
+        both = all(p is not None for p in pupils)
+        if self.phase is not None:
             elapsed = now-self.started
-            name, duration, settle = PHASES[phase]
-            if settle <= elapsed < duration and all(p is not None for p in pupils):
-                self.samples[phase].append([[p.diameter_px, *p.ellipse[0], min(p.ellipse[1])/max(p.ellipse[1])]
-                                            for p in pupils])
-            if elapsed >= duration:
-                self.phase += 1
-                self.started = now
-                if self.phase == len(PHASES):
-                    self.phase = None
-                    try:
-                        profile = fit_calibration(self.samples)
-                        self.path.parent.mkdir(parents=True, exist_ok=True)
-                        pending = self.path.with_suffix(".tmp")
-                        pending.write_text(json.dumps(profile, indent=2))
-                        pending.replace(self.path)
-                        self.profile = profile
-                        self.result = "passed"
-                        self.message = "Calibration passed and saved. Relative dilation " + ("OUTPUT ON." if self.enabled else "preview only.")
-                        print("PUPIL_CALIBRATION_SAVED " + str(self.path.resolve()), flush=True)
-                    except (ValueError, OSError) as error:
-                        self.result = "failed"
-                        self.message = str(error) + ". Press C to retry."
-                        print("PUPIL_CALIBRATION_FAILED " + str(error), flush=True)
+            self.phase = min(2, int(max(0, elapsed-ADAPT)//CYCLE)+(elapsed >= ADAPT))
+            self.level = stimulus(elapsed)
+            if both:
+                self.last_pair = now
+                if elapsed >= ADAPT-15:
+                    self.samples.append((elapsed, [[p.diameter_px, *p.ellipse[0], min(p.ellipse[1])/max(p.ellipse[1])]
+                                                   for p in pupils]))
+            self.message = ("Your pupils aren't visible. Open your eyes naturally and make sure the headset sits level."
+                            if now-self.last_pair > 2 else
+                            "Relax and look at the circle. The screen stays dark while your eyes adjust." if elapsed < ADAPT else
+                            "Keep looking at the circle as the screen fades. Blink normally.")
+            if elapsed >= DURATION:
+                self.phase = None
+                self.level = 0.
+                try:
+                    profile = fit_calibration(self.samples)
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    pending = self.path.with_suffix(".tmp")
+                    pending.write_text(json.dumps(profile, indent=2))
+                    pending.replace(self.path)
+                    self.profile = profile
+                    self.result = "passed"
+                    self.message = "Calibration passed and saved. Relative dilation " + ("OUTPUT ON." if self.enabled else "preview only.")
+                    print("PUPIL_CALIBRATION_SAVED " + str(self.path.resolve()), flush=True)
+                except (ValueError, OSError) as error:
+                    self.result = "failed"
+                    self.message = str(error) + "."
+                    print("PUPIL_CALIBRATION_FAILED " + str(error), flush=True)
         values = relative_values(pupils, self.profile)
         if values is not None:
             dt = now-self.last_valid
-            self.filtered = values if self.filtered is None or dt > .3 else self.filtered + (1-np.exp(-dt/.25))*(values-self.filtered)
+            self.filtered = values if self.filtered is None or dt > HOLD else self.filtered + (1-np.exp(-dt/.25))*(values-self.filtered)
             self.last_valid = now
+        if self.filtered is not None and now-self.last_valid <= HOLD:
             self.send(True, self.filtered)
-        elif now-self.last_valid > .3:
+        else:
             self.filtered = None
             self.send(False)
         if not self.render and self.phase is None:
             return self.image
-        bright = self.phase is not None and self.phase % 2 == 0
-        self.image = np.full((800, 1200, 3), 235 if bright else 18, np.uint8)
-        color = (25, 25, 25) if bright else (220, 220, 220)
+        gray = round(18+self.level*217)
+        self.image = np.full((800, 1200, 3), gray, np.uint8)
+        color = (25, 25, 25) if self.level > .5 else (220, 220, 220)
         def text(message, y, size=.6):
             cv2.putText(self.image, message, (25, y), cv2.FONT_HERSHEY_SIMPLEX, size, color, 1, cv2.LINE_AA)
         text("Quest Pro relative pupil dilation", 35, .8)
         text(self.message[:125], 75, .52)
         if self.phase is not None:
-            name, duration, _ = PHASES[self.phase]
-            text(f"{self.phase+1}/4: {name} - {max(0, duration-(now-self.started)):.0f}s. Keep looking at +", 115)
+            text(f"{STAGES[self.phase]} - {max(0, DURATION-(now-self.started)):.0f}s left", 115)
         else:
             text("C: calibrate    Q: stop tracking    Relative size only; not millimetres", 115, .55)
             if self.filtered is not None:
                 text(f"Left {self.filtered[0]:.2f}    Right {self.filtered[1]:.2f}    " +
                      ("OUTPUT ON" if self.enabled else "PREVIEW ONLY"), 160)
             else:
-                text("Awaiting calibration / two clear pupils; output is neutral.", 160)
-        cv2.drawMarker(self.image, (600, 350), color, cv2.MARKER_CROSS, 25, 2)
+                text("Awaiting calibration / a clear pupil; output is neutral.", 160)
+        cv2.circle(self.image, (600, 350), 14, color, 2, cv2.LINE_AA)
+        cv2.circle(self.image, (600, 350), 3, color, -1, cv2.LINE_AA)
         for side, pupil in enumerate(pupils):
             panel = cv2.cvtColor(strip[:, side*400:(side+1)*400], cv2.COLOR_GRAY2BGR)
             if pupil:
@@ -198,7 +256,12 @@ class PupilDilation:
         return self.image
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         try:
+            if self._executor is not None:
+                self._executor.shutdown(wait=True, cancel_futures=True)
             self.send(False)
         finally:
             self.socket.close()

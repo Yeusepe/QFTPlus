@@ -11,6 +11,12 @@ class Pupil:
     contrast: float
 
 
+def _median_u8(pixels):
+    cumulative = np.bincount(pixels, minlength=256).cumsum()
+    a, b = cumulative.searchsorted([(pixels.size-1)//2+1, pixels.size//2+1])
+    return (int(a)+int(b))*.5
+
+
 def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil | None:
     if gray.ndim != 2 or gray.dtype != np.uint8 or min(gray.shape) < 40:
         raise ValueError("Expected a grayscale uint8 eye image")
@@ -21,9 +27,9 @@ def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil
     low, high = np.percentile(smooth, (2, 55))
     low = min(low, float(smooth.min()) + 2)
     kernel = np.ones((3, 3), np.uint8)
+    opened = cv2.morphologyEx(smooth, cv2.MORPH_OPEN, kernel)
     for threshold in np.unique(np.r_[np.linspace(low, high, 28), otsu].round()):
-        _, binary = cv2.threshold(smooth, float(threshold), 255, cv2.THRESH_BINARY_INV)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        _, binary = cv2.threshold(opened, float(threshold), 255, cv2.THRESH_BINARY_INV)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         for contour in contours:
             if len(contour) < 20:
@@ -52,7 +58,7 @@ def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil
             ring = patch[outside != 0]
             if not len(inner) or not len(ring):
                 continue
-            contrast = float(np.median(ring) - float(np.median(inner)))
+            contrast = _median_u8(ring) - _median_u8(inner)
             if contrast < 20:
                 continue
             if center is not None and np.linalg.norm(np.asarray((x, y))-center) > 25:
@@ -70,4 +76,3 @@ def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil
             continue
         pupils.append((score, pupil))
     return max(pupils, key=lambda item: item[0])[1] if pupils else None
-
