@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Receive timestamped Virtual Desktop factory labels over localhost UDP."""
 
 from __future__ import annotations
 
@@ -119,6 +118,7 @@ class LabelSidecarRecorder:
                         raise ValueError("invalid source freshness")
                     sample_record: dict[str, object] = {
                         "type": "sample",
+                        "source": str(message.get("source", "Virtual Desktop")),
                         "arrivalMonotonicNs": arrival_monotonic_ns,
                         "arrivalWallNs": arrival_wall_ns,
                         "sourceSequence": sequence,

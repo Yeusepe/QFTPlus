@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../vrcft/SteamLinkState.cs" Link="SteamLinkState.cs" />
+    <Compile Include="../vrcft/SteamLinkSharedState.cs" Link="SteamLinkSharedState.cs" />
+  </ItemGroup>
 </Project>

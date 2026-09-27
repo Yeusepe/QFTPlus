@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using Qpro.GazeBridge;
 
 [assembly: SupportedOSPlatform("windows")]
 
@@ -12,29 +14,7 @@ const int StateBytes = 360;
 const int ExpressionOffset = 4;
 const int ExpressionCount = 70;
 
-string[] expressionNames =
-[
-    "BrowLowererL", "BrowLowererR", "CheekPuffL", "CheekPuffR",
-    "CheekRaiserL", "CheekRaiserR", "CheekSuckL", "CheekSuckR",
-    "ChinRaiserB", "ChinRaiserT", "DimplerL", "DimplerR",
-    "EyesClosedL", "EyesClosedR", "EyesLookDownL", "EyesLookDownR",
-    "EyesLookLeftL", "EyesLookLeftR", "EyesLookRightL", "EyesLookRightR",
-    "EyesLookUpL", "EyesLookUpR", "InnerBrowRaiserL", "InnerBrowRaiserR",
-    "JawDrop", "JawSidewaysLeft", "JawSidewaysRight", "JawThrust",
-    "LidTightenerL", "LidTightenerR", "LipCornerDepressorL",
-    "LipCornerDepressorR", "LipCornerPullerL", "LipCornerPullerR",
-    "LipFunnelerLb", "LipFunnelerLt", "LipFunnelerRb", "LipFunnelerRt",
-    "LipPressorL", "LipPressorR", "LipPuckerL", "LipPuckerR",
-    "LipStretcherL", "LipStretcherR", "LipSuckLb", "LipSuckLt",
-    "LipSuckRb", "LipSuckRt", "LipTightenerL", "LipTightenerR",
-    "LipsToward", "LowerLipDepressorL", "LowerLipDepressorR",
-    "MouthLeft", "MouthRight", "NoseWrinklerL", "NoseWrinklerR",
-    "OuterBrowRaiserL", "OuterBrowRaiserR", "UpperLidRaiserL",
-    "UpperLidRaiserR", "UpperLipRaiserL", "UpperLipRaiserR",
-    "TongueTipInterdental", "TongueTipAlveolar", "TongueFrontDorsalPalate",
-    "TongueMidDorsalPalate", "TongueBackDorsalVelar", "TongueOut",
-    "TongueRetreat"
-];
+string[] expressionNames = SteamLinkState.ExpressionNames;
 
 int port = 27274;
 int sampleRate = 60;
@@ -76,7 +56,8 @@ bool waitingReported = false;
 
 while (!cancellation.IsCancellationRequested)
 {
-    if (view is null)
+    bool steamLink = SteamLinkSharedState.TryRead(second);
+    if (!steamLink && view is null)
     {
         try
         {
@@ -89,7 +70,7 @@ while (!cancellation.IsCancellationRequested)
         {
             if (!waitingReported)
             {
-                Console.WriteLine("WAITING_FOR_VIRTUAL_DESKTOP_BODY_STATE");
+                Console.WriteLine("WAITING_FOR_TRACKING: connect Steam Link (QFT+ module, OSC 9015) or Virtual Desktop");
                 waitingReported = true;
             }
             cancellation.Token.WaitHandle.WaitOne(1000);
@@ -107,9 +88,9 @@ while (!cancellation.IsCancellationRequested)
         continue;
     }
 
-    try
+    if (!steamLink) try
     {
-        view.ReadArray(0, first, 0, StateBytes);
+        view!.ReadArray(0, first, 0, StateBytes);
         Thread.MemoryBarrier();
         view.ReadArray(0, second, 0, StateBytes);
     }
@@ -119,7 +100,7 @@ while (!cancellation.IsCancellationRequested)
         mappedFile = null;
         continue;
     }
-    if (!first.AsSpan().SequenceEqual(second))
+    if (!steamLink && !first.AsSpan().SequenceEqual(second))
     {
         AdvanceDeadline(ref nextSample, interval, now);
         continue;
@@ -141,23 +122,20 @@ while (!cancellation.IsCancellationRequested)
         schemaDeadline = now + Stopwatch.Frequency * 2;
     }
 
-    float[] values = new float[ExpressionCount];
-    for (int index = 0; index < ExpressionCount; ++index)
-        values[index] = BitConverter.ToSingle(second, ExpressionOffset + index * 4);
-
     Send(
         udp,
         new
         {
             V = 1,
             Type = "sample",
+            Source = steamLink ? "Steam Link" : "Virtual Desktop",
             Sequence = ++sequence,
             Qpc = now,
             QpcFrequency = Stopwatch.Frequency,
             UtcUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             SourceChangeSequence = sourceChangeSequence,
             SourceUnchangedMs = sourceUnchangedMs,
-            Values = values,
+            Values = ReadFloats(second, ExpressionOffset, ExpressionCount),
             FaceFlags = second[0],
             IsEyeFollowingBlendshapesValid = second[1] != 0,
             LeftEyeIsValid = second[292] != 0,
@@ -185,13 +163,8 @@ static void AdvanceDeadline(ref long deadline, long interval, long now)
     } while (deadline <= now);
 }
 
-static float[] ReadFloats(byte[] data, int offset, int count)
-{
-    float[] result = new float[count];
-    for (int index = 0; index < count; ++index)
-        result[index] = BitConverter.ToSingle(data, offset + index * 4);
-    return result;
-}
+static float[] ReadFloats(byte[] data, int offset, int count) =>
+    MemoryMarshal.Cast<byte, float>(data.AsSpan(offset, count * sizeof(float))).ToArray();
 
 static void Send<T>(UdpClient udp, T message, JsonSerializerOptions options)
 {
