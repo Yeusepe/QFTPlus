@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import bisect
 import json
 from pathlib import Path
 
@@ -60,6 +59,20 @@ def percentile(values: np.ndarray, amount: float) -> float:
     return float(np.percentile(values, amount)) if values.size else 0.0
 
 
+def nearest_label_indices(
+    frame_times: list[int], label_times: list[int]
+) -> tuple[np.ndarray, np.ndarray]:
+    if not len(label_times):
+        if len(frame_times):
+            raise ValueError("No factory labels are available")
+        return np.empty(0, dtype=np.int32), np.empty(0, dtype=np.float32)
+    frames, labels = np.asarray(frame_times, dtype=np.int64), np.asarray(label_times, dtype=np.int64)
+    right = np.searchsorted(labels, frames)
+    left, right = (right - 1).clip(0, len(labels) - 1), right.clip(0, len(labels) - 1)
+    indices = np.where(abs(labels[left] - frames) < abs(labels[right] - frames), left, right).astype(np.int32)
+    return indices, (abs(labels[indices] - frames) / 1e6).astype(np.float32)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect a labeled Qpro dataset")
     parser.add_argument("capture")
@@ -80,17 +93,8 @@ def main() -> int:
         raise ValueError("Label sidecar contains no samples")
 
     label_times = [int(sample["arrivalMonotonicNs"]) for sample in samples]
-    offsets_ms: list[float] = []
-    for frame_time in frame_times:
-        insertion = bisect.bisect_left(label_times, frame_time)
-        candidates = []
-        if insertion < len(label_times):
-            candidates.append(label_times[insertion])
-        if insertion:
-            candidates.append(label_times[insertion - 1])
-        offsets_ms.append(min(abs(candidate - frame_time) for candidate in candidates) / 1e6)
-
-    offsets = np.asarray(offsets_ms, dtype=np.float64)
+    indices, _ = nearest_label_indices(frame_times, label_times)
+    offsets = abs(np.asarray(label_times, dtype=np.int64)[indices] - frame_times) / 1e6
     weights = np.asarray([sample["values"] for sample in samples], dtype=np.float32)
     ranges = np.ptp(weights, axis=0)
     order = np.argsort(ranges)[::-1]

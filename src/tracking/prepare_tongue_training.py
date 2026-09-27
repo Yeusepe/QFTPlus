@@ -15,9 +15,8 @@ import numpy as np
 
 from calibration import CalibrationStep, target_activation
 from calibration_inspect import step_intervals
-from capture_format import FILE_HEADER, FILE_MAGIC, FRAME_HEADER, FRAME_MAGIC, TRANSPORT_HEADER
 from dataset_inspect import load_labels
-from prepare_training import nearest_label_indices, resize_cameras
+from prepare_training import nearest_label_indices, resize_cameras, scan_frames
 from tongue_calibration import TONGUE_TARGET_NAMES
 
 
@@ -27,38 +26,8 @@ FACE_HEIGHT = 400
 
 
 def scan_face_frames(path: Path) -> tuple[list[tuple[int, int]], int]:
-    entries: list[tuple[int, int]] = []
-    with path.open("rb") as capture:
-        header = capture.read(FILE_HEADER.size)
-        if len(header) != FILE_HEADER.size or FILE_HEADER.unpack(header)[0] != FILE_MAGIC:
-            raise ValueError("Unrecognized capture file")
-        declared = int(FILE_HEADER.unpack(header)[5])
-        while True:
-            frame_header = capture.read(FRAME_HEADER.size)
-            if not frame_header:
-                break
-            if len(frame_header) != FRAME_HEADER.size:
-                raise ValueError("Truncated capture frame header")
-            magic, _record_size, _source_size, timestamp, _wall, transport_raw = (
-                FRAME_HEADER.unpack(frame_header)
-            )
-            if magic != FRAME_MAGIC:
-                raise ValueError("Invalid frame record")
-            transport = TRANSPORT_HEADER.unpack(transport_raw)
-            width, height, stride, payload_size, mask = map(
-                int, (transport[5], transport[6], transport[7], transport[9], transport[10])
-            )
-            if (mask, width, height) != (FACE_MASK, FACE_WIDTH, FACE_HEIGHT):
-                raise ValueError(
-                    "Tongue training requires face mode (cameras 2, 3, and 4)"
-                )
-            if stride != width or payload_size != width * height:
-                raise ValueError("Unsupported face-frame layout")
-            entries.append((capture.tell(), int(timestamp)))
-            capture.seek(payload_size, 1)
-    if len(entries) != declared:
-        raise ValueError(f"Capture declares {declared} frames but scanned {len(entries)}")
-    return entries, declared
+    entries, count = scan_frames(path, FACE_MASK)
+    return [(offset, timestamp) for offset, timestamp, _, _ in entries], count
 
 
 def step_from_json(payload: dict[str, Any]) -> CalibrationStep:

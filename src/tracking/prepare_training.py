@@ -20,7 +20,7 @@ from capture_format import (
     FRAME_MAGIC,
     TRANSPORT_HEADER,
 )
-from dataset_inspect import load_labels
+from dataset_inspect import load_labels, nearest_label_indices
 
 
 def resize_cameras(strip: np.ndarray, size: int, count: int = 5) -> np.ndarray:
@@ -33,7 +33,7 @@ def resize_cameras(strip: np.ndarray, size: int, count: int = 5) -> np.ndarray:
     ])
 
 
-def scan_frames(path: Path) -> tuple[list[tuple[int, int, int, int]], int]:
+def scan_frames(path: Path, camera_mask: int = 0x1F) -> tuple[list[tuple[int, int, int, int]], int]:
     entries: list[tuple[int, int, int, int]] = []
     with path.open("rb") as capture:
         raw_file_header = capture.read(FILE_HEADER.size)
@@ -55,12 +55,12 @@ def scan_frames(path: Path) -> tuple[list[tuple[int, int, int, int]], int]:
             if magic != FRAME_MAGIC:
                 raise ValueError("Invalid frame record")
             transport = TRANSPORT_HEADER.unpack(raw_transport)
-            width, height, stride, payload_size, camera_mask = (
+            width, height, stride, payload_size, mask = (
                 int(transport[5]), int(transport[6]), int(transport[7]),
                 int(transport[9]), int(transport[10]),
             )
-            if camera_mask != 0x1F or width != 2000 or height != 400:
-                raise ValueError("Training cache currently requires all five 400x400 cameras")
+            if mask != camera_mask or width != 400 * camera_mask.bit_count() or height != 400:
+                raise ValueError(f"Training requires 400x400 cameras with mask 0x{camera_mask:x}")
             if stride != width or payload_size != width * height:
                 raise ValueError("Unsupported frame payload layout")
             entries.append((capture.tell(), int(timestamp), width, height))
@@ -70,26 +70,6 @@ def scan_frames(path: Path) -> tuple[list[tuple[int, int, int, int]], int]:
             f"Capture declares {declared_frames} frames but scanned {len(entries)}"
         )
     return entries, declared_frames
-
-
-def nearest_label_indices(
-    frame_times: list[int], label_times: list[int]
-) -> tuple[np.ndarray, np.ndarray]:
-    indices = np.empty(len(frame_times), dtype=np.int32)
-    errors_ms = np.empty(len(frame_times), dtype=np.float32)
-    for output_index, frame_time in enumerate(frame_times):
-        right = bisect.bisect_left(label_times, frame_time)
-        candidates = []
-        if right < len(label_times):
-            candidates.append(right)
-        if right:
-            candidates.append(right - 1)
-        if not candidates:
-            raise ValueError("No factory labels are available")
-        chosen = min(candidates, key=lambda index: abs(label_times[index] - frame_time))
-        indices[output_index] = chosen
-        errors_ms[output_index] = abs(label_times[chosen] - frame_time) / 1e6
-    return indices, errors_ms
 
 
 def main() -> int:

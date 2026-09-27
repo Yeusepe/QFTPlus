@@ -71,27 +71,12 @@ def step_intervals(session: dict[str, object]) -> list[list[tuple[int, int]]]:
     for event in session["events"]:
         step = int(event["step"])
         timestamp = int(event["monotonicNs"])
-        if event["event"] == "step_started":
+        if event["event"] in ("step_started", "step_restarted"):
             if active_step is not None and active_start is not None:
                 intervals[active_step].append((active_start, timestamp))
             active_step = step
             active_start = timestamp
-        elif event["event"] == "step_restarted":
-            if active_step is not None and active_start is not None:
-                intervals[active_step].append((active_start, timestamp))
-            active_step = step
-            active_start = timestamp
-        elif event["event"] == "step_finished":
-            if active_step is not None and active_start is not None:
-                intervals[active_step].append((active_start, timestamp))
-            active_step = None
-            active_start = None
-        elif event["event"] == "step_back":
-            if active_step is not None and active_start is not None:
-                intervals[active_step].append((active_start, timestamp))
-            active_step = None
-            active_start = None
-        elif event["event"] == "step_skipped":
+        elif event["event"] in ("step_finished", "step_back", "step_skipped"):
             if active_step is not None and active_start is not None:
                 intervals[active_step].append((active_start, timestamp))
             active_step = None
