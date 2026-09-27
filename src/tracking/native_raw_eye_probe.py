@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import base64
 import collections
+import hashlib
 import json
 import math
 import queue
 import re
-import struct
 import subprocess
 import threading
 import time
@@ -21,7 +21,8 @@ import cv2
 import numpy as np
 
 from native_eye_probe import gaze_panel, put_text, summary
-from native_eye_pupil_probe import KernelToPcMonotonicClock
+from native_eye_pupil_probe import KernelToPcMonotonicClock, float_from_trace_hex
+from eye_engine_profile import discover_eye_probe
 
 
 ENGINE_PATH = "/odm/lib64/libtrackingengines.so"
@@ -30,37 +31,19 @@ TRACE_ROOT = "/sys/kernel/tracing"
 TRACE_INSTANCE = "qpro_raw_eye"
 TRACE_GROUP = "qpro_raw_eye"
 
-LEFT_PROBE_OFFSET = 0xA0AAF0
-RIGHT_PROBE_OFFSET = 0xA0AAF8
-PREMERGE_PROBE_OFFSET = 0xB87EE0
 DETECTOR_PROBE_OFFSET = 0xB63FE4
 
-TRACE_SAMPLE = re.compile(
-    r"(?P<time>\d+\.\d+): qpro_(?P<eye>left|right): .*?"
-    r"x=0x(?P<x>[0-9a-fA-F]+) y=0x(?P<y>[0-9a-fA-F]+) "
-    r"z=0x(?P<z>[0-9a-fA-F]+) valid=(?P<valid>\d+)"
-)
-PREMERGE_SAMPLE = re.compile(
-    r"(?P<time>\d+\.\d+): qpro_inputs: .*?"
-    r"ax=0x(?P<ax>[0-9a-fA-F]+) ay=0x(?P<ay>[0-9a-fA-F]+) "
-    r"az=0x(?P<az>[0-9a-fA-F]+) av=(?P<av>\d+) "
-    r"bx=0x(?P<bx>[0-9a-fA-F]+) by=0x(?P<by>[0-9a-fA-F]+) "
-    r"bz=0x(?P<bz>[0-9a-fA-F]+) bv=(?P<bv>\d+)"
-)
 DETECTOR_SAMPLE = re.compile(
-    r"(?P<time>\d+\.\d+): detector_output: .*?"
+    r"(?P<time>\d+\.\d+): detector_output(?:_secondary)?: .*?"
     r"x=0x(?P<x>[0-9a-fA-F]+) y=0x(?P<y>[0-9a-fA-F]+) "
     r"z=0x(?P<z>[0-9a-fA-F]+) tag=0x(?P<tag>[0-9a-fA-F]+)"
+    r"(?: valid=0x(?P<valid>[0-9a-fA-F]+))?"
 )
 VISUAL_AXIS_SAMPLE = re.compile(
     r"(?P<time>\d+\.\d+): eye_visual_axis: .*?"
     r"lx=0x(?P<lx>[0-9a-fA-F]+) ly=0x(?P<ly>[0-9a-fA-F]+) lz=0x(?P<lz>[0-9a-fA-F]+) "
     r"rx=0x(?P<rx>[0-9a-fA-F]+) ry=0x(?P<ry>[0-9a-fA-F]+) rz=0x(?P<rz>[0-9a-fA-F]+)"
 )
-
-
-def float_from_trace_hex(value: str) -> float:
-    return struct.unpack("<f", struct.pack("<I", int(value, 16)))[0]
 
 
 def vector_yaw_pitch(vector: tuple[float, float, float]) -> tuple[float, float]:
@@ -116,77 +99,6 @@ class RawEyeSample:
         return angular_separation_degrees(self.left_vector, self.right_vector)
 
 
-class TracePairParser:
-    """Pair adjacent left/right events and remove three publisher duplicates."""
-
-    def __init__(self) -> None:
-        self._left: tuple[float, bool, tuple[float, float, float]] | None = None
-        self._last_signature: tuple[object, ...] | None = None
-
-    def parse(self, line: str, pc_monotonic_ns: int) -> RawEyeSample | None:
-        match = TRACE_SAMPLE.search(line)
-        if not match:
-            return None
-        kernel_time = float(match.group("time"))
-        valid = match.group("valid") == "1"
-        vector = tuple(
-            float_from_trace_hex(match.group(axis)) for axis in ("x", "y", "z")
-        )
-        if match.group("eye") == "left":
-            self._left = (kernel_time, valid, vector)  # type: ignore[assignment]
-            return None
-        if self._left is None:
-            return None
-        left_time, left_valid, left_vector = self._left
-        self._left = None
-        if abs(kernel_time - left_time) > 0.002:
-            return None
-        signature = (left_valid, valid, left_vector, vector)
-        if signature == self._last_signature:
-            return None
-        self._last_signature = signature
-        return RawEyeSample(
-            pc_monotonic_ns=pc_monotonic_ns,
-            kernel_time_s=(left_time + kernel_time) / 2.0,
-            left_valid=left_valid,
-            right_valid=valid,
-            left_vector=left_vector,
-            right_vector=vector,  # type: ignore[arg-type]
-        )
-
-
-class PreMergeParser:
-    """Decode and deduplicate the two inputs to the binocular merge routine."""
-
-    def __init__(self) -> None:
-        self._last_signature: tuple[object, ...] | None = None
-
-    def parse(self, line: str, pc_monotonic_ns: int) -> RawEyeSample | None:
-        match = PREMERGE_SAMPLE.search(line)
-        if not match:
-            return None
-        input_a = tuple(
-            float_from_trace_hex(match.group("a" + axis)) for axis in ("x", "y", "z")
-        )
-        input_b = tuple(
-            float_from_trace_hex(match.group("b" + axis)) for axis in ("x", "y", "z")
-        )
-        input_a_valid = match.group("av") == "1"
-        input_b_valid = match.group("bv") == "1"
-        signature = (input_a_valid, input_b_valid, input_a, input_b)
-        if signature == self._last_signature:
-            return None
-        self._last_signature = signature
-        return RawEyeSample(
-            pc_monotonic_ns=pc_monotonic_ns,
-            kernel_time_s=float(match.group("time")),
-            left_valid=input_b_valid,
-            right_valid=input_a_valid,
-            left_vector=input_b,  # type: ignore[arg-type]
-            right_vector=input_a,  # type: ignore[arg-type]
-        )
-
-
 class DetectorOutputParser:
     """Pair tag-0/tag-1 outputs computed by VisualAxisDetector."""
 
@@ -200,10 +112,19 @@ class DetectorOutputParser:
         eye = int(match.group("tag"), 16) & 0xFF
         if eye not in (0, 1):
             return None
+        if match.group("valid") is not None and int(match.group("valid"), 16) != 1:
+            self._pending.pop(eye, None)
+            return None
         kernel_time = float(match.group("time"))
         vector = tuple(
             float_from_trace_hex(match.group(axis)) for axis in ("x", "y", "z")
         )
+        if not all(math.isfinite(value) for value in vector):
+            self._pending.pop(eye, None)
+            return None
+        if match.group("valid") is not None and not 0.25 <= sum(value * value for value in vector) <= 2.25:
+            self._pending.pop(eye, None)
+            return None
         self._pending[eye] = (kernel_time, vector)  # type: ignore[assignment]
         if 0 not in self._pending or 1 not in self._pending:
             return None
@@ -389,7 +310,6 @@ class RawTraceEyeReader:
         self._process: subprocess.Popen[str] | None = None
         self._thread: threading.Thread | None = None
         self._stopping = False
-        self._configured = False
         self._clock = KernelToPcMonotonicClock()
         self._root_shell: PersistentAdbRootShell | None = None
         self._profile: dict[str, object] | None = None
@@ -429,7 +349,7 @@ class RawTraceEyeReader:
             return
         instance = self.instance_path
         self._adb_root(f"echo 0 '>' {instance}/tracing_on", check=False)
-        for name in ("detector_output", "eye_visual_axis", "qpro_inputs", "qpro_left", "qpro_right"):
+        for name in ("detector_output", "detector_output_secondary", "eye_visual_axis", "qpro_inputs", "qpro_left", "qpro_right"):
             self._adb_root(
                 f"echo 0 '>' {instance}/events/{TRACE_GROUP}/{name}/enable",
                 check=False,
@@ -464,7 +384,34 @@ class RawTraceEyeReader:
                 "Could not release the previous headset eye-trace workspace. "
                 "Stop any other independent-gaze preview and try again."
             )
-        self._configured = False
+
+    def _discover_profile(self, engine_size: int) -> dict[str, object]:
+        print("Locating independent-eye probes for this headset build...", flush=True)
+        result = subprocess.run(
+            [self.adb, "exec-out", "cat", ENGINE_PATH],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0 or len(result.stdout) != engine_size:
+            raise RuntimeError("Could not read the headset tracking engine for automatic eye-probe detection")
+        remote_hash = self._adb_root(f"sha256sum {ENGINE_PATH}").stdout.split()[0]
+        if hashlib.sha256(result.stdout).hexdigest() != remote_hash:
+            raise RuntimeError("The tracking engine changed or its transfer failed verification. Try again.")
+        try:
+            profile = discover_eye_probe(result.stdout)
+        except ValueError as error:
+            raise RuntimeError(
+                "Automatic independent-eye detection does not recognize this tracking-engine layout. "
+                "Turn off Independent eye gaze to use standard eye tracking. "
+                f"Detection detail: {error}"
+            ) from error
+        profile["parser"] = DetectorOutputParser
+        print(
+            f"Independent-eye probes detected at 0x{profile['offset']:x} "
+            f"and 0x{profile['extra_offsets'][0]:x}; eye-vector offset 0x{profile['axis_offset']:x}.",
+            flush=True,
+        )
+        return profile
 
     def start(self) -> None:
         state = subprocess.run(
@@ -475,33 +422,30 @@ class RawTraceEyeReader:
         if state.returncode != 0 or state.stdout.strip() != "device":
             raise RuntimeError("No authorized Quest was found over ADB")
         self._root_shell = PersistentAdbRootShell(self.adb)
-        size_result = self._adb_root(f"stat -c %s {ENGINE_PATH}")
         try:
-            engine_size = int(size_result.stdout.strip().splitlines()[-1])
-        except (ValueError, IndexError) as error:
-            raise RuntimeError("Could not verify the headset tracking-engine build") from error
-        profile = ENGINE_PROFILES.get(engine_size)
-        if profile is None:
-            raise RuntimeError(
-                f"Unrecognised tracking-engine size {engine_size}; no probe profile "
-                f"is registered for this build (known: {sorted(ENGINE_PROFILES)}). "
-                "Refusing to reuse another build's offsets."
-            )
-        self._profile = profile
+            size_result = self._adb_root(f"stat -c %s {ENGINE_PATH}")
+            try:
+                engine_size = int(size_result.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError) as error:
+                raise RuntimeError("Could not verify the headset tracking-engine build") from error
+            self._profile = ENGINE_PROFILES.get(engine_size) or self._discover_profile(engine_size)
+        except Exception:
+            self._root_shell.close()
+            self._root_shell = None
+            raise
 
         self._cleanup()
         self._adb_root(f"mkdir {self.instance_path}")
         try:
-            event = self._profile["event"]
-            self._write_event(
-                f"p:{TRACE_GROUP}/{event} {ENGINE_PATH}:0x{self._profile['offset']:x} "
-                f"{self._profile['fetch']}"
-            )
-            self._adb_root(
-                f"echo 1 '>' {self.instance_path}/events/{TRACE_GROUP}/{event}/enable"
-            )
+            for index, offset in enumerate([self._profile["offset"], *self._profile.get("extra_offsets", [])]):
+                event = self._profile["event"] + ("_secondary" if index else "")
+                self._write_event(
+                    f"p:{TRACE_GROUP}/{event} {ENGINE_PATH}:0x{offset:x} {self._profile['fetch']}"
+                )
+                self._adb_root(
+                    f"echo 1 '>' {self.instance_path}/events/{TRACE_GROUP}/{event}/enable"
+                )
             self._adb_root(f"echo 1 '>' {self.instance_path}/tracing_on")
-            self._configured = True
             remote_command = f"su -c 'cat {self.instance_path}/trace_pipe'"
             self._process = subprocess.Popen(
                 [self.adb, "shell", remote_command],
