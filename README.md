@@ -1,5 +1,6 @@
-[![QFT+](https://github.com/user-attachments/assets/df6e8aab-7081-449b-bb0d-14f7e286a5b3)](https://youtu.be/BR_hIHFeo80)
-
+![SillyFace](https://github.com/user-attachments/assets/11596c0a-00c8-4848-9243-031f420c1e69)
+![Multimodal](https://github.com/user-attachments/assets/584e7bec-1ee3-40d1-97e4-6c778780f77e)
+# QFT+
 Tongue, extra expressions, pupil dilation and independent eye tracking for Quest Pro, with per-expression adjustments and avatar testing.
 
 **[Download QFT+](https://github.com/Yeusepe/QFTPlus/releases)** · Release candidate
