@@ -26,7 +26,6 @@ from eye_engine_profile import discover_eye_probe
 
 
 ENGINE_PATH = "/odm/lib64/libtrackingengines.so"
-EXPECTED_ENGINE_SIZE = 47_724_232
 TRACE_ROOT = "/sys/kernel/tracing"
 TRACE_INSTANCE = "qpro_raw_eye"
 TRACE_GROUP = "qpro_raw_eye"
@@ -306,6 +305,7 @@ class RawTraceEyeReader:
     def __init__(self, adb: str) -> None:
         self.adb = adb
         self.samples: queue.Queue[RawEyeSample] = queue.Queue(maxsize=512)
+        self.engine_size: int | None = None
         self.errors: queue.Queue[str] = queue.Queue(maxsize=16)
         self._process: subprocess.Popen[str] | None = None
         self._thread: threading.Thread | None = None
@@ -355,7 +355,7 @@ class RawTraceEyeReader:
                 check=False,
             )
             self._adb_root(
-                f"echo '-:{TRACE_GROUP}/{name}' '>' {TRACE_ROOT}/uprobe_events",
+                f"echo '-:{TRACE_GROUP}/{name}' '>>' {TRACE_ROOT}/uprobe_events",
                 check=False,
             )
         self._adb_root(
@@ -394,8 +394,8 @@ class RawTraceEyeReader:
         )
         if result.returncode != 0 or len(result.stdout) != engine_size:
             raise RuntimeError("Could not read the headset tracking engine for automatic eye-probe detection")
-        remote_hash = self._adb_root(f"sha256sum {ENGINE_PATH}").stdout.split()[0]
-        if hashlib.sha256(result.stdout).hexdigest() != remote_hash:
+        remote_hash = self._adb_root(f"sha256sum {ENGINE_PATH}").stdout.split()
+        if not remote_hash or hashlib.sha256(result.stdout).hexdigest() != remote_hash[0]:
             raise RuntimeError("The tracking engine changed or its transfer failed verification. Try again.")
         try:
             profile = discover_eye_probe(result.stdout)
@@ -428,6 +428,7 @@ class RawTraceEyeReader:
                 engine_size = int(size_result.stdout.strip().splitlines()[-1])
             except (ValueError, IndexError) as error:
                 raise RuntimeError("Could not verify the headset tracking-engine build") from error
+            self.engine_size = engine_size
             self._profile = ENGINE_PROFILES.get(engine_size) or self._discover_profile(engine_size)
         except Exception:
             self._root_shell.close()
@@ -510,18 +511,23 @@ class RawTraceEyeReader:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
         if self._root_shell is not None:
-            self._cleanup()
-            self._root_shell.close()
-            self._root_shell = None
+            try:
+                self._cleanup()
+            finally:
+                self._root_shell.close()
+                self._root_shell = None
 
 
-def save_capture(path: Path, samples: list[RawEyeSample]) -> None:
+def save_capture(path: Path, samples: list[RawEyeSample], reader: RawTraceEyeReader) -> None:
+    profile = reader._profile or {}
     payload = {
         "format": "qpro-visual-axis-detector-output-v1",
         "created_unix_ns": time.time_ns(),
-        "engine_size": EXPECTED_ENGINE_SIZE,
-        "probe_offset": DETECTOR_PROBE_OFFSET,
-        "eye_mapping": "EyeData tag byte 0=left, 1=right",
+        "engine_size": reader.engine_size,
+        "probe_offset": profile.get("offset"),
+        "extra_probe_offsets": profile.get("extra_offsets", []),
+        "probe_fetch": profile.get("fetch"),
+        "eye_mapping": "Raw eye channels; calibration maps them to physical eyes",
         "samples": [asdict(sample) for sample in samples],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -731,7 +737,7 @@ def main() -> int:
             if character == "s":
                 stamp = time.strftime("%Y%m%d-%H%M%S")
                 path = Path("calibration") / f"detector-eye-probe-{stamp}.json"
-                save_capture(path, samples)
+                save_capture(path, samples, reader)
                 saved_message = f"Saved {path.resolve()}"
     finally:
         if calibration is not None:
