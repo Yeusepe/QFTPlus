@@ -14,6 +14,8 @@ public partial class StudioWindow
  WrapPanel? manualControls;
  Expander? captureOptions;
  Button? review;
+ long recordingCommand;
+ bool cancelPending;
  static string Intro(string kind)=>(kind switch
  {
     "tongue"=>"Fits tongue tracking to you, so smiles and open-mouth poses don't trigger it.",
@@ -68,7 +70,7 @@ public partial class StudioWindow
     begin=AsyncButton("Start calibration",Begin,true);actions.Children.Add(begin);
     pause=Button("Pause",()=>Send("pause"));pause.Visibility=Visibility.Collapsed;actions.Children.Add(pause);
     skip=Button("Skip pose",()=>Send("skip"));skip.Margin=new(8,0,0,0);skip.Visibility=Visibility.Collapsed;actions.Children.Add(skip);
-    cancel=Button("Cancel",()=>Send("cancel"));cancel.Margin=new(12,0,0,0);cancel.Visibility=Visibility.Collapsed;actions.Children.Add(cancel);
+    cancel=Button("Cancel",()=>{cancelPending=true;cancel!.IsEnabled=false;cue!.Text="Stopping calibration…";});cancel.Margin=new(12,0,0,0);cancel.Visibility=Visibility.Collapsed;actions.Children.Add(cancel);
     review=Button("Review video",()=>Open(prefix+".avi"));review.Visibility=Visibility.Collapsed;review.Margin=new(12,0,0,0);actions.Children.Add(review);
     if(kind!="pupils")
     {
@@ -89,6 +91,7 @@ public partial class StudioWindow
     if((string.IsNullOrEmpty(runtimeId)||session.State!="Connected"||!FreshState())&&!preview){Error("Waiting for the headset cameras. Make sure the headset is awake and connected.");return;}
     ClearNotice();candidate="";prefix="";
     if(!Send("begin",new JsonObject{["kind"]=kind,["automatic"]=automatic,["settle"]=settle}))return;
+    recordingCommand=command;cancelPending=false;
     recording=true;review!.Visibility=Visibility.Collapsed;count!.Visibility=Visibility.Visible;RefreshCalibrationControls();
     if(kind=="pupils")WindowState=WindowState.Maximized;
     await Task.CompletedTask;
@@ -153,15 +156,17 @@ public partial class StudioWindow
         state=Session.Read(Path.Combine(session.Root,"studio.state.json"));
         var id=state["runtimeId"]?.GetValue<string>()??"";
         if(id!=runtimeId){runtimeId=id;command=state["ack"]?.GetValue<long>()??0;}
+        if(cancelPending&&FreshState()&&state["ack"]?.GetValue<long>()>=command&&Send("cancel"))
+        {cancelPending=false;recordingCommand=command;ClearNotice();}
         if(reloadPending&&FreshState()&&state["ack"]?.GetValue<long>()>=command){reloadPending=false;Send("reload");}
-        if(recording&&DateTime.UtcNow-heartbeat>TimeSpan.FromMilliseconds(700))Send("heartbeat");
+        if(recording&&!cancelPending&&DateTime.UtcNow-heartbeat>TimeSpan.FromMilliseconds(700))Send("heartbeat");
         if(page=="Calibration"&&recording)UpdateGuide();
         if(applyingAt>0&&state["reloaded"]?.GetValue<double>()>=applyingAt)applyingAt=0;
         if(training)ShowTraining();
         if(recording&&!FreshState())Error("Camera feed paused. Make sure the headset is awake and connected, or cancel.");
         if(page=="Cameras"&&IsVisible)await UpdateCameras();
         if(IsVisible)liveLog?.Invoke();
-        if(state["error"]?.GetValue<string>() is {Length:>0} error && (recording||page=="Calibration"))Error(error);
+        if(state["error"]?.GetValue<string>() is {Length:>0} error && (!recording||state["ack"]?.GetValue<long>()>=recordingCommand) && (recording||page=="Calibration"))Error(error);
         if(page!="Tracking"&&session.Hybrid is not null&&!Session.Alive(session.Hybrid))Error("Hybrid hands stopped. The Hybrid hands log in Settings shows why.");
     }
     catch(Exception error){Error(error.Message);}
@@ -169,6 +174,7 @@ public partial class StudioWindow
  }
  void UpdateGuide()
  {
+    if(cancelPending||!FreshState()||(state["ack"]?.GetValue<long>()??0)<recordingCommand)return;
     if(state["kind"]?.GetValue<string>()!=kind)return;
     poseTitle!.Text=state["title"]?.GetValue<string>()??poseTitle.Text;
     poseDetail!.Text=state["instruction"]?.GetValue<string>()??"";
