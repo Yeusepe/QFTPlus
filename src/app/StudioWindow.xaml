@@ -8,16 +8,31 @@
   <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Setter Property="Margin" Value="0,2"/><Setter Property="MinHeight" Value="44"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
   <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="MinHeight" Value="40"/><Setter Property="Padding" Value="10,7"/><Setter Property="HorizontalAlignment" Value="Stretch"/></Style>
   <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="MinHeight" Value="40"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style x:Key="ListRow" TargetType="Button">
+   <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="BorderBrush" Value="Transparent"/>
+   <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="12,10"/><Setter Property="MinHeight" Value="48"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="2" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Line}"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.7"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style x:Key="NavigationItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="MinHeight" Value="44"/><Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0"/><Setter Property="Border.CornerRadius" Value="{DynamicResource ControlCornerRadius}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
  </Window.Resources>
  <Grid x:Name="Shell" Background="{DynamicResource Canvas}">
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="196"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Border Background="{DynamicResource Sidebar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
    <Grid Margin="16,24,16,24">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <TextBlock Text="QFT+" FontSize="{DynamicResource Font25}" FontWeight="SemiBold" Margin="12,0,0,16"/>
-    <ListBox x:Name="Navigation" Grid.Row="1" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="Pages" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
-    <StackPanel Grid.Row="2" Margin="0,16,0,0"><TextBlock Text="Quest Pro" Foreground="{DynamicResource Muted}" Margin="12,0,0,6"/><TextBlock x:Name="Connection" Text="Ready" FontWeight="Medium" Margin="12,0,0,12" AutomationProperties.LiveSetting="Polite"/><Button x:Name="StartButton" Content="Start" Click="StartClick" HorizontalAlignment="Stretch"/></StackPanel>
+    <StackPanel Grid.Row="1" Margin="0,0,0,16">
+     <DockPanel Margin="12,0,0,0"><TextBlock x:Name="ConnectionMark" DockPanel.Dock="Left" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="{DynamicResource Font16}" VerticalAlignment="Center" Margin="0,0,10,0"/><StackPanel><TextBlock Text="Quest Pro" Foreground="{DynamicResource Muted}"/><TextBlock x:Name="Connection" Text="Ready" FontWeight="Medium" AutomationProperties.LiveSetting="Polite"/></StackPanel></DockPanel>
+     <Button x:Name="StartButton" Content="Start" Click="StartClick" HorizontalAlignment="Stretch" Margin="0,12,0,0"/>
+    </StackPanel>
+    <ListBox x:Name="Navigation" Grid.Row="2" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="Pages" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
    </Grid>
   </Border>
   <Grid Grid.Column="1" Margin="32,28,32,24" MaxWidth="900" HorizontalAlignment="Stretch">

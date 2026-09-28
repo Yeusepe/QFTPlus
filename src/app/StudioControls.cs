@@ -29,7 +29,7 @@ public partial class StudioWindow
     parent.Children.Add(label);parent.Children.Add(control);
  }
 
- void SliderRow(Panel parent,string title,double min,double max,double value,Action<double> changed,string format="0'%'",double displayScale=1)
+ Slider SliderRow(Panel parent,string title,double min,double max,double value,Action<double> changed,string format="0'%'",double displayScale=1)
  {
     var stack=new StackPanel{Margin=new(0,0,0,16)};
     var slider=new Slider{Minimum=min,Maximum=max,Value=Math.Clamp(value,min,max),SmallChange=(max-min)/100,LargeChange=(max-min)/10,MinHeight=40};AutomationProperties.SetName(slider,title);
@@ -49,6 +49,40 @@ public partial class StudioWindow
     number.PreviewKeyDown+=(_,e)=>{if(e.Key==Key.Enter){Commit();e.Handled=true;}else if(e.Key==Key.Escape){number.Text=Display();problem.Visibility=Visibility.Collapsed;e.Handled=true;}};
     slider.ValueChanged+=(_,_)=>{number.Text=Display();problem.Visibility=Visibility.Collapsed;changed(slider.Value);};
     stack.Children.Add(slider);stack.Children.Add(problem);parent.Children.Add(stack);
+    return slider;
+ }
+ Action? trackingRefresh;
+ void EyeOptions()
+ {
+    var eyes=new StackPanel();
+    var enabled=new CheckBox{Content=new TextBlock{Text="Independent eye gaze"},IsChecked=session.IndependentGaze};
+    AutomationProperties.SetName(enabled,"Independent eye gaze");
+    eyes.Children.Add(enabled);
+    eyes.Children.Add(Text("Tracks the direction of each eye separately.",13,true));
+    var status=Text("",13,true);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);eyes.Children.Add(status);
+    var setup=Button("Set up eye tracking",()=>Navigate("Setup"));eyes.Children.Add(setup);
+    var options=new StackPanel{Margin=new(0,12,0,0)};
+    options.Children.Add(Text("Adjust how much your eyes turn toward each other when looking at something nearby.",13,true));
+    var controls=new StackPanel();
+    var strength=SliderRow(controls,"Convergence strength",0,3,session.VergenceGain,v=>{if(!preview)session.SetVergenceGain(v);},displayScale:100);
+    strength.SmallChange=.05;strength.LargeChange=.25;strength.TickFrequency=.05;strength.IsSnapToTickEnabled=true;
+    controls.Children.Add(Button("Reset to 100%",()=>strength.Value=1));options.Children.Add(controls);
+    options.Children.Add(Text("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental.",13,true));
+    var adjustmentStatus=Text("",13,true);AutomationProperties.SetLiveSetting(adjustmentStatus,AutomationLiveSetting.Polite);options.Children.Add(adjustmentStatus);
+    eyes.Children.Add(new Expander{Header="Eye adjustments",Content=options,Margin=new(0,8,0,0)});
+    void Refresh()
+    {
+        var on=enabled.IsChecked==true;
+        enabled.IsEnabled=!busy&&!session.Running;
+        status.Text=busy?"Wait for the current step to finish to change eye gaze.":session.Running?"Stop tracking to change eye gaze.":on?"Starts with tracking.":"Uses standard eye tracking.";
+        AutomationProperties.SetHelpText(enabled,"Tracks the direction of each eye separately. "+status.Text);
+        setup.Visibility=on&&!File.Exists(Path.Combine(session.Root,"models/eye/bolt-independent-axes.ptl"))?Visibility.Visible:Visibility.Collapsed;
+        setup.IsEnabled=!busy&&!session.Running;
+        controls.IsEnabled=on&&!busy&&(!session.Running||session.State=="Connected");
+        adjustmentStatus.Text=!on?"Turn on independent eye gaze to adjust convergence.":busy||session.Running&&session.State!="Connected"?"Available when tracking is ready.":session.Running?"Changes apply immediately and are saved automatically.":"Saved automatically. Applies when tracking starts.";
+    }
+    enabled.Click+=(_,_)=>{if(!preview)session.Save("independentGaze",enabled.IsChecked==true);Refresh();};
+    trackingRefresh=Refresh;Refresh();Page.Children.Add(Card(eyes));
  }
  void Adjustments()
  {
@@ -97,7 +131,6 @@ public partial class StudioWindow
  }
  void StopManual(){if(!manualTesting)return;manualTesting=false;PublishManual();}
 
- // Setup steps keyed by the progress value Setup reports; a step is current from its value until the next one.
  static readonly (int From,string Title,string About)[] SetupSteps={
     (0,"Find your Quest Pro","Looks for your headset over USB and Wi-Fi."),
     (10,"Allow access","Approve USB debugging in the headset, then allow Shell in Magisk → Superuser."),
@@ -110,13 +143,12 @@ public partial class StudioWindow
  int setupStep=-1;
  bool setupDone, searching;
  string setupProblem="";
- List<EasySetupForm.Headset> headsets=new();
+ List<SetupService.Headset> headsets=new();
  DateTime? headsetsChecked;
  void SetupProgress()
  {
     if(!session.SettingUp)return;
     if(session.Progress>=100){setupDone=true;setupStep=SetupSteps.Length;return;}
-    // Paused and failed stages report 0; keep the step they happened on.
     if(session.State is "Setup paused" or "Couldn’t connect")return;
     setupStep=Array.FindLastIndex(SetupSteps,s=>s.From<=session.Progress);
  }
@@ -134,7 +166,6 @@ public partial class StudioWindow
         AutomationProperties.SetName(radio,title);AutomationProperties.SetHelpText(radio,about);radio.Checked+=(_,_)=>picked();return radio;
     }
 
-    // Headsets: search right away and show every headset adb can see, with what to do when one isn't ready.
     var found=new StackPanel();var caption=Text("",13,true);var activity=new ProgressBar{IsIndeterminate=true,Height=3,Margin=new(0,0,0,8)};
     var search=new Button{Content="Search again"};search.Click+=(_,_)=>_=Search();AutomationProperties.SetHelpText(search,"Looks for headsets over USB and Wi-Fi.");
     var top=new DockPanel{Margin=new(0,0,0,4)};DockPanel.SetDock(search,Dock.Right);top.Children.Add(search);var title=Heading("Headset");title.VerticalAlignment=VerticalAlignment.Center;top.Children.Add(title);
@@ -169,14 +200,12 @@ public partial class StudioWindow
         finally{searching=false;if(page=="Setup")ShowHeadsets();}
     }
 
-    // Connection preference, with what each choice means.
     var modes=new[]{"auto","wifi","usb"};var current=session.Config["connectionMode"]?.GetValue<string>()??"auto";
     var connection=new StackPanel();connection.Children.Add(Heading("Connection"));
     foreach(var (id,name,about) in new[]{("auto","Automatic","Uses Wi-Fi when it’s available and USB otherwise."),("wifi","Wi-Fi","Unplug after setup. If the headset restarts, connect USB once to turn Wi-Fi back on."),("usb","USB","Keeps the cable connected. Most reliable.")})
         connection.Children.Add(Choice("connection",name,about,current==id,()=>{if(!preview)session.Save("connectionMode",id);}));
     Page.Children.Add(Card(connection));
 
-    // Setup steps: a checklist with determinate progress; the current step carries the live instruction.
     var steps=new StackPanel();var status=Text("",14);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);
     var bar=new ProgressBar{Minimum=0,Maximum=100,Height=5,Margin=new(0,4,0,12)};bar.SetResourceReference(ProgressBar.ForegroundProperty,"Accent");
     var list=new StackPanel();steps.Children.Add(Heading("Setup steps"));steps.Children.Add(status);steps.Children.Add(bar);steps.Children.Add(list);Page.Children.Add(Card(steps));
@@ -187,14 +216,15 @@ public partial class StudioWindow
         for(var i=0;i<SetupSteps.Length;i++)
         {
             var (_,name,about)=SetupSteps[i];var now=i==setupStep&&!setupDone;var failed=now&&setupProblem.Length>0;
-            var (glyph,brush,word)=setupDone||i<setupStep?("✓","Accent","Done"):failed?("⚠","Ink","Needs attention"):now&&busy?("●","Accent","In progress"):now?("○","Ink","Paused"):("○","Muted","Not started");
+            if(SetupSteps[i].From==55&&!session.IndependentGaze)about="Skipped while independent eye gaze is off. Uses standard eye tracking.";
+            var (glyph,brush,word)=setupDone||i<setupStep?("✓","Accent","Done"):failed?("⚠","Ink","Couldn’t finish"):now&&busy?("●","Accent","In progress"):now?("○","Ink","Paused"):("○","Muted","Not started");
             var heading=new TextBlock{Text=name,FontWeight=now?FontWeights.SemiBold:FontWeights.Normal,Margin=new(0)};
             var detail=Text(failed?setupProblem:now&&busy&&session.Detail.Length>0?session.Detail:about,13,!(now&&busy)&&!failed);
             var row=Row(Symbol(glyph,brush),heading,detail);AutomationProperties.SetName(row,$"{name}, {word}");list.Children.Add(row);
             if(failed&&session.HelpTarget is {} help){var link=Button(session.HelpCaption,()=>Open(help));link.Margin=new(28,0,0,6);list.Children.Add(link);}
         }
         bar.Visibility=busy?Visibility.Visible:Visibility.Collapsed;bar.Value=session.Progress;
-        status.Text=busy&&setupStep>=0?$"Step {setupStep+1} of {SetupSteps.Length}: {SetupSteps[setupStep].Title}":setupDone?"Setup complete. Press Start to begin tracking.":setupProblem.Length>0?"Setup needs attention.":setupStep>=0?"Setup paused. Your progress is saved.":"Run setup once per headset, or again after an update.";
+        status.Text=busy&&setupStep>=0&&setupStep<SetupSteps.Length?$"Step {setupStep+1} of {SetupSteps.Length}: {SetupSteps[setupStep].Title}":setupDone?"Setup complete. Choose Start to begin tracking.":setupProblem.Length>0?"Setup couldn’t finish. The step below shows what to do.":setupStep>=0?"Setup paused. Your progress is saved.":"Run setup once per headset, or again after an update.";
         go.Content=busy?"Cancel":setupDone?"Set up again":setupProblem.Length>0?"Try again":setupStep>=0?"Continue":"Set up";
     }
     go.Click+=async(_,_)=>
@@ -204,7 +234,7 @@ public partial class StudioWindow
         busy=true;setupDone=false;setupProblem="";setupStep=0;StartButton.Content="Cancel";ClearNotice();ShowSteps();
         try{await session.Prepare();}
         catch(OperationCanceledException){}
-        catch(Exception error){setupProblem=error.Message;}
+        catch(Exception error){setupProblem=error.Message;Error(error.Message);}
         finally{busy=false;StartButton.Content=session.Running?"Stop":"Start";if(page=="Setup"){ShowSteps();_=Search();}}
     };
     setupRefresh=()=>{SetupProgress();ShowSteps();};
@@ -238,6 +268,10 @@ public partial class StudioWindow
         var gpu=new ComboBox{ItemsSource=adapters.Select(a=>a.Name).ToArray(),SelectedIndex=Math.Max(0,adapters.FindIndex(a=>a.Index==(session.Config["gpuIndex"]?.GetValue<int>()??0))),Margin=new(0,0,0,8)};
         gpu.SelectionChanged+=(_,_)=>{if(!preview)session.Save("gpuIndex",adapters[gpu.SelectedIndex].Index);};Field(graphics,"Graphics card",gpu);
     }
-    hardware.Children.Add(graphics);hardware.Children.Add(Text("Applies next start. For more VR headroom, select DirectML and a different graphics card from the one rendering your game. Calibration training uses the configured Python runtime.",13,true));Page.Children.Add(new Expander{Header="Processing",Content=hardware});
+    var training=new CheckBox{Content=new TextBlock{Text="Train calibrations on the graphics card"},IsChecked=session.Config["gpuTraining"]?.GetValue<bool>()!=false,Margin=new(0,0,0,4)};
+    AutomationProperties.SetHelpText(training,"Much faster calibration. Falls back to the processor automatically if the graphics card can't train correctly or quickly.");
+    training.Click+=(_,_)=>{if(!preview)session.Save("gpuTraining",JsonValue.Create(training.IsChecked==true));};
+    hardware.Children.Add(training);hardware.Children.Add(Text("Falls back to the processor automatically when the graphics card can't.",13,true));
+    hardware.Children.Add(graphics);hardware.Children.Add(Text("Takes effect the next time tracking starts. To leave more performance for VR, choose Graphics card, then a different card from the one running your game.",13,true));Page.Children.Add(new Expander{Header="Processing",Content=hardware});
  }
 }
