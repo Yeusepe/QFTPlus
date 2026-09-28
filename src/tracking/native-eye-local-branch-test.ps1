@@ -19,6 +19,7 @@ param(
     [double]$VergenceGain = 1.0
 )
 
+trap { [Console]::Out.WriteLine("QFT_ERROR: " + ($_.Exception.Message -replace '\s+', ' ')); break }
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $adb = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_ADB) -and (Test-Path -LiteralPath $env:QPRO_ADB)) {
@@ -58,7 +59,7 @@ $modelProperty = "persist.device_config.oculus_shared_vision.oculus_eyetracking_
 $overlay = Resolve-WorkspacePath $OverlayPath
 $calibrationOutputPath = Resolve-WorkspacePath $CalibrationOutput
 
-if (-not (Test-Path -LiteralPath $adb)) { throw "ADB not found. Re-extract the release so platform-tools\adb.exe is present." }
+if (-not (Test-Path -LiteralPath $adb)) { throw "A required file is missing (platform-tools\adb.exe). Reinstall QFT+." }
 if (-not (Test-Path -LiteralPath $python)) { throw "Project Python environment not found under .venv\Scripts." }
 if ($Calibrate) {
     if (-not (Test-Path -LiteralPath $overlay)) { throw "BabbleCalibration not found: $overlay" }
@@ -67,10 +68,10 @@ if ($Calibrate) {
     }
 }
 if (($RuntimePreview -or $VrcftOutput) -and -not (Test-Path -LiteralPath $calibrationOutputPath)) {
-    throw "Independent visual-axis calibration not found: $calibrationOutputPath"
+    throw "Independent eye calibration is missing. To use standard eye tracking, turn off Independent eye gaze in Settings."
 }
 if ($VrcftOutput -and -not (Get-Process -Name "VRCFaceTracking" -ErrorAction SilentlyContinue)) {
-    throw "Start VRCFaceTracking before enabling gaze-only output."
+    throw "Open VRCFaceTracking, then start tracking."
 }
 
 if (-not [string]::IsNullOrWhiteSpace($AdbTarget)) {
@@ -88,7 +89,7 @@ function Invoke-Root([string]$Command, [switch]$AllowFailure) {
         $ErrorActionPreference = $previousPreference
     }
     if ($exitCode -ne 0 -and -not $AllowFailure) {
-        throw "Headset command failed: $Command`n$output"
+        throw "The headset didn't accept a command. Make sure it's awake and connected, then try again. (${Command}: $output)"
     }
     return ($output | Out-String).Trim()
 }
@@ -101,7 +102,7 @@ function Wait-TrackingService {
         }
         Start-Sleep -Milliseconds 250
     }
-    throw "The headset tracking service did not return to running state."
+    throw "The headset's tracking service didn't restart. Restart the headset, then try again."
 }
 
 function Restore-StockModel([string]$PropertyValue = "false") {
@@ -115,10 +116,10 @@ function Restore-StockModel([string]$PropertyValue = "false") {
 
 try {
     & $adb get-state | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "No authorized Quest was found over ADB." }
+    if ($LASTEXITCODE -ne 0) { throw "Quest Pro isn't connected. Connect it, and in the headset choose 'Always allow from this computer.'" }
     $rootProbe = & $adb shell su -c id 2>&1
     if ($LASTEXITCODE -ne 0 -or ($rootProbe -join "`n") -notmatch 'uid=0\(root\)') {
-        throw "Magisk root is not granted to Android Shell. On the headset open Magisk > Superuser and enable Shell (or ADB Shell), then retry."
+        throw "Shell doesn't have root access yet. In the headset, open Magisk > Superuser, allow Shell, then try again."
     }
     if (-not [string]::IsNullOrWhiteSpace($AdbTarget)) {
         Write-Host "Independent-eye ADB target: $AdbTarget"
@@ -129,12 +130,18 @@ try {
         Write-Host "Stock Meta eye model restored."
         exit 0
     }
+    $overrideOwner = [System.Threading.Mutex]::new($false, "Local\QFTPlus.EyeModelOverride")
+    try { $ownsOverride = $overrideOwner.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $ownsOverride = $true }
+    if (-not $ownsOverride) {
+        throw "Independent eye tracking is already running in another QFT+ window. Stop it there, then try again."
+    }
     $existingMount = Invoke-Root "grep -F '$targetModel' /proc/mounts" -AllowFailure
     if (-not [string]::IsNullOrWhiteSpace($existingMount)) {
-        throw "A temporary eye-model test is already active. Close its viewer with Q and wait for 'Stock Meta eye model restored.' If that process is gone, run this script with -RestoreOnly."
+        Write-Host "Restoring the stock eye model left active by an earlier run."
+        Restore-StockModel
     }
     if (-not (Test-Path -LiteralPath $localModel)) {
-        throw "Patched research model not found: $localModel"
+        throw "The independent eye model is missing. Run setup again to rebuild it."
     }
 
     $originalProperty = (Invoke-Root "getprop $modelProperty" -AllowFailure)
@@ -143,7 +150,7 @@ try {
     try {
     Invoke-Root "umount '$targetModel'" -AllowFailure | Out-Null
     & $adb push $localModel $remoteModel | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Could not copy the research model to the headset." }
+    if ($LASTEXITCODE -ne 0) { throw "Couldn't copy the eye model to the headset. Check the connection, then try again." }
     $cleanupNeeded = $true
     Invoke-Root "chown root:root '$remoteModel'" | Out-Null
     Invoke-Root "chmod 0644 '$remoteModel'" | Out-Null
@@ -152,7 +159,7 @@ try {
 
     $localHash = (Get-FileHash -LiteralPath $localModel -Algorithm SHA256).Hash.ToLowerInvariant()
     $remoteHash = ((Invoke-Root "sha256sum '$targetModel'") -split "\s+")[0].ToLowerInvariant()
-    if ($localHash -ne $remoteHash) { throw "The temporary model failed its headset hash check." }
+    if ($localHash -ne $remoteHash) { throw "The eye model on the headset didn't match the one on this PC. Try again." }
 
     Invoke-Root "setprop $modelProperty true" | Out-Null
     Invoke-Root "stop trackingservice" | Out-Null
@@ -207,7 +214,7 @@ try {
             --notice "TEMPORARY MODEL OVERRIDE - stock model is restored when Q quits" `
             --instruction "Close one eye or drift only the right eye; the two bottom axes should now remain independent."
     }
-    if ($LASTEXITCODE -ne 0) { throw "The local-branch gaze viewer failed." }
+    if ($LASTEXITCODE -ne 0) { throw "Independent eye tracking stopped unexpectedly. The Eye tracking log shows why." }
     }
     finally {
         if ($cleanupNeeded) {
@@ -217,6 +224,7 @@ try {
     }
 }
 finally {
+    if ($ownsOverride) { $overrideOwner.ReleaseMutex() }
     if ($hadAndroidSerial) {
         $env:ANDROID_SERIAL = $previousAndroidSerial
     }

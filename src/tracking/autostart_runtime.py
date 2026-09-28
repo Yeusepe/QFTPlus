@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import logging
+import math
 import json
 import os
 from pathlib import Path
@@ -16,11 +17,11 @@ from contextlib import ExitStack
 
 def runtime_ready(root: Path, target: str) -> bool:
     try:
-        steam = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq vrserver.exe", "/NH"],
+        apps = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
             capture_output=True, timeout=5, creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        if b"vrserver.exe" not in steam.stdout.lower():
+        if any(name not in apps.stdout.lower() for name in (b"vrserver.exe", b"vrcfacetracking.exe")):
             return False
         command = [str(root / "platform-tools" / "adb.exe")]
         if target:
@@ -44,17 +45,27 @@ def runtime_ready(root: Path, target: str) -> bool:
         return False
 
 
-def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_arguments=(), *, quiet=False, tongue_models=None) -> None:
+def failure_reason(log: Path) -> str:
+    try:
+        lines = [line.strip() for line in log.read_text(errors="replace").splitlines() if line.strip()]
+    except OSError:
+        return ""
+    reasons = [line.removeprefix("QFT_ERROR:").strip() for line in lines if line.startswith("QFT_ERROR:")]
+    return reasons[-1] if reasons else (lines[-1] if lines else "")
+
+
+def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_arguments=(), *, quiet=False, tongue_models=None, independent_gaze=True, vergence_gain=1.0) -> None:
     children: list[subprocess.Popen] = []
+    names: list[str] = []
     with ExitStack() as files:
         def running() -> bool:
             return owner_alive() and not stop_file.exists() and not (root / ".qpro-manual.stop").exists()
 
-        def status(state: str) -> None:
+        def status(state: str, **details: str) -> None:
             temporary = root / "autostart-status.json.tmp"
             try:
                 temporary.write_text(json.dumps({"state": state, "pid": os.getpid(),
-                                                "stopFile": str(stop_file)}), encoding="utf-8")
+                                                "stopFile": str(stop_file), **details}), encoding="utf-8")
                 temporary.replace(root / "autostart-status.json")
             except OSError:
                 logging.warning("Status file busy; tracking continues")
@@ -69,6 +80,7 @@ def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_argu
                    if key.upper() != "PSMODULEPATH"}
             env.update(QPRO_PYTHON=sys.executable,
                        QPRO_ADB=str(root / "platform-tools" / "adb.exe"), PYTHONUNBUFFERED="1")
+            names.append(name)
             children.append(subprocess.Popen(
                 command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW,
@@ -76,19 +88,20 @@ def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_argu
             logging.info("Started %s launcher pid=%s", name, children[-1].pid)
 
         try:
-            logging.info("Waiting for rooted Quest and SteamVR")
+            logging.info("Waiting for rooted Quest, SteamVR and VRCFaceTracking")
             status("waiting")
             while running() and not runtime_ready(root, target):
                 time.sleep(2)
             if not running():
                 return
-            launch("native-eye-local-branch-test.ps1", "eyes",
-                   ["-RuntimePreview", "-VrcftOutput", "-VergenceGain", "1.0"] + (["-NoWindow"] if quiet else []))
             status("starting")
-            for _ in range(7):
-                if not running() or children[0].poll() is not None:
-                    return
-                time.sleep(1)
+            if independent_gaze:
+                launch("native-eye-local-branch-test.ps1", "eyes",
+                       ["-RuntimePreview", "-VrcftOutput", "-VergenceGain", str(vergence_gain)] + (["-NoWindow"] if quiet else []))
+                for _ in range(7):
+                    if not running() or children[0].poll() is not None:
+                        return
+                    time.sleep(1)
             if not running():
                 return
             models = tongue_models or (root / "models" / "qpro-stereo-tongue-v8-gate.pt",
@@ -98,7 +111,7 @@ def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_argu
                 "-TongueModelPath", str(models[0]),
                 "-TongueDirectionModelPath", str(models[1]),
             ] + list(camera_arguments))
-            logging.info("Both launchers started; preview Q or module shutdown stops both")
+            logging.info("Tracking launchers started; preview Q or module shutdown stops tracking")
             connected = False
             while running() and all(child.poll() is None for child in children):
                 if not connected and "Connected. Keys" in (root / "autostart-tongue.log").read_text(errors="replace"):
@@ -106,13 +119,21 @@ def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_argu
                     connected = True
                 time.sleep(1)
         finally:
+            failed = next((name for name, child in zip(names, children)
+                           if child.poll() not in (None, 0)), None) if running() else None
             logging.info("Requesting clean shutdown")
             stop_file.write_text("stop", encoding="utf-8")
             for child in children:
                 child.wait()
                 logging.info("Launcher pid=%s exited code=%s", child.pid, child.returncode)
             stop_file.unlink(missing_ok=True)
-            status("stopped")
+            if failed:
+                log = f"autostart-{failed}.log"
+                reason = failure_reason(root / log) or f"The {failed} launcher stopped unexpectedly."
+                logging.error("%s launcher failed: %s", failed, reason)
+                status("stopped", error=reason, log=log)
+            else:
+                status("stopped")
             logging.info("Runtime stopped")
 
 
@@ -127,12 +148,16 @@ def main() -> None:
     parser.add_argument("--pupil-preview", action="store_true")
     parser.add_argument("--pupil-dilation", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--no-independent-gaze", action="store_true")
+    parser.add_argument("--vergence-gain", type=float, default=1.0)
     parser.add_argument("--tongue-model", type=Path)
     parser.add_argument("--tongue-direction-model", type=Path)
-    parser.add_argument("--extra-face-capture", choices=("cheeks", "brows", "lips", "nose", "jaw", "mouth"))
+    parser.add_argument("--extra-face-capture", choices=("puff", "cheeks", "brows", "pucker", "corners", "nose", "jaw", "mouth"))
     parser.add_argument("--extra-face-model", type=Path)
     parser.add_argument("--extra-face-output", action="store_true")
     args = parser.parse_args()
+    if not math.isfinite(args.vergence_gain) or not 0 <= args.vergence_gain <= 3:
+        parser.error("Convergence strength must be between 0 and 3")
     if bool(args.tongue_model) != bool(args.tongue_direction_model):
         parser.error("Both personal tongue checkpoints are required")
     root = Path(__file__).resolve().parent
@@ -176,7 +201,8 @@ def main() -> None:
                     camera_arguments += ["-NoWindow"]
                 models = (args.tongue_model, args.tongue_direction_model) if args.tongue_model else None
                 supervise(root, args.stop_file, args.adb_target, owner_alive, camera_arguments,
-                          quiet=args.quiet, tongue_models=models)
+                          quiet=args.quiet, tongue_models=models, independent_gaze=not args.no_independent_gaze,
+                          vergence_gain=args.vergence_gain)
             finally:
                 lock.seek(0)
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
