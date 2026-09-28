@@ -150,24 +150,5 @@ rpc.exports = {
         requestRestore();
         return state;
     },
-    status() { return {state,frames}; },
-    observe(seconds) {
-        if (listener) throw new Error('Already observing');
-        const controllerType = new NativeFunction(method('GetControllerType',1),'int',['pointer','int']);
-        const activeType = new NativeFunction(method('get_ActiveControllerType',0),'int',['pointer']);
-        listener = Interceptor.attach(addresses.update, {
-            onEnter(args) { this.self = args[0]; this.output = args[1]; },
-            onLeave() {
-                frames++;
-                const now = Date.now();
-                if (now-lastSend >= 1000) {
-                    lastSend = now;
-                    send({event:'sample', frames, multi:this.self.add(multiOffset).readU8(),
-                        sharedMulti:shared.add(sharedMultiOffset).readU8(),
-                        activeType:activeType(this.self),controllerTypes:[controllerType(this.self,0),controllerType(this.self,1)]});
-                }
-            }
-        });
-        setTimeout(() => { listener.detach(); listener=null; send({event:'stopped',frames}); },seconds*1000);
-    }
+    status() { return {state,frames}; }
 };

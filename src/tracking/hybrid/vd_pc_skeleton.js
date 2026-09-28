@@ -1,23 +1,26 @@
 const driver=Process.getModuleByName('driver_VirtualDesktop.dll');
-const hands=[];
-for(let side=0;side<2;side++) {
+function resolve(side) {
     const controller=driver.base.add(0x9a740+side*8).readPointer();
-    if(controller.isNull())throw new Error('Controller shim unavailable');
+    if(controller.isNull())return null;
     const hand=controller.add(0x48).readPointer();
     const skeleton=driver.base.add(0x9a7a8+side*8).readU64();
-    if(hand.isNull() || skeleton.equals(0))throw new Error('Skeleton handles unavailable');
+    if(hand.isNull() || skeleton.equals(0))return null;
     if(controller.add(0x1c).readU32()!==side+1 || hand.add(0x1c).readU32()!==side+1)
         throw new Error('Controller role mismatch');
     const original={controllerMulti:controller.add(0x1a).readU8(),
         handMulti:hand.add(0x1a).readU8(),skeleton:hand.add(0xf0).readU64()};
-    hands.push({side,controller,hand,skeleton,original,active:false,physical:false});
     send({event:'resolved',side,controller:controller.toString(),hand:hand.toString(),
         physicalSkeleton:skeleton.toString(),handSkeleton:original.skeleton.toString()});
+    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),active:false,physical:false};
 }
+function current(h) {
+    const controller=driver.base.add(0x9a740+h.side*8).readPointer();
+    return controller.equals(h.controller) && controller.add(0x48).readPointer().equals(h.hand);
+}
+const hands=[resolve(0),resolve(1)];
 let timer=null,deadline=null,poseListener=null;
 function restore(h) {
-    const current=driver.base.add(0x9a740+h.side*8).readPointer();
-    if(!current.equals(h.controller) || !current.add(0x48).readPointer().equals(h.hand))return;
+    if(h===null || !current(h))return;
     h.hand.add(0xf0).writeU64(h.original.skeleton);
     h.hand.add(0x1a).writeU8(h.original.handMulti);
     h.controller.add(0x1a).writeU8(h.original.controllerMulti);
@@ -44,16 +47,22 @@ rpc.exports={
         const poseUpdated=host.readPointer().add(Process.pointerSize).readPointer();
         poseListener=Interceptor.attach(poseUpdated, {
             onEnter(args) {
-                if(!hands.some(h=>h.hand.add(0x40).readU32()===args[1].toUInt32()))return;
+                const device=args[1].toUInt32();
+                if(!hands.some(h=>h!==null && h.device===device))return;
                 const pose=args[2];
                 pose.add(0x114).writeU8(0);
                 pose.add(0x117).writeU8(0);
             }
         });
         timer=setInterval(()=>{
-            for(const h of hands) {
-                const current=driver.base.add(0x9a740+h.side*8).readPointer();
-                if(!current.equals(h.controller) || !current.add(0x48).readPointer().equals(h.hand)){stop();throw new Error('Controller changed');}
+            for(let side=0;side<2;side++) {
+                let h=hands[side];
+                if(h===null || !current(h)) {
+                    if(h!==null)send({event:'controller-changed',side});
+                    h=hands[side]=resolve(side);
+                    if(h===null)continue;
+                }
+                h.device=h.hand.add(0x40).readU32();
                 const data=h.controller.add(0x10).readPointer();
                 const frame=data.readPointer();
                 const tracked=frame.add(0x8c+h.side*0x44).readU8()&3;
@@ -73,6 +82,7 @@ rpc.exports={
         renew(seconds);
     },
     renew,
-    status(){return {running:timer!==null,active:hands.map(h=>h.active)};},
+    status(){return {running:timer!==null,active:hands.map(h=>h!==null && h.active)};},
     stop,
+    dispose:stop,
 };
