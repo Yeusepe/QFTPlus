@@ -137,6 +137,7 @@ class SharedPreview:
     jpegs: dict[str, bytes] = field(default_factory=dict)
     images: dict[str, np.ndarray] = field(default_factory=dict)
     pupils: list = field(default_factory=lambda: [None, None])
+    pupil_requested_at: float = -float("inf")
     generation: int = 0
     selected: int | str = 3
     available: list[int] = field(default_factory=list)
@@ -167,6 +168,8 @@ class SharedPreview:
 
     def get_jpeg(self, key: str) -> bytes | None:
         with self.lock:
+            if key in ("pupil0", "pupil1"):
+                self.pupil_requested_at = time.monotonic()
             if key in self.jpegs:
                 return self.jpegs[key]
             image = self.images.get(key)
@@ -439,16 +442,18 @@ def main() -> int:
     )
     parser.add_argument("--labels-port", type=int, default=27274)
     parser.add_argument("--no-labels", action="store_true")
-    parser.add_argument("--calibration", action="store_true")
-    parser.add_argument("--tongue-calibration", action="store_true")
-    parser.add_argument("--tongue-still-calibration", action="store_true")
-    parser.add_argument("--tongue-correction-calibration", action="store_true")
-    parser.add_argument("--tongue-refinement-calibration", action="store_true")
-    parser.add_argument("--tongue-arc-calibration", action="store_true")
-    parser.add_argument("--extra-face-capture", choices=("puff", "cheeks", "brows", "lips", "nose", "jaw", "mouth"))
+    calibrations = parser.add_mutually_exclusive_group()
+    calibrations.add_argument("--calibration", action="store_true")
+    calibrations.add_argument("--tongue-calibration", action="store_true")
+    calibrations.add_argument("--tongue-still-calibration", action="store_true")
+    calibrations.add_argument("--tongue-correction-calibration", action="store_true")
+    calibrations.add_argument("--tongue-refinement-calibration", action="store_true")
+    calibrations.add_argument("--tongue-arc-calibration", action="store_true")
+    from extra_face_capture import FAMILIES
+    calibrations.add_argument("--extra-face-capture", choices=tuple(FAMILIES))
     parser.add_argument("--pupil-preview", action="store_true")
     parser.add_argument("--pupil-dilation", action="store_true")
-    parser.add_argument("--extra-face-model")
+    parser.add_argument("--extra-face-model", action="append", help="repeat once per expression group")
     parser.add_argument("--extra-face-output", action="store_true")
     parser.add_argument("--model")
     parser.add_argument("--model-device", default="auto")
@@ -502,18 +507,10 @@ def main() -> int:
         parser.error("--tongue-smoothing must be between 0 and 100")
     if arguments.record_seconds and arguments.record is None:
         parser.error("--record-seconds requires --record")
-    if arguments.calibration and arguments.record is None:
-        parser.error("--calibration requires --record")
-    if arguments.tongue_calibration and arguments.record is None:
-        parser.error("--tongue-calibration requires --record")
-    if arguments.tongue_still_calibration and arguments.record is None:
-        parser.error("--tongue-still-calibration requires --record")
-    if arguments.tongue_correction_calibration and arguments.record is None:
-        parser.error("--tongue-correction-calibration requires --record")
-    if arguments.tongue_refinement_calibration and arguments.record is None:
-        parser.error("--tongue-refinement-calibration requires --record")
-    if arguments.tongue_arc_calibration and arguments.record is None:
-        parser.error("--tongue-arc-calibration requires --record")
+    for mode in ("calibration", "tongue_calibration", "tongue_still_calibration",
+                 "tongue_correction_calibration", "tongue_refinement_calibration", "tongue_arc_calibration"):
+        if getattr(arguments, mode) and arguments.record is None:
+            parser.error(f"--{mode.replace('_', '-')} requires --record")
     if arguments.extra_face_capture and (arguments.record is None or (arguments.no_window and not calibration_ui) or arguments.record_seconds):
         parser.error("--extra-face-capture needs --record, a visible window and no timed recording")
     if arguments.pupil_preview and arguments.no_window and not calibration_ui:
@@ -522,17 +519,6 @@ def main() -> int:
         parser.error("hidden extra-face tracking requires --extra-face-output")
     if arguments.extra_face_output and not arguments.extra_face_model:
         parser.error("--extra-face-output requires a reviewed extra-face model")
-    calibration_modes = sum((
-        bool(arguments.calibration),
-        bool(arguments.tongue_calibration),
-        bool(arguments.tongue_still_calibration),
-        bool(arguments.tongue_correction_calibration),
-        bool(arguments.tongue_refinement_calibration),
-        bool(arguments.tongue_arc_calibration),
-        bool(arguments.extra_face_capture),
-    ))
-    if calibration_modes > 1:
-        parser.error("choose only one calibration mode")
     if (arguments.calibration or arguments.tongue_calibration
             or arguments.tongue_still_calibration) and arguments.no_window:
         parser.error("--calibration requires the visible prompt window")
@@ -654,7 +640,8 @@ def main() -> int:
             extra_face_preview = ExtraFacePreview(arguments.extra_face_model, arguments.extra_face_output, render=not arguments.no_window)
         if arguments.pupil_preview or arguments.pupil_dilation:
             from pupil_dilation import PupilDilation
-            pupil_dilation = PupilDilation(path=arguments.pupil_calibration, enabled=arguments.pupil_dilation, render=not arguments.no_window)
+            pupil_dilation = PupilDilation(path=arguments.pupil_calibration, enabled=arguments.pupil_dilation,
+                                          render=not arguments.no_window, asynchronous=arguments.no_window)
         if arguments.record is not None:
             if arguments.record == "auto":
                 stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -750,7 +737,7 @@ def main() -> int:
                 label_path, port=arguments.labels_port, append=bool(arguments.resume_session)
             )
             print(
-                f"Listening for timestamped Virtual Desktop labels on "
+                f"Listening for timestamped factory labels on "
                 f"127.0.0.1:{arguments.labels_port}"
             )
         if arguments.model is not None:
@@ -961,6 +948,8 @@ def main() -> int:
                     try:
                         import json
                         config = json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+                        if tongue_broadcaster is not None:
+                            tongue_broadcaster.set_enabled(config.get('tongueOutput', True))
                         if (tongue_model_preview is not None and config.get('tongueModelPath')
                                 and (Path(config['tongueModelPath']).resolve() != tongue_model_preview.checkpoint_path.resolve()
                                      or Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.direction_checkpoint_path)):
@@ -971,20 +960,28 @@ def main() -> int:
                             tongue_model_preview = candidate
                             tongue_broadcaster.supported = candidate.supported_targets
                             tongue_inference_worker = TongueInferenceWorker(candidate, tongue_broadcaster, render=not arguments.no_window)
-                        if tongue_broadcaster is not None:
-                            tongue_broadcaster.enabled = config.get('tongueOutput', True)
-                        if config.get('extraFaceModel'):
-                            from extra_face_preview import ExtraFacePreview
-                            candidate = ExtraFacePreview(config['extraFaceModel'], config.get('extraFaceOutput', False), render=not arguments.no_window)
+                        from extra_face_preview import ExtraFacePreview, configured_models
+                        if config.get('extraFaceOutput') and configured_models(config):
+                            candidate = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window)
                             if extra_face_preview is not None: extra_face_preview.close()
                             extra_face_preview = candidate
+                        elif extra_face_preview is not None:
+                            extra_face_preview.close()
+                            extra_face_preview = None
                         if pupil_dilation is not None: pupil_dilation.close()
                         from pupil_dilation import PupilDilation
-                        pupil_dilation = PupilDilation(enabled=config.get('pupilDilation', False), render=not arguments.no_window)
+                        pupil_dilation = PupilDilation(path=arguments.pupil_calibration,
+                            enabled=config.get('pupilDilation', False), render=not arguments.no_window,
+                            asynchronous=arguments.no_window)
                         studio.state['error'] = ''
                         studio.state['reloaded'] = time.time()
                     except Exception as error:
                         studio.state['error'] = 'Could not load calibration: '+str(error)
+            if tongue_inference_worker is not None and tongue_inference_worker.active:
+                factory_sample = label_recorder.nearest_sample(pc_monotonic_ns) if label_recorder else None
+                tongue_inference_worker.submit(
+                    mouth_camera_strip(strip, camera_ids), factory_sample,
+                    label_recorder.schema_names if label_recorder else [], received_at=pc_received_at)
             if calibration_ui is not None:
                 ui_key = calibration_ui.take_key()
                 if ui_key is not None:
@@ -993,7 +990,8 @@ def main() -> int:
                     else:
                         handle_key(shared, ui_key)
             if pupil_dilation is not None:
-                pupil_image = pupil_dilation.update(strip)
+                pupil_image = pupil_dilation.update(strip, preview=arguments.pupil_preview or
+                    time.monotonic()-shared.pupil_requested_at < 1.)
                 if studio is not None:
                     with shared.lock:
                         shared.pupils = getattr(pupil_dilation, "detected_pupils", [None, None])
@@ -1024,16 +1022,6 @@ def main() -> int:
                     labels_live_for_model,
                 )
             if tongue_model_preview is not None:
-                factory_sample = (
-                    label_recorder.nearest_sample(pc_monotonic_ns)
-                    if label_recorder is not None else None
-                )
-                tongue_inference_worker.submit(
-                    mouth_camera_strip(strip, camera_ids),
-                    factory_sample,
-                    label_recorder.schema_names if label_recorder else [],
-                    received_at=pc_received_at,
-                )
                 tongue_prediction, tongue_model_image = tongue_inference_worker.latest()
             if open_source_preview is not None:
                 open_source_prediction = open_source_preview.predict(strip)
@@ -1248,7 +1236,7 @@ def main() -> int:
                     )
             else:
                 print(
-                    "WARNING: no Virtual Desktop labels were received. The camera capture "
+                    "WARNING: no factory labels were received. The camera capture "
                     "is valid but is not yet a supervised training dataset."
                 )
     return 0

@@ -1,6 +1,7 @@
 """Local, single-command mailbox for the native Windows calibration window."""
 import json
 import math
+import re
 import time
 from pathlib import Path
 
@@ -48,11 +49,11 @@ class CalibrationUI:
                     amount = "halfway" if max(left, right) == .5 else "fully"
                     state.update(title=f"Puff {side} {amount}", instruction="Relax, then form this pose again before each capture.")
         if pupil is not None:
-            from pupil_dilation import PHASES
+            from pupil_dilation import DURATION
             phase = pupil.phase
             state.update(kind="pupils", phase=phase, result=pupil.result,
-                         message=pupil.message, bright=phase is not None and phase % 2 == 0,
-                         remaining=max(0, math.ceil(PHASES[phase][1] - (now - pupil.started))) if phase is not None else 0,
+                         message=pupil.message, level=pupil.level,
+                         remaining=max(0, math.ceil(DURATION - (now - pupil.started))) if phase is not None else 0,
                          completed=pupil.result == "passed")
         path = Path(str(self.prefix) + ".state.json")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,29 +67,61 @@ class CalibrationUI:
                 time.sleep(.01)
 
 
-def check_puff(checkpoint):
-    names = {"CheekPuffLeft", "CheekPuffRight"}
-    if checkpoint.get("schema") != "extra-face-stills-v1" or set(checkpoint.get("expressionNames", [])) != names:
-        raise ValueError("Expected an independent cheek-puff model")
-    for name in names:
+def describe(name):
+    words = re.findall("[A-Z][a-z]*", name)
+    side = [words.pop().lower()] if words[-1] in ("Left", "Right") else []
+    return " ".join(side + [word.lower() for word in words])
+
+
+def check(checkpoint):
+    from extra_face_capture import family_of
+    names = checkpoint.get("expressionNames", [])
+    if checkpoint.get("schema") != "extra-face-stills-v1":
+        raise ValueError("Expected an extra-face model")
+    puff = family_of(names) == "puff"
+    failed, reasons = False, []
+    for name in sorted(names):
         score = checkpoint.get("validation", {}).get(name, {})
         values = [score.get(k) for k in ("mae", "neutralMaximum", "fullMinimum")]
+        what = describe(name).replace("cheek puff", "cheek") if puff else describe(name)
         if (not score.get("hasNeutralAndFull") or score.get("count", 0) < 10
-                or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in values)
-                or values[0] > .20 or values[1] > .25 or values[2] < .75):
-            raise ValueError("Cheek poses were not distinct enough. Repeat calibration, relaxing the other cheek.")
+                or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in values)):
+            failed = True
+            reasons.append(f"Some {what} poses were skipped.")
+            continue
+        if values[0] <= .20 and values[1] <= .25 and values[2] >= .75:
+            continue
+        failed = True
+        if (score.get("oppositeOnlyMaximum") or 0) > .25:
+            reasons.append(f"Your {what} filled up when only the other one should have." if puff
+                           else f"Your {what} moved when only the other side should have.")
+        elif values[1] > .25:
+            reasons.append(f"Your {what} looked puffed while relaxed." if puff else f"Your {what} looked active while relaxed.")
+        if values[2] < .75:
+            reasons.append(f"Full {what.replace('cheek', 'puffs')} looked partial. Fill all the way." if puff
+                           else f"Full {what} poses looked partial. Go all the way.")
+        if (score.get("halfMean") or 0) > .8:
+            reasons.append("Halfway puffs looked like full ones. Use about half the air." if puff
+                           else "Halfway poses looked like full ones. Go about half as far.")
+    if failed:
+        raise ValueError(("Cheek calibration" if puff else "This calibration") + " didn't pass its test round. "
+                         + " ".join(dict.fromkeys(reasons))
+                         + " Try again. Your previous calibration is still in use.")
 
 
 if __name__ == "__main__":
     import argparse
     import torch
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("check-puff", "approve-puff"))
+    parser.add_argument("action", choices=("check", "approve"))
     parser.add_argument("model", type=Path)
     args = parser.parse_args()
     model = torch.load(args.model, map_location="cpu", weights_only=True)
-    check_puff(model)
-    if args.action == "approve-puff":
+    try:
+        check(model)
+    except ValueError as error:
+        parser.exit(1, str(error) + "\n")
+    if args.action == "approve":
         model["approvedForOutput"] = True
         pending = args.model.with_suffix(".tmp")
         torch.save(model, pending)

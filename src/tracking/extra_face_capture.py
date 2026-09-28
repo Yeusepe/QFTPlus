@@ -11,35 +11,79 @@ FAMILIES = {
     "puff": ["CheekPuff"],
     "cheeks": ["CheekPuff", "CheekSuck"],
     "brows": ["BrowPinch", "BrowLowerer", "BrowInnerUp", "BrowOuterUp"],
-    "lips": ["LipPuckerUpper", "LipPuckerLower", "LipSuckCorner",
-             "MouthUpperDeepen", "MouthCornerPull", "MouthCornerSlant"],
+    "pucker": ["LipPuckerUpper", "LipPuckerLower", "LipSuckCorner"],
+    "corners": ["MouthUpperDeepen", "MouthCornerPull", "MouthCornerSlant"],
     "nose": ["NasalDilation", "NasalConstrict"],
     "jaw": ["JawBackward", "JawClench", "JawMandibleRaise"],
     "mouth": ["MouthUpperLeft", "MouthUpperRight", "MouthLowerLeft", "MouthLowerRight"],
 }
+STOCK_TRACKED = {base + side for base in ("BrowInnerUp", "BrowOuterUp", "CheekSuck")
+                 for side in ("Left", "Right")}
 INSTRUCTIONS = {
     "CheekPuff": "Fill the requested cheek with air. Keep the other cheek relaxed.",
     "CheekSuck": "Draw the requested cheek inward without pressing it with a hand.",
-    "BrowPinch": "Pull the requested brow inward toward the nose, avoiding lowering it.",
-    "BrowLowerer": "Lower the requested brow, avoiding pulling it toward the nose.",
-    "BrowInnerUp": "Lift the inner end of the requested brow; relax its outer end.",
-    "BrowOuterUp": "Lift the outer end of the requested brow; relax its inner end.",
-    "LipPuckerUpper": "Push only the upper lip forward. Keep the lower lip relaxed.",
-    "LipPuckerLower": "Push only the lower lip forward. Keep the upper lip relaxed.",
-    "LipSuckCorner": "Roll the requested mouth corner inward, without sucking in your cheek.",
-    "MouthUpperDeepen": "Deepen the upper-lip crease on the requested side, avoiding lifting the lip.",
-    "MouthCornerPull": "Pull the requested mouth corner outward, avoiding lifting it.",
-    "MouthCornerSlant": "Lift the requested mouth corner, avoiding pulling it outward.",
-    "NasalDilation": "Flare the requested nostril. Do not touch your face.",
-    "NasalConstrict": "Narrow the requested nostril. Do not touch your face.",
-    "JawBackward": "Move the lower jaw backward gently. Do not force it.",
-    "JawClench": "Gently tighten your jaw muscles, without moving the lips. Never force it.",
-    "JawMandibleRaise": "Raise the lower jaw gently while keeping the lips relaxed.",
-    "MouthUpperLeft": "Move only your upper lip toward your left.",
-    "MouthUpperRight": "Move only your upper lip toward your right.",
-    "MouthLowerLeft": "Move only your lower lip toward your left.",
-    "MouthLowerRight": "Move only your lower lip toward your right.",
 }
+TITLES = {"CheekPuff": ("Puff your {side} cheek", "Puff both cheeks"),
+          "CheekSuck": ("Suck your {side} cheek in", "Suck both cheeks in")}
+
+
+def both(**values: float) -> dict[str, float]:
+    return {base + side: value for base, value in values.items() for side in ("Left", "Right")}
+
+
+POSES = {
+    "brows": [
+        ("Look worried", "Lift the middle of your brows, as if you're worried or sad.",
+         both(BrowInnerUp=1, BrowOuterUp=0)),
+        ("Look surprised", "Raise your eyebrows, as if something surprised you.",
+         both(BrowInnerUp=1, BrowOuterUp=1, BrowPinch=0, BrowLowerer=0)),
+        ("Frown", "Frown and pull your brows together, as if you're annoyed.",
+         both(BrowPinch=1, BrowInnerUp=0, BrowOuterUp=0)),
+        ("Squint into the sun", "Squint as if bright sunlight is in your eyes.",
+         both(BrowLowerer=1, BrowInnerUp=0, BrowOuterUp=0)),
+    ],
+    "pucker": [
+        ("Kiss", "Push your lips forward as if giving a kiss or saying “oo”.",
+         both(LipPuckerUpper=1, LipPuckerLower=1, LipSuckCorner=0)),
+        ("Pout", "Push out just your lower lip, as if sulking.",
+         both(LipPuckerLower=1, LipPuckerUpper=0)),
+        ("Skeptical “hmm”", "Keep your lips closed and tuck the corners in, as if you're unconvinced.",
+         both(LipSuckCorner=1, LipPuckerUpper=0, LipPuckerLower=0)),
+    ],
+    "corners": [
+        ("Big smile", "Smile widely with your lips apart.", both(MouthCornerPull=1)),
+        ("Closed-mouth smile", "Smile with your lips closed, lifting just the corners.", both(MouthCornerSlant=1)),
+        ("Smell something bad", "Wrinkle your nose and lift your upper lip, as if something smells bad.",
+         both(MouthUpperDeepen=1, MouthCornerPull=0, MouthCornerSlant=0)),
+    ],
+    "mouth": [
+        ("Mouth to your left", "Move your whole mouth toward your left, lips closed.",
+         {"MouthUpperLeft": 1, "MouthLowerLeft": 1, "MouthUpperRight": 0, "MouthLowerRight": 0}),
+        ("Mouth to your right", "Move your whole mouth toward your right, lips closed.",
+         {"MouthUpperRight": 1, "MouthLowerRight": 1, "MouthUpperLeft": 0, "MouthLowerLeft": 0}),
+        ("Jaw to your left", "Slide your lower jaw toward your left, lips closed.", {"MouthLowerLeft": 1, "MouthLowerRight": 0}),
+        ("Jaw to your right", "Slide your lower jaw toward your right, lips closed.", {"MouthLowerRight": 1, "MouthLowerLeft": 0}),
+    ],
+    "nose": [
+        ("Deep breath in", "Breathe in slowly and deeply through your nose.", both(NasalDilation=1, NasalConstrict=0)),
+        ("Sharp sniff", "Sniff in quickly through your nose, and hold it.", both(NasalConstrict=1, NasalDilation=0)),
+    ],
+    "jaw": [
+        ("Teeth together", "Close your mouth and rest your back teeth together, lips relaxed.",
+         {"JawMandibleRaise": 1, "JawClench": 0, "JawBackward": 0}),
+        ("Bite down", "Bite down on your back teeth, lips relaxed. Don't strain.",
+         {"JawClench": 1, "JawMandibleRaise": 1, "JawBackward": 0}),
+        ("Jaw back", "Gently slide your lower jaw back, like an overbite. Don't force it.", {"JawBackward": 1, "JawClench": 0}),
+    ],
+}
+STRENGTH = {0.5: (" · halfway", "Gently, about halfway. "), 1.0: (" · full", "")}
+ONLY_FULL = {"Teeth together"}
+
+
+def pose_title(base: str, group: tuple[str, ...], strength: float) -> str:
+    one, both_sides = TITLES[base]
+    title = both_sides if len(group) == 2 else one.format(side="left" if group[0].endswith("Left") else "right")
+    return title + STRENGTH[strength][0]
 
 
 def target_names(family: str) -> list[str]:
@@ -47,37 +91,49 @@ def target_names(family: str) -> list[str]:
             for side in (("Left", "Right") if family not in ("jaw", "mouth") else ("",))]
 
 
+def family_of(names) -> str:
+    matches = [family for family in FAMILIES if names and set(names) <= set(target_names(family))]
+    if not matches:
+        raise ValueError("Not a known expression group")
+    return min(matches, key=lambda family: len(FAMILIES[family]))
+
+
 def make_prompts(family: str) -> list[TongueStillPrompt]:
     names = target_names(family)
     prompts = []
     for repetition in range(3):
         neutral = dict.fromkeys(names, 0.0)
-        poses = [("Relaxed", "Relax this whole region of your face.", neutral)]
-        for base in FAMILIES[family]:
-            groups = [(base,)] if family in ("jaw", "mouth") else [
-                (base + "Left",), (base + "Right",), (base + "Left", base + "Right")]
-            for group in groups:
-                for strength in (0.5, 1.0):
+        poses = [("Relax", "Let the air out.", neutral) if family == "puff" else
+                 ("Relaxed", "Relax this whole region of your face.", neutral)]
+        for strength in (0.5, 1.0):
+            for title, instruction, targets in POSES.get(family, []):
+                if strength < 1 and title in ONLY_FULL:
+                    continue
+                poses.append((title + STRENGTH[strength][0], STRENGTH[strength][1] + instruction,
+                              {name: value * strength for name, value in targets.items()}))
+            for base in FAMILIES[family] if family not in POSES else []:
+                groups = [(base + "Left",), (base + "Right",), (base + "Left", base + "Right")]
+                for group in groups:
                     targets = dict(neutral, **dict.fromkeys(group, strength))
                     instruction = INSTRUCTIONS[base]
                     if len(group) == 2 and base == "CheekPuff":
                         instruction = "Fill both cheeks with air equally."
                     elif len(group) == 2 and base == "CheekSuck":
                         instruction = "Draw both cheeks inward equally without pressing them with your hands."
-                    title = " + ".join(group) + f" {strength:.0%}"
+                    title = pose_title(base, group, strength)
                     if base == "CheekPuff":
-                        side = "both cheeks" if len(group) == 2 else "your left cheek" if group[0].endswith("Left") else "your right cheek"
-                        title = "Puff " + side
-                        instruction = "Halfway." if strength == 0.5 else "As much as comfortable."
+                        side = "Both cheeks" if len(group) == 2 else "Left cheek" if group[0].endswith("Left") else "Right cheek"
+                        title = side + (" · halfway" if strength == 0.5 else " · full")
+                        instruction = "Fill halfway." if strength == 0.5 else "Fill all the way."
                         if len(group) == 1:
-                            instruction += " Keep the other cheek relaxed."
+                            instruction += " Other cheek flat."
                     poses.append((title, instruction, targets))
         for name, instruction, targets in poses:
             prompts.append(TongueStillPrompt(
                 name=f"Round {repetition + 1}: {name}",
-                instruction=instruction + " Skip with K if you cannot isolate this pose.",
+                instruction=instruction + " Skip with K if you cannot make this pose.",
                 targets=targets, context=f"{family}/repetition-{repetition}",
-                guide=name, recommended_captures=4, minimum_captures=3))
+                guide=name, recommended_captures=3 if family == "puff" else 4, minimum_captures=3))
     return prompts
 
 

@@ -1,6 +1,7 @@
 """Calibration on the existing camera stream; never starts a headset service."""
 from dataclasses import replace
 import json
+import math
 from pathlib import Path
 import time
 import uuid
@@ -8,7 +9,7 @@ import zlib
 import cv2
 from capture_format import CaptureWriter, TRANSPORT_HEADER
 from tongue_still_capture import TongueStillCaptureSession, TONGUE_REFINEMENT_PROMPTS
-from extra_face_capture import ExtraFaceCapture
+from extra_face_capture import ExtraFaceCapture, FAMILIES
 
 
 def publish(path, value):
@@ -19,6 +20,14 @@ def publish(path, value):
         pending.replace(path)
     except OSError:
         pass
+
+
+RELAX = .75
+
+
+def puff_amount(targets):
+    level = max(targets.values(), default=0.)
+    return 'Relaxed' if level == 0 else 'Halfway' if level < 1 else 'Full'
 
 
 class StudioCapture:
@@ -51,7 +60,7 @@ class StudioCapture:
             if self.writer is not None or self.pupil is not None:
                 raise ValueError('A calibration is already recording')
             kind = command.get('kind')
-            if kind not in ('tongue', 'puff', 'pupils'):
+            if kind not in ('tongue', 'pupils', *FAMILIES):
                 raise ValueError('Unknown calibration')
             self.kind = kind
             self.automatic = command.get('automatic', True) is True
@@ -74,10 +83,10 @@ class StudioCapture:
                         session_type='tongue-stereo-refinement-v2', capture_policy='guided holds; 2 Hz samples; third complete round held out')
                     self.labels = self.prefix.with_suffix('.qplabel.jsonl').open('x', encoding='utf-8')
                 else:
-                    self.session = ExtraFaceCapture(self.prefix.with_suffix('.qpsession.json'), 'puff')
+                    self.session = ExtraFaceCapture(self.prefix.with_suffix('.qpsession.json'), kind)
                 self.video = cv2.VideoWriter(str(self.prefix)+'.avi', cv2.VideoWriter_fourcc(*'MJPG'), 8., (1000, 200), True)
                 if not self.video.isOpened():
-                    raise OSError('Could not open the local recording file')
+                    raise OSError('Couldn’t save the recording. Make sure this PC has free disk space, then try again.')
                 self.timeline = self.prefix.with_suffix('.video.jsonl').open('x', encoding='utf-8')
                 self.video_index = 0
                 self.last_hash = None
@@ -88,6 +97,11 @@ class StudioCapture:
             self.changed = now
         elif action == 'reload':
             self.reload_requested = True
+        elif action == 'skip' and self.kind in FAMILIES and self.session:
+            self.session.handle_key('k')
+            self.changed = now
+            if self.session.completed:
+                self.finish(True)
         elif action in ('capture', 'next', 'undo') and self.session and not self.automatic:
             self.session.handle_key({'capture': ' ', 'next': '\r', 'undo': 'x'}[action])
             if action == 'next':
@@ -113,31 +127,36 @@ class StudioCapture:
             if self.pupil:
                 if now-self.last_ui > 3:
                     self.finish(False)
-                    self.state['error'] = 'Calibration window disconnected. Your previous profile is unchanged.'
+                    self.state['error'] = 'Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.'
                 else:
                     self.pupil.update(strip)
-                    from pupil_dilation import PHASES
+                    from pupil_dilation import DURATION, STAGES
                     phase = self.pupil.phase
-                    self.state.update(bright=phase is not None and phase % 2 == 0,
-                        remaining=max(0, PHASES[phase][1]-(now-self.pupil.started)) if phase is not None else 0,
-                        index=phase or 0, total=4, title='Look at the center cross', instruction='Keep your head still. Blink normally.')
+                    elapsed = min(DURATION, max(0, now-self.pupil.started))
+                    self.state.update(level=self.pupil.level, remaining=round(DURATION-elapsed), progress=elapsed/DURATION,
+                        index=phase or 0, total=len(STAGES), title=STAGES[phase or 0], instruction=self.pupil.message)
                     if self.pupil.result in ('passed', 'failed'):
                         self.state['error'] = '' if self.pupil.result == 'passed' else self.pupil.message
                         self.finish(self.pupil.result == 'passed')
             if self.session:
                 if strip.shape != (400, 2000):
-                    raise ValueError('Connect all five cameras before calibrating')
+                    raise ValueError('Calibration needs all five headset cameras. Restart tracking, then try again.')
                 if now-self.last_ui > 3:
                     self.paused = True
                     self.changed = now
                 session = self.session
                 elapsed = now-self.changed
-                ready = not self.paused and elapsed >= self.settle
+                face = self.kind in FAMILIES
+                reform = face and self.automatic
+                attempts = 3 if face else 4
+                relaxing = reform and elapsed < RELAX
+                lead = self.settle + (RELAX if reform else 0.)
+                ready = not self.paused and elapsed >= lead
                 label = labels.nearest_sample(monotonic_ns) if labels else None
                 label_ready = self.kind != 'tongue' or (label is not None and labels.schema_names
                     and abs(label['arrivalMonotonicNs']-monotonic_ns) <= 35_000_000)
                 count = len(session.active_samples())
-                if self.automatic and ready and label_ready and now-self.last_sample >= .5 and count < 4:
+                if self.automatic and ready and label_ready and now-self.last_sample >= .5 and count < attempts:
                     fingerprint = zlib.crc32(payload)
                     if fingerprint != self.last_hash:
                         session.handle_key(' ')
@@ -150,10 +169,13 @@ class StudioCapture:
                         h = TRANSPORT_HEADER.pack(*parts)
                     if session.consume_frame(self.writer, h, p, monotonic_ns, time.time_ns()):
                         sample = session.samples[-1]
-                        sample['repetition'] = session.current_index // (14 if self.kind == 'tongue' else 7)
-                        sample['poseIndex'] = session.current_index % (14 if self.kind == 'tongue' else 7)
+                        per_round = len(session.prompts) // 3
+                        sample['repetition'] = session.current_index // per_round
+                        sample['poseIndex'] = session.current_index % per_round
                         session._save()
                         self.last_sample = now
+                        if reform and len(session.active_samples()) < attempts:
+                            self.changed = now
                         if self.labels:
                             self.labels.write(json.dumps({'type':'schema', 'names': labels.schema_names})+'\n')
                             self.labels.write(json.dumps(label)+'\n'); self.labels.flush()
@@ -163,13 +185,19 @@ class StudioCapture:
                         'promptIndex':session.current_index, 'settling':not ready, 'targets':session.current.targets})+'\n')
                     self.video_index += 1; self.last_video = now
                 count = len(session.active_samples())
-                self.state.update(title=session.current.name.split(': ', 1)[-1] if self.kind == 'puff' else session.current.name, instruction=session.current.instruction.replace(' Skip with K if you cannot isolate this pose.', ''),
-                    targets=session.current.targets, index=session.current_index, total=len(session.prompts), count=count,
+                remaining = max(0., lead-elapsed)
+                forming = 0. if relaxing else 1. if ready or not reform else min(1., (elapsed-RELAX)/self.settle)
+                amount = puff_amount(session.current.targets) if face else None
+                self.state.update(title=session.current.name.split(': ', 1)[-1] if face else session.current.name, instruction=session.current.instruction.split(' Skip with K', 1)[0],
+                    targets={k: v*forming for k, v in session.current.targets.items()}, index=session.current_index, total=len(session.prompts), count=count,
                     paused=self.paused, automatic=self.automatic, ready=bool(label_ready),
-                    cue='Paused' if self.paused else 'Waiting for face tracking…' if not label_ready else 'Relax, then pose' if not ready else 'Hold',
-                    progress=(session.current_index+min(1, count/4))/len(session.prompts),
-                    remaining=max(0, self.settle-elapsed))
-                if self.automatic and not self.paused and count >= 4 and now-self.last_sample >= .5:
+                    cue='Paused' if self.paused else 'Waiting for face tracking…' if not label_ready
+                        else ('Let the air out' if self.kind == 'puff' else 'Relax') if relaxing
+                        else ('Hold ' + amount.lower() if amount else 'Hold') if ready or not self.automatic
+                        else (amount + ' · ' if amount else '') + str(math.ceil(remaining)),
+                    progress=(session.current_index+min(1, count/attempts))/len(session.prompts),
+                    remaining=remaining)
+                if self.automatic and not self.paused and count >= attempts and now-self.last_sample >= .5:
                     session.handle_key('\r'); self.changed = now
                     if session.completed:
                         self.finish(True)
