@@ -3,7 +3,12 @@ function api(name, ret, args) {
     return new NativeFunction(mono.getExportByName(name), ret, args);
 }
 const domain = api('mono_get_root_domain', 'pointer', [])();
-api('mono_thread_attach', 'pointer', ['pointer'])(domain);
+const threadAttach = api('mono_thread_attach', 'pointer', ['pointer']);
+const threadDetach = api('mono_thread_detach', 'void', ['pointer']);
+function managed(work) {
+    const thread = threadAttach(domain);
+    try { return work(); } finally { threadDetach(thread); }
+}
 const nameNew = api('mono_assembly_name_new', 'pointer', ['pointer']);
 const nameFree = api('mono_assembly_name_free', 'void', ['pointer']);
 const assemblyLoaded = api('mono_assembly_loaded', 'pointer', ['pointer']);
@@ -23,50 +28,53 @@ function loadedClass(assemblyName, namespace, name) {
     if (klass.isNull()) throw new Error('Missing class ' + name);
     return klass;
 }
-const klass = loadedClass('Xenko.VR', 'Xenko.VR', 'OpenXRHMD');
-if (klass.isNull()) throw new Error('OpenXRHMD metadata missing');
-function method(name, argc) {
-    const metadata = getMethod(klass, utf8(name), argc);
-    if (metadata.isNull()) throw new Error('Missing method ' + name);
-    const address = compile(metadata);
-    if (address.isNull()) throw new Error('No code for ' + name);
-    return address;
-}
-const addresses = {
-    update: method('Update', 1),
-    getHandState: method('GetHandState', 1),
-    convertFingerState: method('ConvertFingerState', 2),
-    setMultiModal: method('set_UseMultiModalInput', 1),
-};
-const multiField = getField(klass, utf8('_useMultiModalInput'));
-if (multiField.isNull()) throw new Error('Multimodal field missing');
-const multiOffset = fieldOffset(multiField);
-const sharedClass = loadedClass('VirtualDesktop.Mobile.Shared', 'VirtualDesktop.Mobile', 'SharedUserSettings');
-const parent = api('mono_class_get_parent', 'pointer', ['pointer']);
-const className = api('mono_class_get_name', 'pointer', ['pointer']);
-let baseClass = sharedClass;
-while (!baseClass.isNull() && className(baseClass).readUtf8String() !== 'SettingsBase`1') baseClass=parent(baseClass);
-if (baseClass.isNull()) throw new Error('SettingsBase not found');
-const defaultField = getField(baseClass, utf8('<Default>k__BackingField'));
-if (defaultField.isNull()) throw new Error('Settings singleton field missing');
-const vtable = api('mono_class_vtable', 'pointer', ['pointer','pointer'])(domain, baseClass);
-if (vtable.isNull()) throw new Error('Settings vtable null');
-const out = Memory.alloc(Process.pointerSize);
-api('mono_field_static_get_value', 'void', ['pointer','pointer','pointer'])(vtable,defaultField,out);
-const shared = out.readPointer();
-if (shared.isNull()) throw new Error('Settings singleton is null');
-const sharedMulti = getField(sharedClass, utf8('_useMultiModal'));
-if (sharedMulti.isNull()) throw new Error('Shared multimodal field missing');
-const sharedMultiOffset = fieldOffset(sharedMulti);
-send({event:'settings', object:shared.toString(), offset:sharedMultiOffset, value:shared.add(sharedMultiOffset).readU8()});
-send({event: 'resolved', multiOffset, addresses: Object.fromEntries(
-    Object.entries(addresses).map(([k,v]) => [k, {address:v.toString(),
-        module:Process.findModuleByAddress(v)?.name, code:hexdump(v,{length:24,header:false,ansi:false})}]))});
+const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, setMulti, setSharedMulti, convert} = managed(() => {
+    const klass = loadedClass('Xenko.VR', 'Xenko.VR', 'OpenXRHMD');
+    if (klass.isNull()) throw new Error('OpenXRHMD metadata missing');
+    function method(name, argc) {
+        const metadata = getMethod(klass, utf8(name), argc);
+        if (metadata.isNull()) throw new Error('Missing method ' + name);
+        const address = compile(metadata);
+        if (address.isNull()) throw new Error('No code for ' + name);
+        return address;
+    }
+    const addresses = {
+        update: method('Update', 1),
+        getHandState: method('GetHandState', 1),
+        convertFingerState: method('ConvertFingerState', 2),
+        setMultiModal: method('set_UseMultiModalInput', 1),
+    };
+    const multiField = getField(klass, utf8('_useMultiModalInput'));
+    if (multiField.isNull()) throw new Error('Multimodal field missing');
+    const multiOffset = fieldOffset(multiField);
+    const sharedClass = loadedClass('VirtualDesktop.Mobile.Shared', 'VirtualDesktop.Mobile', 'SharedUserSettings');
+    const parent = api('mono_class_get_parent', 'pointer', ['pointer']);
+    const className = api('mono_class_get_name', 'pointer', ['pointer']);
+    let baseClass = sharedClass;
+    while (!baseClass.isNull() && className(baseClass).readUtf8String() !== 'SettingsBase`1') baseClass=parent(baseClass);
+    if (baseClass.isNull()) throw new Error('SettingsBase not found');
+    const defaultField = getField(baseClass, utf8('<Default>k__BackingField'));
+    if (defaultField.isNull()) throw new Error('Settings singleton field missing');
+    const vtable = api('mono_class_vtable', 'pointer', ['pointer','pointer'])(domain, baseClass);
+    if (vtable.isNull()) throw new Error('Settings vtable null');
+    const out = Memory.alloc(Process.pointerSize);
+    api('mono_field_static_get_value', 'void', ['pointer','pointer','pointer'])(vtable,defaultField,out);
+    const shared = out.readPointer();
+    if (shared.isNull()) throw new Error('Settings singleton is null');
+    const sharedMulti = getField(sharedClass, utf8('_useMultiModal'));
+    if (sharedMulti.isNull()) throw new Error('Shared multimodal field missing');
+    const sharedMultiOffset = fieldOffset(sharedMulti);
+    send({event:'settings', object:shared.toString(), offset:sharedMultiOffset, value:shared.add(sharedMultiOffset).readU8()});
+    send({event: 'resolved', multiOffset, addresses: Object.fromEntries(
+        Object.entries(addresses).map(([k,v]) => [k, {address:v.toString(),
+            module:Process.findModuleByAddress(v)?.name, code:hexdump(v,{length:24,header:false,ansi:false})}]))});
 
-const setMulti = new NativeFunction(addresses.setMultiModal, 'void', ['pointer','int']);
-const setSharedMulti = new NativeFunction(compile(getMethod(sharedClass,utf8('set_UseMultiModal'),1)),
-    'void',['pointer','int']);
-const convert = new NativeFunction(addresses.convertFingerState, 'int', ['pointer','int','pointer']);
+    const setMulti = new NativeFunction(addresses.setMultiModal, 'void', ['pointer','int']);
+    const setSharedMulti = new NativeFunction(compile(getMethod(sharedClass,utf8('set_UseMultiModal'),1)),
+        'void',['pointer','int']);
+    const convert = new NativeFunction(addresses.convertFingerState, 'int', ['pointer','int','pointer']);
+    return {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, setMulti, setSharedMulti, convert};
+});
 const gcPin = api('mono_gchandle_new', 'uint', ['pointer','int']);
 const gcFree = api('mono_gchandle_free', 'void', ['uint']);
 let listener = null, handListener = null, lastSend = 0, frames = 0;
@@ -85,9 +93,11 @@ function requestRestore() {
     state='restoring';
     restoreFallback=setTimeout(()=>{
         if(state!=='restoring')return;
-        invokeBool(sharedClass,'set_UseMultiModal',shared,originalShared);
-        if(hmdObject!==null)invokeBool(klass,'set_UseMultiModalInput',hmdObject,originalHmd);
-        finish();
+        managed(()=>{
+            invokeBool(sharedClass,'set_UseMultiModal',shared,originalShared);
+            if(hmdObject!==null)invokeBool(klass,'set_UseMultiModalInput',hmdObject,originalHmd);
+            finish();
+        });
     },2000);
 }
 function renew(seconds) {
@@ -108,7 +118,7 @@ function finish() {
 rpc.exports = {
     apply(seconds) {
         if (state !== 'idle' || seconds < 1 || seconds > 60) throw new Error('Invalid apply request');
-        sharedPin = gcPin(shared, 1);
+        sharedPin = managed(() => gcPin(shared, 1));
         originalShared = shared.add(sharedMultiOffset).readU8();
         state='starting';
         handListener = Interceptor.attach(addresses.getHandState, {
