@@ -13,6 +13,7 @@ import threading
 import time
 import zlib
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -219,7 +220,7 @@ class SharedPreview:
 class MjpegHandler(http.server.BaseHTTPRequestHandler):
     shared: SharedPreview
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         authorities = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
         host = self.headers.get("Host", "").lower()
         origin = self.headers.get("Origin")
@@ -413,6 +414,28 @@ def label_strip(
             interpolation=cv2.INTER_AREA
         )
     return display
+
+
+def load_studio_reload(arguments, tongue_model_preview):
+    import json
+    config = json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+    tongue = None
+    if (tongue_model_preview is not None and config.get('tongueModelPath')
+            and (Path(config['tongueModelPath']).resolve() != tongue_model_preview.checkpoint_path.resolve()
+                 or Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.direction_checkpoint_path)):
+        from tongue_model_preview import LiveTongueModelPreview
+        tongue = LiveTongueModelPreview(config['tongueModelPath'],
+            direction_checkpoint_path=config.get('tongueDirectionModelPath'),
+            smoothing=1.0 - .88*(arguments.tongue_smoothing/100), visibility_mode=arguments.tongue_visibility_mode)
+    from extra_face_preview import ExtraFacePreview, configured_models
+    extra_face = None
+    if config.get('extraFaceOutput') and configured_models(config):
+        extra_face = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window)
+    from pupil_dilation import PupilDilation
+    pupil = PupilDilation(path=arguments.pupil_calibration,
+        enabled=config.get('pupilDilation', False), render=not arguments.no_window,
+        asynchronous=arguments.no_window)
+    return config, tongue, extra_face, pupil
 
 
 def main() -> int:
@@ -626,6 +649,8 @@ def main() -> int:
     pupil_dilation = None
     from studio_capture import StudioCapture
     studio = StudioCapture(Path(__file__).resolve().parent) if arguments.studio else None
+    reload_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="studio-reload") if studio else None
+    reload_future = None
 
     def mouse_callback(event: int, x: int, _y: int, _flags: int, _data: object) -> None:
         if event != cv2.EVENT_LBUTTONDOWN or not current_ids:
@@ -943,40 +968,28 @@ def main() -> int:
                     try: studio.close()
                     except OSError: pass
                     studio.state.update(phase="cancelled", completed=False, error=str(error))
-                if studio.reload_requested:
+                if studio.reload_requested and reload_future is None:
                     studio.reload_requested = False
+                    reload_future = reload_executor.submit(load_studio_reload, arguments, tongue_model_preview)
+                if reload_future is not None and reload_future.done():
                     try:
-                        import json
-                        config = json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+                        config, tongue_candidate, extra_face_candidate, pupil_candidate = reload_future.result()
                         if tongue_broadcaster is not None:
                             tongue_broadcaster.set_enabled(config.get('tongueOutput', True))
-                        if (tongue_model_preview is not None and config.get('tongueModelPath')
-                                and (Path(config['tongueModelPath']).resolve() != tongue_model_preview.checkpoint_path.resolve()
-                                     or Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.direction_checkpoint_path)):
-                            candidate = LiveTongueModelPreview(config['tongueModelPath'],
-                                direction_checkpoint_path=config.get('tongueDirectionModelPath'),
-                                smoothing=1.0 - .88*(arguments.tongue_smoothing/100), visibility_mode=arguments.tongue_visibility_mode)
+                        if tongue_candidate is not None:
                             tongue_inference_worker.close()
-                            tongue_model_preview = candidate
-                            tongue_broadcaster.supported = candidate.supported_targets
-                            tongue_inference_worker = TongueInferenceWorker(candidate, tongue_broadcaster, render=not arguments.no_window)
-                        from extra_face_preview import ExtraFacePreview, configured_models
-                        if config.get('extraFaceOutput') and configured_models(config):
-                            candidate = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window)
-                            if extra_face_preview is not None: extra_face_preview.close()
-                            extra_face_preview = candidate
-                        elif extra_face_preview is not None:
-                            extra_face_preview.close()
-                            extra_face_preview = None
+                            tongue_model_preview = tongue_candidate
+                            tongue_broadcaster.supported = tongue_candidate.supported_targets
+                            tongue_inference_worker = TongueInferenceWorker(tongue_candidate, tongue_broadcaster, render=not arguments.no_window)
+                        if extra_face_preview is not None: extra_face_preview.close()
+                        extra_face_preview = extra_face_candidate
                         if pupil_dilation is not None: pupil_dilation.close()
-                        from pupil_dilation import PupilDilation
-                        pupil_dilation = PupilDilation(path=arguments.pupil_calibration,
-                            enabled=config.get('pupilDilation', False), render=not arguments.no_window,
-                            asynchronous=arguments.no_window)
+                        pupil_dilation = pupil_candidate
                         studio.state['error'] = ''
                         studio.state['reloaded'] = time.time()
                     except Exception as error:
                         studio.state['error'] = 'Could not load calibration: '+str(error)
+                    reload_future = None
             if tongue_inference_worker is not None and tongue_inference_worker.active:
                 factory_sample = label_recorder.nearest_sample(pc_monotonic_ns) if label_recorder else None
                 tongue_inference_worker.submit(
@@ -1178,6 +1191,7 @@ def main() -> int:
     finally:
         if studio is not None:
             studio.close()
+            reload_executor.shutdown(wait=False, cancel_futures=True)
         shared.running = False
         with shared.lock:
             shared.lock.notify_all()
