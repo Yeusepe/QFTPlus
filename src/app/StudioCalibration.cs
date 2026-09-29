@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -14,6 +16,8 @@ public partial class StudioWindow
  WrapPanel? manualControls;
  Expander? captureOptions;
  Button? review;
+ StackPanel? calibrationContent;
+ (bool Passed,string Message)? calibrationResult;
  long recordingCommand;
  bool cancelPending;
  static string Intro(string kind)=>(kind switch
@@ -44,7 +48,7 @@ public partial class StudioWindow
     if(pause is not null)pause.Visibility=recording&&kind!="pupils"?Visibility.Visible:Visibility.Collapsed;
     if(skip is not null)skip.Visibility=recording&&QproFaceTracking.Hub.CalibrationSettings.IsFaceGroup(kind)?Visibility.Visible:Visibility.Collapsed;
     if(cancel is not null)cancel.Visibility=recording?Visibility.Visible:Visibility.Collapsed;
-    if(progress is not null)progress.Visibility=recording||training||prefix.Length>0?Visibility.Visible:Visibility.Collapsed;
+    if(progress is not null)progress.Visibility=recording||training?Visibility.Visible:Visibility.Collapsed;
     StartButton.IsEnabled=!recording;
  }
  void Calibration()
@@ -54,9 +58,9 @@ public partial class StudioWindow
     var modes=calibrationModes=new ComboBox{Margin=new(0,0,0,16)};
     foreach(var (id,title) in new[]{("tongue","Tongue")}.Concat(QproFaceTracking.Hub.CalibrationSettings.FaceGroups).Append(("pupils","Pupils")))
     {var item=new ComboBoxItem{Content=title,Tag=id,IsSelected=kind==id};modes.Items.Add(item);}
-    modes.SelectionChanged+=(_,_)=>{if(recording||training||modes.SelectedItem is not ComboBoxItem item)return;var focus=modes.IsKeyboardFocusWithin;kind=(string)item.Tag;candidate=prefix="";CalibrationReset();if(focus)Dispatcher.BeginInvoke(()=>calibrationModes?.Focus(),System.Windows.Threading.DispatcherPriority.Input);};
+    modes.SelectionChanged+=(_,_)=>{if(recording||training||modes.SelectedItem is not ComboBoxItem item)return;var focus=modes.IsKeyboardFocusWithin;kind=(string)item.Tag;candidate=prefix="";calibrationResult=null;CalibrationReset();if(focus)Dispatcher.BeginInvoke(()=>calibrationModes?.Focus(),System.Windows.Threading.DispatcherPriority.Input);};
     Field(Page,"Tracking area",modes);
-    var content=new StackPanel();
+    var content=calibrationContent=new StackPanel();
     poseTitle=Text("Calibrate "+GroupTitle(kind).ToLowerInvariant(),23);poseTitle.TextAlignment=TextAlignment.Center;content.Children.Add(poseTitle);
     poseDetail=Text(Intro(kind),14,true);poseDetail.TextAlignment=TextAlignment.Center;content.Children.Add(poseDetail);
     cue=Text(kind=="pupils"?"About 80 seconds":"3 short rounds",25);cue.FontWeight=FontWeights.SemiBold;cue.TextAlignment=TextAlignment.Center;cue.Margin=new(0,4,0,0);content.Children.Add(cue);
@@ -81,6 +85,7 @@ public partial class StudioWindow
         var combo=new ComboBox{ItemsSource=new[]{"Normal","Slow"},SelectedIndex=settle>3?1:0,MinWidth=150,HorizontalAlignment=HorizontalAlignment.Left};combo.SelectionChanged+=(_,_)=>{if(!recording)settle=combo.SelectedIndex==1?4:2.0;};Field(stack,"Pace",combo);options.Content=stack;Page.Children.Add(options);Page.Children.Add(manual);
     }
     if(training){RefreshCalibrationControls();ShowTraining();}
+    else if(calibrationResult is {} result&&kind==trainingKind)Finished(result.Passed,result.Message);
  }
  static string GroupTitle(string kind)=>kind=="tongue"?"Tongue":kind=="pupils"?"Pupils":Array.Find(QproFaceTracking.Hub.CalibrationSettings.FaceGroups,group=>group.Kind==kind).Title??kind;
  void CalibrationReset(){Page.Children.Clear();manualControls=null;captureOptions=null;Calibration();}
@@ -92,7 +97,7 @@ public partial class StudioWindow
     ClearNotice();candidate="";prefix="";
     if(!Send("begin",new JsonObject{["kind"]=kind,["automatic"]=automatic,["settle"]=settle}))return;
     recordingCommand=command;cancelPending=false;
-    recording=true;review!.Visibility=Visibility.Collapsed;count!.Visibility=Visibility.Visible;RefreshCalibrationControls();
+    recording=true;calibrationResult=null;CalibrationReset();count!.Visibility=Visibility.Visible;RefreshCalibrationControls();
     if(kind=="pupils")WindowState=WindowState.Maximized;
     await Task.CompletedTask;
  }
@@ -139,12 +144,30 @@ public partial class StudioWindow
  }
  void Finished(bool passed,string message)
  {
-    if(page!="Calibration"||kind!=trainingKind||poseTitle is null){Error(message);return;}
-    poseTitle.Text=passed?"Calibration is on":"Calibration didn't pass";
-    poseDetail!.Text=passed?"Check your avatar to see the difference.":message;
-    cue!.Text="";count!.Text="";progress!.Value=passed?100:0;progress.Visibility=passed?Visibility.Visible:Visibility.Collapsed;
-    if(begin is not null){begin.Content="Calibrate again";begin.ClearValue(StyleProperty);}
+    calibrationResult=(passed,message);
+    if(page!="Calibration"||kind!=trainingKind||poseTitle is null){Error(passed?message:GroupTitle(trainingKind)+" calibration wasn't saved. Open Calibration for details.");return;}
+    calibrationContent!.Children.Clear();
+    poseTitle.Text=passed?"Calibration is on":"Calibration wasn't saved";poseTitle.TextAlignment=TextAlignment.Left;
+    AutomationProperties.SetHeadingLevel(poseTitle,AutomationHeadingLevel.Level2);AutomationProperties.SetLiveSetting(poseTitle,AutomationLiveSetting.Polite);
+    calibrationContent.Children.Add(poseTitle);
+    poseDetail!.Text=passed?"Check your avatar to see the difference.":"Your current calibration hasn't changed.";poseDetail.TextAlignment=TextAlignment.Left;
+    calibrationContent.Children.Add(poseDetail);
+    if(!passed)
+    {
+        var lines=message.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+        calibrationContent.Children.Add(Text(lines.FirstOrDefault()??"Try recording your poses again."));
+        if(lines.Length>1)
+        {
+            var details=new StackPanel{Margin=new(0,12,0,0)};
+            foreach(var line in lines.Skip(1))details.Children.Add(Text(line));
+            var header=Text("What needs attention");header.Margin=new(0);
+            calibrationContent.Children.Add(new Expander{Header=header,Content=details,MinHeight=44,HorizontalContentAlignment=HorizontalAlignment.Stretch,Margin=new(0,8,0,0)});
+        }
+    }
+    if(begin is not null){begin.Content=passed?"Calibrate again":"Try again";if(passed)begin.ClearValue(StyleProperty);else begin.SetResourceReference(StyleProperty,"PrimaryButton");}
     if(review is not null)review.Visibility=File.Exists(prefix+".avi")?Visibility.Visible:Visibility.Collapsed;
+    RefreshCalibrationControls();
+    UIElementAutomationPeer.FromElement(poseTitle)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
  }
  async Task Tick()
  {

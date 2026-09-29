@@ -79,34 +79,30 @@ def check(checkpoint):
     if checkpoint.get("schema") != "extra-face-stills-v1":
         raise ValueError("Expected an extra-face model")
     puff = family_of(names) == "puff"
-    failed, reasons = False, []
+    reasons = []
     for name in sorted(names):
         score = checkpoint.get("validation", {}).get(name, {})
         values = [score.get(k) for k in ("mae", "neutralMaximum", "fullMinimum")]
         what = describe(name).replace("cheek puff", "cheek") if puff else describe(name)
         if (not score.get("hasNeutralAndFull") or score.get("count", 0) < 10
                 or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in values)):
-            failed = True
-            reasons.append(f"Some {what} poses were skipped.")
+            reasons.append(f"{what.capitalize()}: not enough test poses were recorded.")
             continue
         if values[0] <= .20 and values[1] <= .25 and values[2] >= .75:
             continue
-        failed = True
+        issues = []
         if (score.get("oppositeOnlyMaximum") or 0) > .25:
-            reasons.append(f"Your {what} filled up when only the other one should have." if puff
-                           else f"Your {what} moved when only the other side should have.")
+            issues.append("responded to the other side's pose")
         elif values[1] > .25:
-            reasons.append(f"Your {what} looked puffed while relaxed." if puff else f"Your {what} looked active while relaxed.")
+            issues.append("activity detected while relaxed")
         if values[2] < .75:
-            reasons.append(f"Full {what.replace('cheek', 'puffs')} looked partial. Fill all the way." if puff
-                           else f"Full {what} poses looked partial. Go all the way.")
+            issues.append("full poses read as partial")
         if (score.get("halfMean") or 0) > .8:
-            reasons.append("Halfway puffs looked like full ones. Use about half the air." if puff
-                           else "Halfway poses looked like full ones. Go about half as far.")
-    if failed:
-        raise ValueError(("Cheek calibration" if puff else "This calibration") + " didn't pass its test round. "
-                         + " ".join(dict.fromkeys(reasons))
-                         + " Try again. Your previous calibration is still in use.")
+            issues.append("halfway poses read as full")
+        reasons.append(f"{what.capitalize()}: {'; '.join(issues) or 'poses were not tracked consistently'}.")
+    if reasons:
+        raise ValueError("The test couldn't track every pose reliably. Try again, relaxing between poses and making each movement distinct.\n"
+                         + "\n".join(reasons))
 
 
 if __name__ == "__main__":
