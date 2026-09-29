@@ -1,18 +1,22 @@
 if (Process.arch !== 'arm64') throw Error('Controller priority requires ARM64');
 const runtime = Process.getModuleByName('libvrapiimpl.so');
-const signatures = [
-    [0x4fa284, [0xa9bd7bfd, 0xa90157f6, 0xa9024ff4, 0x910003fd]],
-    [0x7c5a2c, [0x97f4d216, 0x3610165b, 0x394643e8]],
-    [0x4f6260, [0x394b8000, 0xd65f03c0]],
-    [0x7c84b4, [0x394643e8, 0x52803f09, 0x5280a70a, 0xad5903e1,
-        0x52800213, 0x7200011f, 0x52807308, 0x9a881128]],
-];
-for (const [offset, words] of signatures)
-    for (let i = 0; i < words.length; i++)
-        if (runtime.base.add(offset + 4 * i).readU32() !== words[i])
-            throw Error('Unsupported controller routing code; no hook applied');
+const code = runtime.enumerateRanges('r-x');
+function unsupported() { throw Error('Unsupported controller routing code; no hook applied'); }
+function find(pattern) {
+    const hits = code.flatMap(range => Memory.scanSync(range.base, range.size, pattern));
+    if (hits.length !== 1) unsupported();
+    return hits[0].address;
+}
+const call = find('00 00 00 94 5b 16 10 36 e8 43 46 39 : 00 00 00 fc ff ff ff ff ff ff ff ff');
+find('00 80 4b 39 c0 03 5f d6');
+find('e8 43 46 39 09 3f 80 52 0a a7 80 52 e1 03 59 ad 13 02 80 52 1f 01 00 72 08 73 80 52 28 11 88 9a');
+const distance = ((call.readU32() << 6) >> 6) * 4;
+const target = distance < 0 ? call.sub(-distance) : call.add(distance);
+[0xa9bd7bfd, 0xa90157f6, 0xa9024ff4, 0x910003fd].forEach((word, i) => {
+    if (target.add(4 * i).readU32() !== word) unsupported();
+});
 
-const caller = runtime.base.add(0x7c5a30);
+const caller = call.add(4);
 let listener = null, timer = null, deadline = 0;
 const selected = [0, 0], queries = [0, 0];
 function stop() {
@@ -32,7 +36,7 @@ rpc.exports = {
         if (listener !== null) throw Error('Controller priority already running');
         renew(seconds);
         try {
-            listener = Interceptor.attach(runtime.base.add(0x4fa284), {
+            listener = Interceptor.attach(target, {
                 onEnter(args) {
                     this.side = args[1].toUInt32() - 0x20000002;
                     this.output = args[2];

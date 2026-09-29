@@ -202,8 +202,7 @@ def main():
         package = adb('shell', 'dumpsys', 'package', 'VirtualDesktop.Android')
         if not re.search(r'versionName=1\.34\.22\.0\s', package):
             raise RuntimeError('This hook was verified with Virtual Desktop Android 1.34.22.0 only')
-        if root('getprop ro.build.version.incremental') != '51503870024400340':
-            raise RuntimeError('Headset firmware changed; revalidate before applying')
+        print('Headset build ' + root('getprop ro.build.version.incremental'), flush=True)
         wait_for_virtual_desktop(adb, keep_alive)
         pc_session = track_session('PC', attach_steamvr(keep_alive))
         progress[0] = None
