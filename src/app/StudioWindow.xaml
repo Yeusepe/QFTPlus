@@ -39,7 +39,18 @@
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Margin="0,0,0,24"><TextBlock x:Name="PageTitle" FontSize="{DynamicResource Font30}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/><TextBlock x:Name="Subtitle" Visibility="Collapsed" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/></StackPanel>
    <Border x:Name="NoticeBox" Grid.Row="1" Background="{DynamicResource Surface}" CornerRadius="{StaticResource CardRadius}" Padding="16" Margin="0,0,0,16" Visibility="Collapsed"><StackPanel><TextBlock x:Name="Notice" AutomationProperties.LiveSetting="Polite"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></Border>
-   <ScrollViewer x:Name="PageScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0"><StackPanel x:Name="Page"/></ScrollViewer>
+   <ScrollViewer x:Name="PageScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+    <StackPanel>
+     <Border x:Name="UpdateBanner" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="{StaticResource CardRadius}" Padding="20" Margin="0,0,0,16" Visibility="Collapsed">
+      <StackPanel>
+       <TextBlock Text="Update available" FontSize="{DynamicResource Font18}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" Margin="0,0,0,8"/>
+       <TextBlock x:Name="UpdateMessage" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,12"/>
+       <WrapPanel><Button Content="View update" Click="ViewUpdate" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissUpdate" AutomationProperties.Name="Dismiss this update notice" Margin="0,0,0,8"/></WrapPanel>
+      </StackPanel>
+     </Border>
+     <StackPanel x:Name="Page"/>
+    </StackPanel>
+   </ScrollViewer>
    <WrapPanel x:Name="Actions" Grid.Row="3" Margin="0,16,0,0"/>
   </Grid>
  </Grid>
