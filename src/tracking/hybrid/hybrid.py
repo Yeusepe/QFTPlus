@@ -74,6 +74,20 @@ def attach_steamvr(keep_alive):
             time.sleep(1)
 
 
+def wait_for_virtual_desktop(adb, keep_alive):
+    """With hand tracking only, QFT+ starts before the headset is in Virtual Desktop."""
+    waiting = False
+    while True:
+        keep_alive()
+        pid = adb('shell', 'pidof VirtualDesktop.Android || true').split()
+        if pid:
+            return int(pid[0])
+        if not waiting:
+            print('Waiting for Virtual Desktop in the headset.', flush=True)
+            waiting = True
+        time.sleep(1)
+
+
 def stop_scripts(scripts, detached, keep_alive):
     errors = []
     for source, script in reversed(scripts):
@@ -190,7 +204,7 @@ def main():
             raise RuntimeError('This hook was verified with Virtual Desktop Android 1.34.22.0 only')
         if root('getprop ro.build.version.incremental') != '51503870024400340':
             raise RuntimeError('Headset firmware changed; revalidate before applying')
-        int(adb('shell', 'pidof', 'VirtualDesktop.Android'))
+        wait_for_virtual_desktop(adb, keep_alive)
         pc_session = track_session('PC', attach_steamvr(keep_alive))
         progress[0] = None
 

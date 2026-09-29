@@ -24,6 +24,8 @@ internal sealed class Session
     CancellationTokenSource? discoveryCancel;
     Task? hybridRestart;
     DateTime hybridRetry;
+    bool handsSession, hybridReady, hybridPending;
+    internal string HybridProblem = "";
     internal string State = "Ready", Detail = "";
     internal int Progress;
     internal string? HelpTarget;
@@ -46,6 +48,11 @@ internal sealed class Session
         foreach(var option in new[]{"extraFaceOutput","pupilDilation"})
             if(!Calibrated(option) && Config[option]?.GetValue<bool>() == true) Save(option,false);
     }
+    internal string Use => Config["use"]?.GetValue<string>() is ("face" or "hands" or "both") and var use ? use
+        : Config["hybridHands"]?.GetValue<bool>() == false ? "face" : "both";
+    internal bool Face => Use != "hands";
+    internal bool Hands => Use != "face";
+    internal bool HybridReady => hybridReady && Alive(Hybrid);
     internal bool IndependentGaze => Config["independentGaze"]?.GetValue<bool>() ?? true;
     internal double VergenceGain => Config["vergenceGain"] is JsonValue v && v.TryGetValue<double>(out var n) && double.IsFinite(n) ? Math.Clamp(n, 0, 3) : 1;
     internal string Python => Config["runtimePython"]?.GetValue<string>() is { } python && File.Exists(python) ? python : SetupService.FindPython(Root);
@@ -73,7 +80,7 @@ internal sealed class Session
         File.Move(path+".tmp", path, true);
     }
     internal static bool Alive(Process? process) { try { return process is not null && !process.HasExited; } catch { return false; } }
-    internal bool Running => Alive(Runtime);
+    internal bool Running => Alive(Runtime) || handsSession;
     internal bool SettingUp => setup is not null;
     internal async Task Prepare()
     {
@@ -81,7 +88,7 @@ internal sealed class Session
         setup = new SetupService(Root);
         setup.StageChanged += (title, detail) => { HelpTarget=setup.HelpTarget; HelpCaption=setup.HelpCaption; Progress=setup.StageProgress; Notify(title,detail); };
         try { await setup.SetupAsync(Config["connectionMode"]?.GetValue<string>()??"auto",
-            Config["headsetSerial"]?.GetValue<string>()??"", Config["installModule"]?.GetValue<bool>()??true); }
+            Config["headsetSerial"]?.GetValue<string>()??"", Config["installModule"]?.GetValue<bool>()??true, Use); }
         finally { setup.Dispose(); setup=null; }
         Save("studioApp",Environment.ProcessPath);
     }
@@ -94,7 +101,11 @@ internal sealed class Session
     internal async Task Start(bool fromModule = false)
     {
         if (Running || (fromModule && attempted)) return;
+        var use = Use;
+        if (fromModule && use == "hands") return;
         attempted = true;
+        if (use == "hands" && SteamVr.IsSteamLink)
+            throw new IOException("Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.");
         var oldRoot = Config["root"]?.GetValue<string>();
         if (oldRoot is not null)
         {
@@ -126,6 +137,16 @@ internal sealed class Session
         if (!string.Equals(config["root"]?.GetValue<string>(), Root, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Complete setup in this app before enabling auto-start.");
         File.Delete(Path.Combine(Root, ".qpro-manual.stop"));
+        HybridProblem = "";
+        if (use == "hands")
+        {
+            handsSession = true;
+            Notify("Connecting", "Starting hand tracking…");
+            if (config["openVrApps"]?.GetValue<bool>()??true) OpenVrApps(face: false);
+            try { await StartHybrid(); }
+            catch { handsSession = false; throw; }
+            return;
+        }
         stop = Path.Combine(Root, ".qpro-studio-"+Guid.NewGuid().ToString("N")+".stop");
         var args = new System.Collections.Generic.List<string> { "-u", Path.Combine(Root,"autostart_runtime.py"), "--owner-pid", Environment.ProcessId.ToString(), "--stop-file", stop, "--quiet" };
         if (!IndependentGaze) args.Add("--no-independent-gaze");
@@ -135,47 +156,48 @@ internal sealed class Session
         void Add(string name,string option) { if (config[name]?.GetValue<string>() is { Length: >0 } value) { args.Add(option); args.Add(value); } }
         Runtime?.Dispose(); Runtime = Launch(Python, args.ToArray());
         Notify("Connecting", "Starting the headset cameras…");
-        if (!fromModule && (config["openVrApps"]?.GetValue<bool>()??true))
-        {
-            var vd=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Virtual Desktop Streamer/VirtualDesktop.Streamer.exe");
-            var streamers=Process.GetProcessesByName("VirtualDesktop.Streamer");
-            foreach(var process in streamers)process.Dispose();
-            if(!SteamVr.IsSteamLink&&streamers.Length==0&&File.Exists(vd))Process.Start(new ProcessStartInfo(vd){UseShellExecute=true});
-            OpenSteam("250820", "vrserver"); OpenSteam("3329480", "VRCFaceTracking");
-        }
-        if (config["hybridHands"]?.GetValue<bool>() == true && !SteamVr.IsSteamLink)
-        {
-            var deadline=DateTime.UtcNow.AddSeconds(90);
-            while(Running && DateTime.UtcNow<deadline)
-            {
-                var status=Read(Path.Combine(Root,"autostart-status.json"));
-                if(status["pid"]?.GetValue<int>()==Runtime.Id && status["state"]?.GetValue<string>()=="running") { await StartHybrid(); break; }
-                await Task.Delay(1000);
-            }
-        }
+        if (!fromModule && (config["openVrApps"]?.GetValue<bool>()??true)) OpenVrApps(face: true);
+        hybridPending = use == "both" && !SteamVr.IsSteamLink;
+    }
+    static void OpenVrApps(bool face)
+    {
+        var streamers=Process.GetProcessesByName("VirtualDesktop.Streamer");
+        foreach(var process in streamers)process.Dispose();
+        if(!SteamVr.IsSteamLink&&streamers.Length==0&&File.Exists(SetupService.VirtualDesktopStreamer))Process.Start(new ProcessStartInfo(SetupService.VirtualDesktopStreamer){UseShellExecute=true});
+        OpenSteam("250820", "vrserver");
+        if (face) OpenSteam("3329480", "VRCFaceTracking");
     }
     internal void Poll()
     {
-        if (Runtime is null) return;
+        if (Runtime is null && !handsSession) return;
         if (!Running)
         {
             var ended = Read(Path.Combine(Root,"autostart-status.json"));
-            var mine = ended["pid"]?.GetValue<int>() == Runtime.Id;
+            var mine = ended["pid"]?.GetValue<int>() == Runtime!.Id;
             ErrorLog = mine && ended["log"]?.GetValue<string>() is { Length: >0 } log ? log : "autostart.log";
             Notify("Tracking stopped", mine && ended["error"]?.GetValue<string>() is { Length: >0 } error ? error : "Tracking ended unexpectedly.");
             return;
         }
-        if (Hybrid is not null && !Alive(Hybrid) && hybridRestart is null && DateTime.UtcNow >= hybridRetry
-            && Config["hybridHands"]?.GetValue<bool>() == true)
+        if (Hybrid is not null && !Alive(Hybrid) && hybridRestart is null && DateTime.UtcNow >= hybridRetry && Hands)
         {
             hybridRetry = DateTime.UtcNow.AddSeconds(15);
-            hybridRestart = RestartHybrid();
+            hybridRestart = TryStartHybrid();
+        }
+        var via = (Config["adbTarget"]?.GetValue<string>()??"").Contains(':')?"Wi-Fi":"USB";
+        if (handsSession)
+        {
+            if (HybridReady) Notify("Connected", "Quest Pro · "+via);
+            else Notify("Waiting for headset", "Put on the headset, connect to this PC in Virtual Desktop, and enter SteamVR.");
+            return;
         }
         var status = Read(Path.Combine(Root,"autostart-status.json"));
-        if (status["pid"]?.GetValue<int>() != Runtime.Id) return;
+        if (status["pid"]?.GetValue<int>() != Runtime!.Id) return;
         switch (status["state"]?.GetValue<string>())
         {
-            case "running": Notify("Connected", "Quest Pro · "+((Config["adbTarget"]?.GetValue<string>()??"").Contains(':')?"Wi-Fi":"USB")); break;
+            case "running":
+                Notify("Connected", "Quest Pro · "+via);
+                if (hybridPending && hybridRestart is null) { hybridPending = false; hybridRestart = TryStartHybrid(); }
+                break;
             case "waiting": Notify("Waiting for headset", "Connect to this PC in Steam Link or Virtual Desktop and enter SteamVR."); break;
             case "starting": Notify("Connecting", "Starting the headset cameras…"); break;
         }
@@ -185,6 +207,7 @@ internal sealed class Session
         Notify("Stopping", "Restoring headset tracking…");
         if (hybridRestart is not null) await hybridRestart;
         if (Hybrid is not null) { File.WriteAllText(Path.Combine(Root,"hybrid/hybrid.stop"), "stop"); await Hybrid.WaitForExitAsync(); Hybrid.Dispose(); Hybrid = null; }
+        handsSession = hybridPending = false;
         if (Runtime is not null)
         {
             if (stop is not null) File.WriteAllText(stop, "stop");
@@ -205,22 +228,16 @@ internal sealed class Session
         var context = new JsonObject { ["adb"] = Path.Combine(Root,"platform-tools/adb.exe"), ["stopFile"] = Path.Combine(Root,"hybrid/hybrid.stop"), ["ownerPid"] = Environment.ProcessId };
         var path = Path.Combine(Root,"hybrid/context.json"); Write(path, context);
         await Run(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--check", "--target", target]);
-        Hybrid?.Dispose(); Hybrid = Launch(Python, ["-u", Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", path);
+        hybridReady = false; HybridProblem = "";
+        Hybrid?.Dispose(); Hybrid = Launch(Python, ["-u", Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", path, line => { if (line == "QROOT_READY") hybridReady = true; });
     }
-    async Task RestartHybrid()
+    async Task TryStartHybrid()
     {
         try { await StartHybrid(); }
-        catch (Exception error) { try { File.AppendAllText(Path.Combine(Root,"hybrid.log"), "Restart failed: "+error.Message+Environment.NewLine); } catch (IOException) {} }
+        catch (Exception error) { HybridProblem = error.Message; try { File.AppendAllText(Path.Combine(Root,"hybrid.log"), "Couldn’t start hybrid hands: "+error.Message+Environment.NewLine); } catch (IOException) {} }
         finally { hybridRestart = null; }
     }
-    internal async Task SetHybrid(bool enabled)
-    {
-        if (hybridRestart is not null) await hybridRestart;
-        if (enabled && Running) await StartHybrid();
-        if (!enabled && Hybrid is not null) { File.WriteAllText(Path.Combine(Root,"hybrid/hybrid.stop"), "stop"); await Hybrid.WaitForExitAsync(); Hybrid.Dispose(); Hybrid=null; }
-        Save("hybridHands", JsonValue.Create(enabled));
-    }
-    Process Launch(string exe, string[] args, string? log = null, string? context = null)
+    Process Launch(string exe, string[] args, string? log = null, string? context = null, Action<string>? line = null)
     {
         var info = Info(exe,args);
         if (context is not null) info.Environment["QROOT_CONTEXT"] = context;
@@ -229,7 +246,7 @@ internal sealed class Session
         if (log is not null)
         {
             _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
-            async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} line) { try { File.AppendAllText(Path.Combine(Root,log),line+Environment.NewLine); } catch (IOException) {} } }
+            async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); try { File.AppendAllText(Path.Combine(Root,log),text+Environment.NewLine); } catch (IOException) {} } }
         }
         return process;
     }

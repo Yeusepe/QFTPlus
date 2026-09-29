@@ -31,17 +31,18 @@ internal sealed class SetupService(string root) : IDisposable
         StageChanged?.Invoke(title, text);
     }
 
-    internal async Task SetupAsync(string connectionMode = "auto", string preferredSerial = "", bool installModule = true)
+    internal async Task SetupAsync(string connectionMode = "auto", string preferredSerial = "", bool installModule = true, string use = "both")
     {
         if (_operation is not null) return;
         using var operation = new CancellationTokenSource();
         _operation = operation;
         var token = operation.Token;
+        var face = use != "hands";
         try
         {
             var source = ModuleSource(_root);
             var installed = Path.Combine(Path.GetDirectoryName(AutoPath)!, "CustomLibs/000-Qpro.IndependentGaze.dll");
-            ValidateModuleFiles(_root, installed, installModule);
+            if (face) ValidateModuleFiles(_root, installModule);
             foreach (var file in new[] { "platform-tools/adb.exe", "setup-runtime.ps1", "enable-quest-wireless.ps1", "autostart_runtime.py" })
                 if (!File.Exists(Path.Combine(_root, file))) throw new IOException("The app is missing a required file. Run the complete installer again.");
             Stage("Connecting", "Looking for your Quest Pro…", 5);
@@ -54,7 +55,8 @@ internal sealed class SetupService(string root) : IDisposable
             }
 
             var independentGaze = !File.Exists(AutoPath) || CalibrationSettings.ReadJson(AutoPath)["independentGaze"]?.GetValue<bool>() != false;
-            if (independentGaze)
+            if (!face) Stage("Skipping face tracking", "Face tracking isn’t selected.", 55);
+            else if (independentGaze)
             {
                 Stage("Preparing eye tracking", "Keep your headset awake.", 55);
                 if (File.Exists(AutoPath))
@@ -69,9 +71,10 @@ internal sealed class SetupService(string root) : IDisposable
             }
             else Stage("Using standard eye tracking", "Independent eye gaze is off.", 55);
 
-            await WaitForSteamAppAsync("3329480", "VRCFaceTracking", token);
+            if (face) await WaitForSteamAppAsync("3329480", "VRCFaceTracking", token);
             await WaitForSteamAppAsync("250820", "SteamVR", token);
-            if (installModule && !SameFile(source, installed))
+            if (use == "hands") await WaitForVirtualDesktopAsync(token);
+            if (face && installModule && !SameFile(source, installed))
             {
                 Stage("Updating tracking", "Installing the updated VRCFaceTracking bridge…", 70);
                 if (IsRunning("VRCFaceTracking")) await CloseVrcftAsync(token);
@@ -79,7 +82,13 @@ internal sealed class SetupService(string root) : IDisposable
                 await ScriptAsync("install-vrcft-eye-bridge.ps1", [], token);
                 if (!SameFile(source, installed)) throw new IOException("The VRCFaceTracking module did not finish installing. Try again. Open the setup log for details.");
             }
-            if (!File.Exists(installed)) throw new IOException("Open Setup to install the VRCFaceTracking module.");
+            if (face && (!File.Exists(installed) || new FileInfo(installed).Length == 0))
+            {
+                Stage("Updating tracking", "", 70);
+                throw new ModuleNotInstalledException(SteamVr.IsSteamLink
+                    ? "Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it to continue."
+                    : "Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it, or use hand tracking only.");
+            }
             SaveAutomaticSetup(_root, connection.Target, AutoPath);
             File.Delete(Path.Combine(_root, ".qpro-manual.stop"));
             SteamVr.ConfigureSteamLink();
@@ -113,15 +122,22 @@ internal sealed class SetupService(string root) : IDisposable
 
     internal static string ModuleSource(string root) => Path.Combine(root, "vrcft-gaze-bridge/bin/Release/net10.0/Qpro.GazeBridge.dll");
 
-    internal static void ValidateModuleFiles(string root, string installed, bool installModule)
+    internal static void ValidateModuleFiles(string root, bool installModule)
     {
-        if (installModule)
+        if (installModule && (!File.Exists(ModuleSource(root)) || new FileInfo(ModuleSource(root)).Length == 0 || !File.Exists(Path.Combine(root, "install-vrcft-eye-bridge.ps1"))))
+            throw new IOException("The QFT+ VRCFaceTracking module is missing or incomplete. Repair or reinstall QFT+ before trying setup again.");
+    }
+
+    internal static string VirtualDesktopStreamer => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Virtual Desktop Streamer/VirtualDesktop.Streamer.exe");
+
+    private async Task WaitForVirtualDesktopAsync(CancellationToken token)
+    {
+        while (!File.Exists(VirtualDesktopStreamer))
         {
-            if (!File.Exists(ModuleSource(root)) || new FileInfo(ModuleSource(root)).Length == 0 || !File.Exists(Path.Combine(root, "install-vrcft-eye-bridge.ps1")))
-                throw new IOException("The QFT+ VRCFaceTracking module is missing or incomplete. Repair or reinstall QFT+ before trying setup again.");
+            Stage("Install Virtual Desktop", "Hand tracking uses Virtual Desktop. Install the Virtual Desktop Streamer on this PC to continue.", 60,
+                "https://www.vrdesktop.net/", "Get Virtual Desktop");
+            await Task.Delay(2500, token);
         }
-        else if (!File.Exists(installed) || new FileInfo(installed).Length == 0)
-            throw new IOException("The QFT+ module is not installed. In Settings, turn on “Install the VRCFaceTracking module,” then try setup again.");
     }
 
     internal static bool SameFile(string first, string second)
@@ -440,3 +456,5 @@ internal sealed class SetupService(string root) : IDisposable
     private void Log(string text) => File.AppendAllText(LogPath, $"{DateTimeOffset.Now:O} {text}{Environment.NewLine}");
     public void Dispose() => CancelOperation();
 }
+
+internal sealed class ModuleNotInstalledException(string message) : IOException(message);

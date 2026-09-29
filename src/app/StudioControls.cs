@@ -139,9 +139,44 @@ public partial class StudioWindow
     (55,"Prepare eye tracking","Builds the eye model from your headset. Keep the headset awake."),
     (60,"Check VR apps","Makes sure Steam, SteamVR, and VRCFaceTracking are installed."),
     (70,"Update VRCFaceTracking","Installs the QFT+ module. VRCFaceTracking closes briefly if it’s open.")};
+ RadioButton Choice(string group,string title,string about,bool selected,Action picked)
+ {
+    var body=new StackPanel();body.Children.Add(new TextBlock{Text=title});body.Children.Add(Text(about,13,true));
+    var radio=new RadioButton{GroupName=group,Content=body,IsChecked=selected,Margin=new(0,4,0,4),VerticalContentAlignment=VerticalAlignment.Top};
+    AutomationProperties.SetName(radio,title);AutomationProperties.SetHelpText(radio,about);radio.Checked+=(_,_)=>picked();return radio;
+ }
+ static readonly (string Id,string Title,string About)[] Uses={
+    ("face","Face and eye tracking","Sends your expressions and eye movement to VRCFaceTracking."),
+    ("hands","Hybrid hands and controllers","Hand tracking and controllers together in Virtual Desktop. Doesn’t use VRCFaceTracking."),
+    ("both","Both","Face and eye tracking, plus hybrid hands whenever you connect with Virtual Desktop.")};
+ (Border Card,Action Refresh,Action<string> Select) UseOptions(Action<string> changed)
+ {
+    var panel=new StackPanel();var heading=Text("What do you want to use?",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);panel.Children.Add(heading);
+    var steamLink=SteamVr.IsSteamLink;var current=session.Use;var radios=new List<(string Id,RadioButton Radio)>();
+    var note=Text("Hybrid hands pause Virtual Desktop body tracking while they’re on.",13,true);
+    var status=Text("",13,true);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);
+    foreach(var (id,title,about) in Uses)
+    {
+        var radio=Choice("use",title,steamLink&&id=="hands"?"Requires Virtual Desktop. Steam Link uses its own hand tracking.":about,current==id,()=>
+        {
+            if(!preview)session.Save("use",id);
+            note.Visibility=id=="face"?Visibility.Collapsed:Visibility.Visible;changed(id);
+        });
+        radios.Add((id,radio));panel.Children.Add(radio);
+    }
+    note.Visibility=current=="face"?Visibility.Collapsed:Visibility.Visible;panel.Children.Add(note);panel.Children.Add(status);
+    void Refresh()
+    {
+        foreach(var (id,radio) in radios)radio.IsEnabled=!busy&&!session.Running&&!(steamLink&&id=="hands");
+        status.Text=busy?"Wait for the current step to finish to change this.":session.Running?"Stop tracking to change this.":"";
+        status.Visibility=status.Text.Length>0?Visibility.Visible:Visibility.Collapsed;
+    }
+    Refresh();
+    return (Card(panel),Refresh,id=>radios.Single(r=>r.Id==id).Radio.IsChecked=true);
+ }
  Action? setupRefresh;
  int setupStep=-1;
- bool setupDone, searching;
+ bool setupDone, searching, moduleMissing;
  string setupProblem="";
  List<SetupService.Headset> headsets=new();
  DateTime? headsetsChecked;
@@ -159,12 +194,8 @@ public partial class StudioWindow
     TextBlock Heading(string text){var heading=Text(text,16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);return heading;}
     TextBlock Symbol(string glyph,string brush){var symbol=new TextBlock{Text=glyph,FontFamily=new("Segoe UI Symbol"),Width=28,Margin=new(0,1,0,0)};symbol.SetResourceReference(TextBlock.ForegroundProperty,brush);return symbol;}
     UIElement Row(TextBlock symbol,params TextBlock[] lines){var row=new DockPanel{Margin=new(0,6,0,6)};DockPanel.SetDock(symbol,Dock.Left);row.Children.Add(symbol);var text=new StackPanel();foreach(var line in lines){line.Margin=new(0,0,0,2);text.Children.Add(line);}row.Children.Add(text);return row;}
-    UIElement Choice(string group,string title,string about,bool selected,Action picked)
-    {
-        var body=new StackPanel();body.Children.Add(new TextBlock{Text=title});body.Children.Add(Text(about,13,true));
-        var radio=new RadioButton{GroupName=group,Content=body,IsChecked=selected,Margin=new(0,4,0,4),VerticalContentAlignment=VerticalAlignment.Top};
-        AutomationProperties.SetName(radio,title);AutomationProperties.SetHelpText(radio,about);radio.Checked+=(_,_)=>picked();return radio;
-    }
+    var use=session.Use;
+    var (useCard,useRefresh,selectUse)=UseOptions(id=>{use=id;UseChanged(id);setupRefresh?.Invoke();});Page.Children.Add(useCard);
 
     var found=new StackPanel();var caption=Text("",13,true);var activity=new ProgressBar{IsIndeterminate=true,Height=3,Margin=new(0,0,0,8)};
     var search=new Button{Content="Search again"};search.Click+=(_,_)=>_=Search();AutomationProperties.SetHelpText(search,"Looks for headsets over USB and Wi-Fi.");
@@ -215,28 +246,40 @@ public partial class StudioWindow
         list.Children.Clear();
         for(var i=0;i<SetupSteps.Length;i++)
         {
-            var (_,name,about)=SetupSteps[i];var now=i==setupStep&&!setupDone;var failed=now&&setupProblem.Length>0;
-            if(SetupSteps[i].From==55&&!session.IndependentGaze)about="Skipped while independent eye gaze is off. Uses standard eye tracking.";
-            var (glyph,brush,word)=setupDone||i<setupStep?("✓","Accent","Done"):failed?("⚠","Ink","Couldn’t finish"):now&&busy?("●","Accent","In progress"):now?("○","Ink","Paused"):("○","Muted","Not started");
-            var heading=new TextBlock{Text=name,FontWeight=now?FontWeights.SemiBold:FontWeights.Normal,Margin=new(0)};
-            var detail=Text(failed?setupProblem:now&&busy&&session.Detail.Length>0?session.Detail:about,13,!(now&&busy)&&!failed);
+            var (from,name,about)=SetupSteps[i];var now=i==setupStep&&!setupDone;var failed=now&&setupProblem.Length>0;
+            var skipped=use=="hands"&&from is 55 or 70||from==55&&!session.IndependentGaze;
+            if(use=="hands"&&from is 55 or 70)about="Skipped. Face tracking isn’t selected.";
+            else if(from==55&&!session.IndependentGaze)about="Skipped while independent eye gaze is off. Uses standard eye tracking.";
+            if(from==60&&use=="hands")about="Makes sure Steam, SteamVR, and Virtual Desktop are installed.";
+            var (glyph,brush,word)=failed?("⚠","Ink","Couldn’t finish"):skipped?("–","Muted","Skipped"):setupDone||i<setupStep?("✓","Accent","Done"):now&&busy?("●","Accent","In progress"):now?("○","Ink","Paused"):("○","Muted","Not started");
+            var heading=new TextBlock{Text=name,FontWeight=now&&!skipped?FontWeights.SemiBold:FontWeights.Normal,Margin=new(0)};
+            var detail=Text(failed?setupProblem:now&&busy&&!skipped&&session.Detail.Length>0?session.Detail:about,13,!(now&&busy)&&!failed);
             var row=Row(Symbol(glyph,brush),heading,detail);AutomationProperties.SetName(row,$"{name}, {word}");list.Children.Add(row);
-            if(failed&&session.HelpTarget is {} help){var link=Button(session.HelpCaption,()=>Open(help));link.Margin=new(28,0,0,6);list.Children.Add(link);}
+            if(failed&&moduleMissing)
+            {
+                var fixes=new WrapPanel{Margin=new(28,0,0,6)};
+                fixes.Children.Add(Button("Install module",()=>{if(!preview)session.Save("installModule",true);_=RunSetup();},true));
+                if(!SteamVr.IsSteamLink){var hands=Button("Use hand tracking only",()=>{selectUse("hands");_=RunSetup();});hands.Margin=new(8,0,0,0);fixes.Children.Add(hands);}
+                list.Children.Add(fixes);
+            }
+            else if(failed&&session.HelpTarget is {} help){var link=Button(session.HelpCaption,()=>Open(help));link.Margin=new(28,0,0,6);list.Children.Add(link);}
         }
+        useRefresh();
         bar.Visibility=busy?Visibility.Visible:Visibility.Collapsed;bar.Value=session.Progress;
         status.Text=busy&&setupStep>=0&&setupStep<SetupSteps.Length?$"Step {setupStep+1} of {SetupSteps.Length}: {SetupSteps[setupStep].Title}":setupDone?"Setup complete. Choose Start to begin tracking.":setupProblem.Length>0?"Setup couldn’t finish. The step below shows what to do.":setupStep>=0?"Setup paused. Your progress is saved.":"Run setup once per headset, or again after an update.";
         go.Content=busy?"Cancel":setupDone?"Set up again":setupProblem.Length>0?"Try again":setupStep>=0?"Continue":"Set up";
+        if(moduleMissing&&!busy)go.ClearValue(StyleProperty);else go.SetResourceReference(StyleProperty,"PrimaryButton");
     }
-    go.Click+=async(_,_)=>
+    async Task RunSetup()
     {
-        if(preview)return;
-        if(busy){session.CancelSetup();return;}
-        busy=true;setupDone=false;setupProblem="";setupStep=0;StartButton.Content="Cancel";ClearNotice();ShowSteps();
+        if(preview||busy)return;
+        busy=true;setupDone=false;setupProblem="";moduleMissing=false;setupStep=0;StartButton.Content="Cancel";ClearNotice();ShowSteps();
         try{await session.Prepare();}
         catch(OperationCanceledException){}
-        catch(Exception error){setupProblem=error.Message;Error(error.Message);}
+        catch(Exception error){setupProblem=error.Message;moduleMissing=error is ModuleNotInstalledException;Error(error.Message);}
         finally{busy=false;StartButton.Content=session.Running?"Stop":"Start";if(page=="Setup"){ShowSteps();_=Search();}}
-    };
+    }
+    go.Click+=async(_,_)=>{if(busy)session.CancelSetup();else await RunSetup();};
     setupRefresh=()=>{SetupProgress();ShowSteps();};
 
     var tips=new StackPanel();
@@ -247,12 +290,16 @@ public partial class StudioWindow
 
     ShowSteps();ShowHeadsets();if(!busy)_=Search();
  }
- void StartupOptions()
+ void StartupOptions(List<UIElement> faceOnly)
  {
     var stack=new StackPanel();var heading=Text("Startup",18);heading.FontWeight=FontWeights.SemiBold;stack.Children.Add(heading);
     foreach(var (key,label) in new[]{("setupOnStart","Set up the headset on Start"),("installModule","Install the VRCFaceTracking module"),("startWithVrcft","Start with VRCFaceTracking"),("openVrApps","Open VR apps on Start")})
     {
-        var check=new CheckBox{Content=new TextBlock{Text=label},IsChecked=session.Config[key]?.GetValue<bool>()??true};AutomationProperties.SetName(check,label);check.Click+=(_,_)=>{if(!preview)session.Save(key,check.IsChecked==true);};stack.Children.Add(check);
+        var check=new CheckBox{Content=new TextBlock{Text=label},IsChecked=session.Config[key]?.GetValue<bool>()??true};AutomationProperties.SetName(check,label);check.Click+=(_,_)=>{if(!preview)session.Save(key,check.IsChecked==true);};
+        if(key is "setupOnStart" or "openVrApps"){stack.Children.Add(check);continue;}
+        var option=new StackPanel();option.Children.Add(check);
+        if(key=="installModule"){const string about="Turn off only if you install the module yourself.";option.Children.Add(Text(about,13,true));AutomationProperties.SetHelpText(check,about);}
+        faceOnly.Add(option);stack.Children.Add(option);
     }
     Page.Children.Add(Card(stack));
  }

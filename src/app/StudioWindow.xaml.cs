@@ -59,7 +59,7 @@ public partial class StudioWindow : Window
     }
     Navigation.SelectionChanged+=(_,_)=>{if(Navigation.SelectedItem is ListBoxItem item&&item.Tag is string name&&name!=page)Navigate(name);};
     SetTextScale(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Accessibility","TextScaleFactor",100) is int scale?scale/100.0:1);
-    Theme(session.Config["theme"]?.GetValue<string>()??"System");Navigate("Tracking");SidebarStatus();
+    Theme(session.Config["theme"]?.GetValue<string>()??"System");InitializeUpdates();UseChanged(session.Use);Navigate("Tracking");SidebarStatus();
     SizeChanged+=(_,_)=>ResizeGuide();
     if(!preview)
     {
@@ -85,17 +85,18 @@ public partial class StudioWindow : Window
         quitting=true;tray?.Dispose();Application.Current.Shutdown();
     };
  }
+ void UseChanged(string use){foreach(var name in new[]{"Adjustments","Manual","Calibration","Cameras"})nav[name].Visibility=use=="hands"?Visibility.Collapsed:Visibility.Visible;}
  internal void Error(string message){Notice.Text=message;NoticeBox.Visibility=Visibility.Visible;SetupHelp.Visibility=session.HelpTarget is null?Visibility.Collapsed:Visibility.Visible;SetupHelp.Content=session.HelpCaption;}
  void HelpClick(object sender,RoutedEventArgs e){if(session.HelpTarget is {} target)Open(target);}
  void ClearNotice(){NoticeBox.Visibility=Visibility.Collapsed;}
  internal async Task Start(bool fromModule=false)
  {
     if(busy)return;busy=true;StartButton.Content="Cancel";ClearNotice();
-    setupDone=false;setupProblem="";setupStep=-1;
+    setupDone=false;setupProblem="";moduleMissing=false;setupStep=-1;
     trackingRefresh?.Invoke();
     try {await session.Start(fromModule);ClearNotice();}
     catch(OperationCanceledException){session.Notify("Ready");ClearNotice();}
-    catch(Exception error){setupProblem=error.Message;if(page!="Tracking")Error(error.Message);session.Notify("Couldn’t start",error.Message);}
+    catch(Exception error){setupProblem=error.Message;moduleMissing=error is QproFaceTracking.Hub.ModuleNotInstalledException;if(page!="Tracking")Error(error.Message);session.Notify("Couldn’t start",error.Message);}
     finally {busy=false;StartButton.IsEnabled=true;SidebarStatus();trackingRefresh?.Invoke();setupRefresh?.Invoke();}
  }
  async void StartClick(object sender,RoutedEventArgs e)
@@ -133,11 +134,12 @@ public partial class StudioWindow : Window
  void Navigate(string name)
  {
     if(recording){if(name!=page)Error("Finish or cancel calibration first.");return;}
-    StopManual();setupRefresh=null;trackingRefresh=null;liveLog=null;
+    StopManual();setupRefresh=null;trackingRefresh=null;liveLog=null;updateRefresh=null;
     page=name;Page.Children.Clear();Actions.Children.Clear();cameras.Clear();ClearNotice();PageTitle.Text=name=="Manual"?"Test movements":name;Title=PageTitle.Text+" — QFT+";Subtitle.Visibility=Visibility.Collapsed;PageScroll.ScrollToTop();
     foreach(var item in nav){item.Value.IsSelected=item.Key==name;item.Value.FontWeight=item.Key==name?FontWeights.SemiBold:FontWeights.Normal;}
     Navigation.ScrollIntoView(nav[name]);
     switch(name){case "Tracking":Home();break;case "Adjustments":Adjustments();break;case "Manual":Manual();break;case "Calibration":Calibration();break;case "Cameras":Cameras();break;case "Setup":SetupOptions();break;case "Settings":Settings();break;}
+    RefreshUpdates();
  }
  bool Problem=>!busy&&!session.Running&&(setupProblem.Length>0||session.State=="Tracking stopped");
  (string Glyph,string Brush) Mark()=>Problem?("","Ink"):session.State=="Connected"?("","Accent"):busy||session.Running?("","Accent"):("","Muted");
@@ -163,7 +165,8 @@ public partial class StudioWindow : Window
     var body=new StackPanel{VerticalAlignment=VerticalAlignment.Center};body.Children.Add(headline);body.Children.Add(detail);body.Children.Add(bar);body.Children.Add(buttons);
     var hero=new DockPanel();DockPanel.SetDock(badge,Dock.Left);hero.Children.Add(badge);hero.Children.Add(body);Page.Children.Add(Card(hero));
     var setUp=false;
-    action.Click+=(_,_)=>{if(!setUp)Navigate("Setup");else StartClick(action,new RoutedEventArgs());};
+    action.Click+=(_,_)=>{if(!setUp||Problem&&moduleMissing)Navigate("Setup");else StartClick(action,new RoutedEventArgs());};
+    var use=session.Use;
 
      var config=session.Config;
     bool On(string key,bool fallback=false)=>config[key]?.GetValue<bool>()??fallback;
@@ -187,15 +190,19 @@ public partial class StudioWindow : Window
     {
         row.Value.Text=value;row.Mark.Visibility=problem?Visibility.Visible:Visibility.Collapsed;AutomationProperties.SetName(row.Row,$"{row.Title}, {value}");
     }
-    var needsEyeSetup=session.IndependentGaze&&!eyeModel;
-    Show(Row("Eye gaze",()=>Navigate(needsEyeSetup?"Setup":"Settings")),!session.IndependentGaze?"Standard":needsEyeSetup?"Needs setup":"Independent",needsEyeSetup);
-    Show(Row("Tongue",()=>{kind="tongue";Navigate("Calibration");}),!On("tongueOutput",true)?"Off":Has("tongueModelPath")?"Calibrated":"Standard model");
-    var groups=QproFaceTracking.Hub.CalibrationSettings.FaceGroups;var calibratedGroups=groups.Count(group=>session.FaceCalibrated(group.Kind));var onGroups=groups.Count(group=>session.FaceOn(group.Kind));
-    Show(Row("Extra expressions",()=>{kind=groups.FirstOrDefault(group=>!session.FaceCalibrated(group.Kind)).Kind??"puff";Navigate("Calibration");}),
-        calibratedGroups==0?"Not calibrated":onGroups==0?"Off":onGroups<calibratedGroups?$"{onGroups} of {calibratedGroups} on":$"{calibratedGroups} of {groups.Length} calibrated");
-    Show(Row("Pupil dilation",()=>{kind="pupils";Navigate("Calibration");}),!pupils?"Not calibrated":On("pupilDilation")?"Calibrated":"Off");
+    if(use=="hands")Show(Row("Face tracking",()=>Navigate("Settings")),"Off");
+    else
+    {
+        var needsEyeSetup=session.IndependentGaze&&!eyeModel;
+        Show(Row("Eye gaze",()=>Navigate(needsEyeSetup?"Setup":"Settings")),!session.IndependentGaze?"Standard":needsEyeSetup?"Needs setup":"Independent",needsEyeSetup);
+        Show(Row("Tongue",()=>{kind="tongue";Navigate("Calibration");}),!On("tongueOutput",true)?"Off":Has("tongueModelPath")?"Calibrated":"Standard model");
+        var groups=QproFaceTracking.Hub.CalibrationSettings.FaceGroups;var calibratedGroups=groups.Count(group=>session.FaceCalibrated(group.Kind));var onGroups=groups.Count(group=>session.FaceOn(group.Kind));
+        Show(Row("Extra expressions",()=>{kind=groups.FirstOrDefault(group=>!session.FaceCalibrated(group.Kind)).Kind??"puff";Navigate("Calibration");}),
+            calibratedGroups==0?"Not calibrated":onGroups==0?"Off":onGroups<calibratedGroups?$"{onGroups} of {calibratedGroups} on":$"{calibratedGroups} of {groups.Length} calibrated");
+        Show(Row("Pupil dilation",()=>{kind="pupils";Navigate("Calibration");}),!pupils?"Not calibrated":On("pupilDilation")?"Calibrated":"Off");
+    }
     var hybridStopped=false;
-    var hybrid=Row("Hybrid hands",()=>{if(hybridStopped)revealLog="hybrid.log";Navigate("Settings");});
+    var hybrid=Row("Hybrid hands",()=>{if(hybridStopped||session.HybridProblem.Length>0)revealLog="hybrid.log";Navigate("Settings");});
     var group=Card(list);group.Padding=new(8);Page.Children.Add(group);
 
     void Refresh()
@@ -206,7 +213,8 @@ public partial class StudioWindow : Window
         var (title,about)=
             failed?("Couldn’t start tracking",setupProblem):
             session.State=="Tracking stopped"?("Tracking stopped",session.Detail):
-            session.State=="Connected"?("Tracking is on",$"Connected over {via}. Expressions are going to VRCFaceTracking."):
+            session.State=="Connected"&&use=="hands"?("Hand tracking is on",$"Connected over {via}. Hybrid hands and controllers are on in Virtual Desktop."):
+            session.State=="Connected"?("Tracking is on",$"Connected over {via}. Expressions are going to VRCFaceTracking."+(session.HybridReady?" Hybrid hands are on.":"")):
             busy||session.Running?(session.State,session.Detail):
             !setUp?("Set up Quest Pro","Connect the headset to this PC with a USB data cable. Setup runs once and takes a few minutes."):
             ("Ready to track","Put on the headset, then start tracking.");
@@ -216,22 +224,25 @@ public partial class StudioWindow : Window
         headline.Text=title;detail.Text=about;detail.Visibility=about.Length>0?Visibility.Visible:Visibility.Collapsed;
         bar.Visibility=busy&&session.SettingUp||session.State=="Connecting"?Visibility.Visible:Visibility.Collapsed;
         bar.IsIndeterminate=!session.SettingUp;bar.Value=session.Progress;
-        action.Content=busy&&!session.Running?"Cancel":session.Running?"Stop tracking":!setUp?"Set up…":Problem?"Try again":"Start tracking";
+        action.Content=busy&&!session.Running?"Cancel":session.Running?"Stop tracking":!setUp?"Set up…":Problem?(moduleMissing?"Open Setup":"Try again"):"Start tracking";
         action.IsEnabled=session.State!="Stopping";
         if(session.Running||busy)action.ClearValue(StyleProperty);else action.SetResourceReference(StyleProperty,"PrimaryButton");
         view.Visibility=session.Running?Visibility.Visible:Visibility.Collapsed;
         help.Visibility=failed&&session.HelpTarget is not null?Visibility.Visible:Visibility.Collapsed;help.Content=session.HelpCaption;
         logs.Visibility=Problem?Visibility.Visible:Visibility.Collapsed;
         hybridStopped=session.Hybrid is not null&&!Session.Alive(session.Hybrid);
-        Show(hybrid,session.Config["hybridHands"]?.GetValue<bool>()!=true?"Off":QproFaceTracking.Hub.SteamVr.IsSteamLink?"Requires Virtual Desktop":hybridStopped?"Stopped":"On",hybridStopped);
+        var hybridFailed=session.HybridProblem.Length>0;
+        Show(hybrid,use=="face"?"Off":QproFaceTracking.Hub.SteamVr.IsSteamLink?"Requires Virtual Desktop":hybridFailed?"Couldn’t start":hybridStopped?"Stopped":"On",hybridStopped||hybridFailed);
     }
     trackingRefresh=Refresh;Refresh();
  }
- void TrackingOptions()
+ void TrackingOptions(List<UIElement> faceOnly,Action<string> useChanged)
  {
     if(!preview)session.DisableUncalibratedOutputs();
     var heading=Text("Tracking",18);heading.FontWeight=FontWeights.SemiBold;Page.Children.Add(heading);
-    EyeOptions();
+    var (useCard,useRefresh,_)=UseOptions(useChanged);Page.Children.Add(useCard);
+    var eyes=Page.Children.Count;EyeOptions();faceOnly.Add(Page.Children[eyes]);
+    var eyeRefresh=trackingRefresh;trackingRefresh=()=>{eyeRefresh?.Invoke();useRefresh();};
     var rows=new StackPanel();
     foreach(var (key,title) in new[]{("tongueOutput","Tongue"),("extraFaceOutput","Extra expressions"),("pupilDilation","Pupil dilation")})
     {
@@ -241,11 +252,7 @@ public partial class StudioWindow : Window
         if(key=="extraFaceOutput"){ExpressionGroups(rows,option);continue;}
         option.Click+=(_,_)=>{if(preview)return;session.Save(key,JsonValue.Create(option.IsChecked==true));if(session.Running)Send("reload");};
     }
-    Page.Children.Add(Card(rows));
-    var hands=new StackPanel();var hybrid=new CheckBox{Content=new TextBlock{Text="Hybrid hands and controllers"},IsChecked=session.Config["hybridHands"]?.GetValue<bool>()==true};AutomationProperties.SetName(hybrid,"Hybrid hands and controllers");
-    hybrid.Click+=async(_,_)=>{if(preview)return;hybrid.IsEnabled=false;busy=true;StartButton.IsEnabled=false;trackingRefresh?.Invoke();try{await session.SetHybrid(hybrid.IsChecked==true);}catch(Exception e){hybrid.IsChecked=false;Error(e.Message);}finally{hybrid.IsEnabled=true;busy=false;StartButton.IsEnabled=true;trackingRefresh?.Invoke();}};
-    hybrid.IsEnabled=!QproFaceTracking.Hub.SteamVr.IsSteamLink;
-    hands.Children.Add(hybrid);hands.Children.Add(Text(QproFaceTracking.Hub.SteamVr.IsSteamLink?"Steam Link uses its own hand tracking. QFT+ hybrid hands currently requires Virtual Desktop.":"Pauses Virtual Desktop body tracking.",13,true));AutomationProperties.SetHelpText(hybrid,"Experimental. Requires Virtual Desktop; pauses its body tracking while enabled.");Page.Children.Add(Card(hands));
+    var faceRows=Card(rows);faceOnly.Add(faceRows);Page.Children.Add(faceRows);
  }
  void ExpressionGroups(Panel rows,CheckBox parent)
  {
@@ -298,13 +305,17 @@ public partial class StudioWindow : Window
  }
  void Settings()
  {
-    TrackingOptions();
+    UpdateOptions();
+    var faceOnly=new List<UIElement>();
+    void ShowFace(string use){foreach(var element in faceOnly)element.Visibility=use=="hands"?Visibility.Collapsed:Visibility.Visible;UseChanged(use);}
+    TrackingOptions(faceOnly,ShowFace);
     var appearance=new StackPanel();var theme=new ComboBox{ItemsSource=new[]{"System","Light","Dark"},SelectedItem=session.Config["theme"]?.GetValue<string>()??"System"};
     Field(appearance,"Appearance",theme);
     theme.SelectionChanged+=(_,_)=>{Theme((string)theme.SelectedItem);if(!preview)session.Save("theme",JsonValue.Create((string)theme.SelectedItem));};
     Page.Children.Add(Card(appearance));
-    StartupOptions();ProcessingOptions();
+    StartupOptions(faceOnly);var processing=Page.Children.Count;ProcessingOptions();faceOnly.Add(Page.Children[processing]);
     Diagnostics();
+    ShowFace(session.Use);
  }
  static readonly (string Title,string File,string Empty)[] Logs={("Tracking (autostart.log)","autostart.log","Start tracking to create it."),("Eye tracking (autostart-eyes.log)","autostart-eyes.log","Start tracking with independent eye gaze on to create it."),("Face and tongue (autostart-tongue.log)","autostart-tongue.log","Start tracking to create it."),("Setup (setup.log)","setup.log","Run setup to create it."),("Components (studio.log)","studio.log","It’s created when calibration or hybrid hands install or train something."),("Hybrid hands (hybrid.log)","hybrid.log","Turn on hybrid hands, then start tracking to create it.")};
  Action? liveLog;
