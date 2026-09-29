@@ -245,6 +245,20 @@ static int private_shared_file(const char *path) {
     struct stat status;
     if (fstat(fd, &status) != 0)
         return shared_memory_failure(fd, path, "inspect shared file (fstat)", errno, owner);
+    if (!S_ISREG(status.st_mode) || status.st_nlink != 1 ||
+        (status.st_uid != getuid() && status.st_uid != owner)) {
+        printf("SHARED_MEMORY_STALE_REPLACED path=\"%s\" file_uid=%lu file_mode=%#lo file_links=%lu\n",
+               path, (unsigned long)status.st_uid, (unsigned long)status.st_mode,
+               (unsigned long)status.st_nlink);
+        close(fd);
+        if (unlink(path) != 0)
+            return shared_memory_failure(-1, path, "remove stale shared file (unlink)", errno, owner);
+        fd = open(path, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0)
+            return shared_memory_failure(-1, path, "recreate shared file", errno, owner);
+        if (fstat(fd, &status) != 0)
+            return shared_memory_failure(fd, path, "inspect shared file (fstat)", errno, owner);
+    }
     if (!S_ISREG(status.st_mode))
         return shared_memory_failure(fd, path, "validate file type: expected regular file", EPERM, owner);
     if (status.st_nlink != 1)
