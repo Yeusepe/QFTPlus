@@ -215,18 +215,48 @@ static uid_t provider_uid(void) {
     return uid;
 }
 
+static int shared_memory_failure(int fd, const char *path, const char *operation,
+                                 int error, uid_t owner) {
+    fprintf(stderr, "SHARED_MEMORY_FAILED operation=\"%s\" path=\"%s\" errno=%d error=\"%s\""
+            " relay_uid=%lu relay_euid=%lu",
+            operation, path, error, strerror(error),
+            (unsigned long)getuid(), (unsigned long)geteuid());
+    if (owner != (uid_t)-1)
+        fprintf(stderr, " provider_uid=%lu", (unsigned long)owner);
+    struct stat status;
+    if (fd >= 0 && fstat(fd, &status) == 0)
+        fprintf(stderr, " file_uid=%lu file_gid=%lu file_mode=%#lo file_links=%lu file_bytes=%lld",
+                (unsigned long)status.st_uid, (unsigned long)status.st_gid,
+                (unsigned long)status.st_mode, (unsigned long)status.st_nlink,
+                (long long)status.st_size);
+    fputc('\n', stderr);
+    if (fd >= 0) close(fd);
+    errno = error;
+    return -1;
+}
+
 static int private_shared_file(const char *path) {
     uid_t owner = provider_uid();
-    if (owner == (uid_t)-1) { errno = ESRCH; return -1; }
+    if (owner == (uid_t)-1)
+        return shared_memory_failure(-1, path, "find camera provider UID", ESRCH, owner);
     int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return shared_memory_failure(-1, path, "open shared file", errno, owner);
     struct stat status;
-    if (fstat(fd, &status) != 0 || !S_ISREG(status.st_mode) || status.st_nlink != 1 ||
-        (status.st_uid != getuid() && status.st_uid != owner) ||
-        fchown(fd, getuid(), (gid_t)-1) != 0 || fchmod(fd, 0600) != 0 ||
-        fchown(fd, owner, (gid_t)-1) != 0) {
-        close(fd); errno = EPERM; return -1;
-    }
+    if (fstat(fd, &status) != 0)
+        return shared_memory_failure(fd, path, "inspect shared file (fstat)", errno, owner);
+    if (!S_ISREG(status.st_mode))
+        return shared_memory_failure(fd, path, "validate file type: expected regular file", EPERM, owner);
+    if (status.st_nlink != 1)
+        return shared_memory_failure(fd, path, "validate link count: expected one link", EPERM, owner);
+    if (status.st_uid != getuid() && status.st_uid != owner)
+        return shared_memory_failure(fd, path, "validate owner: expected relay or camera provider UID", EPERM, owner);
+    if (fchown(fd, getuid(), (gid_t)-1) != 0)
+        return shared_memory_failure(fd, path, "change owner to relay (fchown)", errno, owner);
+    if (fchmod(fd, 0600) != 0)
+        return shared_memory_failure(fd, path, "set private permissions 0600 (fchmod)", errno, owner);
+    if (fchown(fd, owner, (gid_t)-1) != 0)
+        return shared_memory_failure(fd, path, "change owner to camera provider (fchown)", errno, owner);
     return fd;
 }
 
@@ -234,16 +264,21 @@ static uint8_t *open_shared_memory(void) {
     int fd = private_shared_file(SHARED_PATH);
     if (fd < 0) return NULL;
     struct stat status;
-    if (fstat(fd, &status) != 0 ||
-        ((size_t)status.st_size != SHARED_BYTES &&
-         ftruncate(fd, (off_t)SHARED_BYTES) != 0)) {
-        close(fd);
+    if (fstat(fd, &status) != 0) {
+        shared_memory_failure(fd, SHARED_PATH, "inspect shared file size (fstat)", errno, (uid_t)-1);
+        return NULL;
+    }
+    if ((size_t)status.st_size != SHARED_BYTES && ftruncate(fd, (off_t)SHARED_BYTES) != 0) {
+        shared_memory_failure(fd, SHARED_PATH, "resize camera buffer (ftruncate)", errno, status.st_uid);
         return NULL;
     }
     void *mapping = mmap(NULL, SHARED_BYTES, PROT_READ | PROT_WRITE,
                          MAP_SHARED, fd, 0);
+    if (mapping == MAP_FAILED) {
+        shared_memory_failure(fd, SHARED_PATH, "map camera buffer (mmap)", errno, status.st_uid);
+        return NULL;
+    }
     close(fd);
-    if (mapping == MAP_FAILED) return NULL;
     uint8_t *shared = (uint8_t *)mapping;
     memcpy(shared, "QPSHARV7", 8);
     put_u32(shared, 32, SENSOR_WIDTH);
@@ -431,10 +466,7 @@ int main(int argc, char **argv) {
         close(pid_file);
     }
     uint8_t *shared = open_shared_memory();
-    if (!shared) {
-        fprintf(stderr, "SHARED_MEMORY_FAILED error=%s\n", strerror(errno));
-        return 2;
-    }
+    if (!shared) return 2;
     g_shared = shared;
     set_capture_lease(shared, 0);
     put_u32(shared, SHARED_REQUESTED_MAX_FPS_OFFSET, max_fps);

@@ -96,6 +96,14 @@ function Resolve-WorkspacePath([string]$Path) {
     return [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot $Path))
 }
 
+function Get-RelayStartupError([string]$LogText, [string]$Fallback) {
+    $sharedFailure = ($LogText -split '\r?\n' | Where-Object { $_ -match '^SHARED_MEMORY_FAILED\b' } | Select-Object -First 1)
+    if ($sharedFailure) {
+        return "The headset camera relay could not prepare shared memory. $sharedFailure Send questpro-live-relay.txt."
+    }
+    return "$Fallback Send questpro-live-relay.txt."
+}
+
 if (-not [string]::IsNullOrWhiteSpace($AdbTarget)) {
     $env:ANDROID_SERIAL = $AdbTarget.Trim()
 }
@@ -281,7 +289,7 @@ try {
             if (-not [string]::IsNullOrWhiteSpace($relayLogText)) { Write-Host $relayLogText }
             $relayProcess.Dispose()
             $relayProcess = $null
-            throw "The wireless root relay exited during startup. Send questpro-live-relay.txt."
+            throw (Get-RelayStartupError $relayLogText "The wireless root relay exited during startup.")
         }
         $relayStarted = $true
         Write-Host "RELAY_LISTENING address=127.0.0.1 port=$StreamPort mode=$CameraMode max_fps=$MaxFps transport=live-adb-su"
@@ -294,7 +302,9 @@ try {
         Start-Sleep -Milliseconds 800
         $relayLog = & $adbExecutable shell su -c "cat /data/local/tmp/questpro-relay-v8.log" 2>&1
         @($relayLog | ForEach-Object { $_.ToString() }) | Tee-Object -FilePath .\questpro-live-relay.txt
-        if (-not (($relayLog -join "`n") -match "RELAY_LISTENING")) { throw "The root relay did not begin listening. Send questpro-live-relay.txt." }
+        if (-not (($relayLog -join "`n") -match "RELAY_LISTENING")) {
+            throw (Get-RelayStartupError ($relayLog -join "`n") "The root relay did not begin listening.")
+        }
     }
 
     if ([string]::IsNullOrWhiteSpace($AdbTarget)) {
