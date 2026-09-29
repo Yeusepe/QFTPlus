@@ -24,6 +24,7 @@ public sealed class TrackingModule : ExtTrackingModule
     private const int GazePort = 27275;
     private const int GazePacketBytes = 24;
     private const long GazeTimeoutMs = 250;
+    private const long GazeHoldMs = 1000;
     private const int TonguePort = 27276;
     private const int TonguePacketBytes = 56;
     private const long TongueTimeoutMs = 300;
@@ -65,6 +66,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private bool _needsEye;
     private bool _needsExpression;
     private long _lastGazeTick;
+    private long _leftGazeHeldTick;
+    private long _rightGazeHeldTick;
     private float _leftGazeX;
     private float _leftGazeY;
     private float _rightGazeX;
@@ -411,34 +414,39 @@ public sealed class TrackingModule : ExtTrackingModule
     {
         bool leftValid = _second[292] != 0;
         bool rightValid = _second[293] != 0;
+        long now = Environment.TickCount64;
         bool customFresh = _lastGazeTick != 0 &&
-            Environment.TickCount64 - _lastGazeTick <= GazeTimeoutMs;
+            now - _lastGazeTick <= GazeTimeoutMs;
 
         if (customFresh && (_gazeFlags & 1) != 0)
         {
             UnifiedTracking.Data.Eye.Left.Gaze.x = _leftGazeX;
             UnifiedTracking.Data.Eye.Left.Gaze.y = _leftGazeY;
+            _leftGazeHeldTick = now;
         }
         else if (leftValid)
         {
             (float x, float y) = QuaternionToCartesian(_second, 296);
             UnifiedTracking.Data.Eye.Left.Gaze.x = x;
             UnifiedTracking.Data.Eye.Left.Gaze.y = y;
+            _leftGazeHeldTick = now;
         }
-        else { UnifiedTracking.Data.Eye.Left.Gaze.x = 0; UnifiedTracking.Data.Eye.Left.Gaze.y = 0; }
+        else if (now - _leftGazeHeldTick > GazeHoldMs) { UnifiedTracking.Data.Eye.Left.Gaze.x = 0; UnifiedTracking.Data.Eye.Left.Gaze.y = 0; }
 
         if (customFresh && (_gazeFlags & 2) != 0)
         {
             UnifiedTracking.Data.Eye.Right.Gaze.x = _rightGazeX;
             UnifiedTracking.Data.Eye.Right.Gaze.y = _rightGazeY;
+            _rightGazeHeldTick = now;
         }
         else if (rightValid)
         {
             (float x, float y) = QuaternionToCartesian(_second, 324);
             UnifiedTracking.Data.Eye.Right.Gaze.x = x;
             UnifiedTracking.Data.Eye.Right.Gaze.y = y;
+            _rightGazeHeldTick = now;
         }
-        else { UnifiedTracking.Data.Eye.Right.Gaze.x = 0; UnifiedTracking.Data.Eye.Right.Gaze.y = 0; }
+        else if (now - _rightGazeHeldTick > GazeHoldMs) { UnifiedTracking.Data.Eye.Right.Gaze.x = 0; UnifiedTracking.Data.Eye.Right.Gaze.y = 0; }
 
         UnifiedTracking.Data.Eye.Left.Openness = 1.0f - Math.Clamp(
             values[12] + values[4] * values[28], 0.0f, 1.0f);
