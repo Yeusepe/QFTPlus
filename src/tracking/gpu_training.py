@@ -273,8 +273,10 @@ class TongueEngine:
 
 
 
-def expression_inputs(mouth: np.ndarray, target: np.ndarray, names: list[str]) -> dict:
+def expression_inputs(mouth: np.ndarray, target: np.ndarray, names: list[str], soft: np.ndarray | None = None) -> dict:
+    """Matrix form of train_extra_face.expression_loss; soft targets only keep their ordering."""
     b, t = target.shape
+    soft = np.zeros((b, t), bool) if soft is None else soft
     pairs_max, sides_max = t * b * (b - 1) // 2, max(1, b * t)
     wl = np.zeros((b, t), np.float32)
     pairs = np.zeros((pairs_max, b * t), np.float32)
@@ -288,13 +290,14 @@ def expression_inputs(mouth: np.ndarray, target: np.ndarray, names: list[str]) -
             continue
         values = target[valid, i]
         levels, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
-        wl[valid, i] = 1.0 / (len(levels) * counts[inverse])
+        wl[valid, i] = np.where(soft[valid, i], 0.0, 1.0 / (len(levels) * counts[inverse]))
         a, c = np.meshgrid(valid, valid, indexing="ij")
         gap = target[a, i] - target[c, i]
         ordered = gap > 0
         for first, second, g in zip(a[ordered], c[ordered], gap[ordered]):
             pairs[row, first * t + i], pairs[row, second * t + i] = 1.0, -1.0
-            gaps[row], pair_weights[row] = g, .25 / ordered.sum()
+            gaps[row] = min(g, .1) if soft[first, i] or soft[second, i] else g
+            pair_weights[row] = .25 / ordered.sum()
             row += 1
     row = 0
     for i, name in enumerate(names):
@@ -320,14 +323,15 @@ class MouthEngine:
                              pairs=len(names) * batch * (batch - 1) // 2, sides=max(1, batch * len(names)))
         self.pace = Pace()
 
-    def step(self, cameras: torch.Tensor, target: torch.Tensor, loss_fn) -> float:
-        arrays = expression_inputs(cameras[:, 2:4].numpy(), target.numpy(), self.names)
+    def step(self, cameras: torch.Tensor, target: torch.Tensor, loss_fn, soft: torch.Tensor | None = None) -> float:
+        arrays = expression_inputs(cameras[:, 2:4].numpy(), target.numpy(), self.names,
+                                   None if soft is None else soft.numpy())
         if self.pace.cpu is None:
             import copy
             reference = copy.deepcopy(self.model).eval()
-            self.pace.cpu = verify(self.trainer, reference, lambda m: loss_fn(m(cameras)[0], target, self.names), arrays)
+            self.pace.cpu = verify(self.trainer, reference, lambda m: loss_fn(m(cameras)[0], target, self.names, soft), arrays)
             with torch.no_grad():
-                return float(loss_fn(reference(cameras)[0], target, self.names))
+                return float(loss_fn(reference(cameras)[0], target, self.names, soft))
         loss, seconds = self.trainer.step(**arrays)
         self.pace.record(seconds)
         return loss

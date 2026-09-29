@@ -74,30 +74,38 @@ def describe(name):
 
 
 def check(checkpoint):
+    """Gate on reliable labels only (see train_extra_face.evaluate), using percentiles, not single stills.
+
+    Halfway and both-cheeks values, and the rank order that depends on them, are reported but never fail
+    a calibration: people perform them inconsistently. Thresholds were validated on real cheek-puff
+    sessions from two wearers; the other groups share the rule untested.
+    """
     from extra_face_capture import family_of
     names = checkpoint.get("expressionNames", [])
     if checkpoint.get("schema") != "extra-face-stills-v1":
         raise ValueError("Expected an extra-face model")
     puff = family_of(names) == "puff"
+    finite = lambda v: isinstance(v, (int, float)) and math.isfinite(v)
     reasons = []
     for name in sorted(names):
         score = checkpoint.get("validation", {}).get(name, {})
-        values = [score.get(k) for k in ("mae", "neutralMaximum", "fullMinimum")]
+        error, relaxed, full = (score.get(k) for k in ("reliableMae", "relaxedP90", "fullP10"))
+        leak = score.get("leakP90")
         what = describe(name).replace("cheek puff", "cheek") if puff else describe(name)
         if (not score.get("hasNeutralAndFull") or score.get("count", 0) < 10
-                or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in values)):
+                or not all(map(finite, (error, relaxed, full)))):
             reasons.append(f"{what.capitalize()}: not enough test poses were recorded.")
             continue
-        if values[0] <= .20 and values[1] <= .25 and values[2] >= .75:
-            continue
         issues = []
-        if (score.get("oppositeOnlyMaximum") or 0) > .25:
+        if finite(leak) and leak > .25:
             issues.append("responded to the other side's pose")
-        elif values[1] > .25:
+        if relaxed > .25:
             issues.append("activity detected while relaxed")
-        if values[2] < .75:
+        if full < .70:
             issues.append("full poses read as partial")
-        if (score.get("halfMean") or 0) > .8:
+        if not issues and error <= .08:
+            continue
+        if issues and (score.get("halfMean") or 0) > .8:
             issues.append("halfway poses read as full")
         reasons.append(f"{what.capitalize()}: {'; '.join(issues) or 'poses were not tracked consistently'}.")
     if reasons:

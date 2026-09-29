@@ -1,7 +1,8 @@
 """Train candidate expression heads from explicit, masked five-camera labels.
 
-The final capture round is never used for fitting or model selection. Metrics
-are diagnostics, not a claim that attempted poses were correctly performed.
+Rounds 1-2 train a check model that is scored on the untouched final round;
+the saved model then uses the same fixed recipe on every round. Metrics are
+diagnostics, not a claim that attempted poses were correctly performed.
 """
 from __future__ import annotations
 import argparse
@@ -17,8 +18,8 @@ from prepare_training import scan_frames, resize_cameras
 from extra_face_capture import FAMILIES, target_names
 import gpu_training
 
-FIVE_CAMERA, MOUTH = "five-camera-v1", "ava-mouth-v1"
-IMAGE_SIZE = {FIVE_CAMERA: 96, MOUTH: 128}
+FIVE_CAMERA, MOUTH, SIDES = "five-camera-v1", "ava-mouth-v1", "ava-mouth-sides-v1"
+IMAGE_SIZE = {FIVE_CAMERA: 96, MOUTH: 128, SIDES: 128}
 ENCODER = Path(__file__).resolve().parent / "models" / "ava-mouth-encoder.pt"
 MOUTH_EPOCHS, MOUTH_STEPS_PER_EPOCH = 40, 10
 MOUTH_LAST_STAGE = True
@@ -38,8 +39,28 @@ class MouthExpressionModel(torch.nn.Module):
         return torch.sigmoid(self.head(features)), cameras.new_zeros(n, 8)
 
 
+class MouthSidesModel(MouthExpressionModel):
+    """One shared head per cheek shape; each side's value reads only that side's mouth camera.
+
+    Trained as MouthExpressionModel on side_rows, so the weights are identical. Outputs follow
+    sorted names: shape0 Left, shape0 Right, shape1 Left, ...
+    """
+
+    def forward(self, cameras):
+        n, _, h, w = cameras.shape
+        f = self.encoder((cameras[:, 2:4].reshape(n * 2, 1, h, w) - .25) / .25).mean((2, 3)).reshape(n, 2, -1)
+        sides = [torch.sigmoid(self.head(torch.cat([f[:, s], f[:, s]], 1))) for s in (0, 1)]
+        return torch.stack(sides, 2).flatten(1), cameras.new_zeros(n, 8)
+
+
 def create_model(architecture, count):
+    if architecture == SIDES:
+        return MouthSidesModel(count // 2)
     return MouthExpressionModel(count) if architecture == MOUTH else QuestProTrackingModel(count)
+
+
+def sided_cheeks(names):
+    return bool(names) and all(n.startswith("Cheek") and n.endswith(("Left", "Right")) for n in names)
 
 
 def labelled_names(captures):
@@ -51,7 +72,7 @@ def labelled_names(captures):
 def architecture_for(names, encoder):
     if encoder is None or not Path(encoder).exists() or any(n.startswith("Brow") for n in names):
         return FIVE_CAMERA
-    return MOUTH
+    return SIDES if sided_cheeks(names) else MOUTH
 
 
 def load_samples(captures: list[Path], size: int = 96):
@@ -98,41 +119,65 @@ def load_samples(captures: list[Path], size: int = 96):
     return np.stack(images), targets, np.asarray(groups), names
 
 
+def spearman(predicted, expected):
+    """Rank correlation with averaged ties; None when the labels have no order to check."""
+    if len(np.unique(expected)) < 2:
+        return None
+    ranks = []
+    for values in (predicted, expected):
+        rank = np.empty(len(values))
+        rank[np.argsort(values, kind="stable")] = np.arange(len(values))
+        for value in np.unique(values):
+            rank[values == value] = rank[values == value].mean()
+        ranks.append(rank)
+    return 0.0 if ranks[0].std() == 0 else float(np.corrcoef(*ranks)[0, 1])
+
+
 def evaluate(predictions, expected, names):
+    """Holdout report on reliable labels: relaxed, full and the other side's pose.
+
+    Halfway prompts are performed inconsistently, and when one-sided poses exist the both-sides
+    poses are too (the air splits between the cheeks), so those are reported but not gated.
+    """
     result = {}
     for i, name in enumerate(names):
         valid = np.isfinite(expected[:, i])
         p, y = predictions[valid, i], expected[valid, i]
-        neutral, full = y == 0, y == 1
+        opposite = name.removesuffix("Left") + "Right" if name.endswith("Left") else name.removesuffix("Right") + "Left"
+        other = np.nan_to_num(expected[valid, names.index(opposite)]) if opposite in names else np.zeros_like(y)
+        isolated = ((y == 1) & (other == 0)).any()
+        kept = ~((y > 0) & (other > 0)) if isolated else np.ones(len(y), bool)
+        relaxed, full, leak = (y == 0) & (other == 0), (y == 1) & kept, (y == 0) & (other == 1)
+        reliable = ((y == 0) | (y == 1)) & kept
+        ordered = kept & (other == 0) if isolated else kept
         result[name] = {
-            "count": len(y), "mae": float(np.abs(p-y).mean()) if len(y) else None,
-            "neutralMaximum": float(p[neutral].max()) if neutral.any() else None,
-            "fullMinimum": float(p[full].min()) if full.any() else None,
-            "hasNeutralAndFull": bool(neutral.any() and full.any()),
+            "count": len(y), "mae": float(np.abs(p - y).mean()) if len(y) else None,
+            "reliableMae": float(np.abs(p - y)[reliable].mean()) if reliable.any() else None,
+            "relaxedP90": float(np.percentile(p[relaxed], 90)) if relaxed.any() else None,
+            "fullP10": float(np.percentile(p[full], 10)) if full.any() else None,
+            "leakP90": float(np.percentile(p[leak], 90)) if leak.any() else None,
+            "spearman": spearman(p[ordered], y[ordered]),
+            "hasNeutralAndFull": bool(relaxed.any() and full.any()),
             "halfMean": float(p[y == .5].mean()) if (y == .5).any() else None,
         }
-        opposite = name.removesuffix("Left") + "Right" if name.endswith("Left") else name.removesuffix("Right") + "Left"
-        if opposite in names:
-            other = expected[valid, names.index(opposite)]
-            isolated, inactive = (y == 1) & (other == 0), (y == 0) & (other == 1)
-            result[name].update(
-                isolatedFullMinimum=float(p[isolated].min()) if isolated.any() else None,
-                oppositeOnlyMaximum=float(p[inactive].max()) if inactive.any() else None)
     return result
 
 
-def expression_loss(predicted, target, names):
+def expression_loss(predicted, target, names, soft=None):
+    """Balanced level loss + ordinal hinge + left/right difference; soft targets only keep their order."""
+    soft = torch.zeros_like(target, dtype=torch.bool) if soft is None else soft
     losses = []
     for i in range(len(names)):
         valid = torch.isfinite(target[:, i])
-        p, y = predicted[valid, i], target[valid, i]
+        p, y, s = predicted[valid, i], target[valid, i], soft[valid, i]
         if not len(y):
             continue
-        losses.append(torch.stack([(p[y == level] - level).square().mean()
+        losses.append(torch.stack([(p[(y == level) & ~s] - level).square().sum() / (y == level).sum()
                                    for level in y.unique()]).mean())
         gap = y[:, None] - y[None, :]
         ordered = gap > 0
         if ordered.any():
+            gap = torch.where(s[:, None] | s[None, :], gap.clamp(max=.1), gap)
             separation = p[:, None] - p[None, :]
             losses.append(.25 * (gap[ordered] - separation[ordered]).clamp(min=0).square().mean())
     for i, name in enumerate(names):
@@ -203,6 +248,20 @@ def nuisance(images):
     return out
 
 
+def side_rows(images, targets, names):
+    """Each still becomes a left row and a right row whose two mouth views both show that side's camera.
+
+    Returns rows, per-shape targets, the ordering-only mask (one-sided halfway) and the shape names.
+    """
+    shapes = sorted({name.removesuffix("Left").removesuffix("Right") for name in names})
+    left = targets[:, [names.index(s + "Left") for s in shapes]]
+    right = targets[:, [names.index(s + "Right") for s in shapes]]
+    left_rows, right_rows = images.copy(), images.copy()
+    left_rows[:, 3], right_rows[:, 2] = images[:, 2], images[:, 3]
+    own, other = np.concatenate([left, right]), np.concatenate([right, left])
+    return np.concatenate([left_rows, right_rows]), own, (own == .5) & (other == 0), shapes
+
+
 def predict(model, images, device):
     model.eval()
     with torch.inference_mode():
@@ -210,8 +269,8 @@ def predict(model, images, device):
                           for batch in torch.from_numpy(images).split(32)]).numpy()
 
 
-def fit(images, targets, names, epochs, device, validation=None, stage=1, architecture=FIVE_CAMERA, encoder=None):
-    options = dict(validation=validation, stage=stage, architecture=architecture, encoder=encoder)
+def fit(images, targets, names, epochs, device, stage=1, architecture=FIVE_CAMERA, encoder=None, soft=None):
+    options = dict(stage=stage, architecture=architecture, encoder=encoder, soft=soft)
     if architecture == MOUTH and device.type == "cpu" and gpu_training.enabled():
         try:
             return _fit(images, targets, names, epochs, device, gpu=True, **options)
@@ -220,7 +279,7 @@ def fit(images, targets, names, epochs, device, validation=None, stage=1, archit
     return _fit(images, targets, names, epochs, device, **options)
 
 
-def _fit(images, targets, names, epochs, device, validation=None, stage=1, architecture=FIVE_CAMERA, encoder=None, gpu=False):
+def _fit(images, targets, names, epochs, device, stage=1, architecture=FIVE_CAMERA, encoder=None, soft=None, gpu=False):
     random.seed(42); np.random.seed(42); torch.manual_seed(42)
     model = create_model(architecture, len(names)).to(device)
     mouth = architecture == MOUTH
@@ -243,8 +302,8 @@ def _fit(images, targets, names, epochs, device, validation=None, stage=1, archi
     unrelated = unrelated_cameras(names)
     x = torch.from_numpy(images).float().to(device) / 255
     y = torch.from_numpy(targets).to(device)
-    best_score, best_epoch = float("inf"), 0
-    print(f"TRAIN_STAGE index={stage} total=2 name={'selection' if validation is not None else 'expressions'}", flush=True)
+    s = torch.from_numpy(np.zeros(targets.shape, bool) if soft is None else soft).to(device)
+    print(f"TRAIN_STAGE index={stage} total=2 name={'check' if stage == 1 else 'final'}", flush=True)
     for epoch in range(epochs):
         print(f"TRAIN_EPOCH current={epoch+1} total={epochs}", flush=True)
         model.train()
@@ -253,9 +312,9 @@ def _fit(images, targets, names, epochs, device, validation=None, stage=1, archi
             for _ in range(MOUTH_STEPS_PER_EPOCH):
                 ids = torch.randint(0, len(x), (32,), device=device)
                 if engine is not None:
-                    engine.step(nuisance(x[ids]), y[ids], expression_loss)
+                    engine.step(nuisance(x[ids]), y[ids], expression_loss, s[ids])
                     continue
-                loss = expression_loss(model(nuisance(x[ids]))[0], y[ids], names)
+                loss = expression_loss(model(nuisance(x[ids]))[0], y[ids], names, s[ids])
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
         else:
             for ids in torch.randperm(len(x), device=device).tensor_split(max(1, (len(x)+31)//32)):
@@ -264,32 +323,24 @@ def _fit(images, targets, names, epochs, device, validation=None, stage=1, archi
                 loss = expression_loss(predicted, labels, names)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
             schedule.step()
-        if validation is not None:
-            estimated = estimate(validation[0])
-            error = np.abs(estimated - validation[1])
-            score = float(np.nanmean(error) + .25*np.nanmax(error))
-            if np.isfinite(score) and score < best_score:
-                best_score, best_epoch = score, epoch+1
         if (epoch+1) % 10 == 0 or epoch+1 == epochs:
             mse = float(np.nanmean((estimate(images)-targets)**2))
-            detail = f", validation MAE={np.nanmean(error):.4f}, worst={np.nanmax(error):.4f}" if validation is not None else ""
-            print(f"Epoch {epoch+1}/{epochs}, training MSE={mse:.4f}{detail}", flush=True)
+            print(f"Epoch {epoch+1}/{epochs}, training MSE={mse:.4f}", flush=True)
     if engine is not None:
         engine.sync()
         engine.close()
-    if validation is not None and not best_epoch:
-        raise ValueError("Training produced no finite validation score")
-    return model, best_epoch
+    return model
 
 
-def develop(images, targets, names, train, validation, device, architecture=FIVE_CAMERA, encoder=None, epochs=None):
-    options = dict(architecture=architecture, encoder=encoder)
-    development = train | validation
-    _, best_epoch = fit(images[train], targets[train], names, epochs or (MOUTH_EPOCHS if architecture == MOUTH else 60), device,
-                        validation=(images[validation], targets[validation]), **options)
-    print(f"TRAIN_SELECTED epoch={best_epoch} validationRound=2 testRound=3", flush=True)
-    model, _ = fit(images[development], targets[development], names, best_epoch, device, stage=2, **options)
-    return model, best_epoch
+def develop(images, targets, names, epochs, device, stage, architecture=FIVE_CAMERA, encoder=None):
+    """Fixed-epoch training. Epoch selection on one noisy round picked 1-6 epochs and undertrained."""
+    if architecture != SIDES:
+        return fit(images, targets, names, epochs, device, stage, architecture, encoder)
+    rows, own, soft, shapes = side_rows(images, targets, names)
+    shared = fit(rows, own, shapes, epochs, device, stage, MOUTH, encoder, soft)
+    model = MouthSidesModel(len(shapes)).to(next(shared.parameters()).device)
+    model.load_state_dict(shared.state_dict())
+    return model
 
 
 def main():
@@ -301,40 +352,45 @@ def main():
                         help="pretrained mouth encoder; without it every group uses the five-camera model")
     args = parser.parse_args()
     architecture = architecture_for(labelled_names(args.captures), args.encoder)
-    args.epochs = args.epochs or (MOUTH_EPOCHS if architecture == MOUTH else 60)
+    args.epochs = args.epochs or (60 if architecture == FIVE_CAMERA else MOUTH_EPOCHS)
     if args.epochs < 1 or args.output.exists():
         parser.error("epochs must be positive; output must be a new file")
     print(f"TRAIN_ARCHITECTURE {architecture}", flush=True)
     images, targets, groups, names = load_samples(args.captures, IMAGE_SIZE[architecture])
-    train, validation, holdout = groups == 0, groups == 1, groups == 2
-    if min(train.sum(), validation.sum(), holdout.sum()) < 10:
+    rounds = [groups == r for r in range(3)]
+    if min(r.sum() for r in rounds) < 10:
         parser.error("Capture both training rounds and the separate final holdout round")
-    keep = [i for i in range(len(names)) if all((targets[split, i] == 0).sum() >= 3 and (targets[split, i] == 1).sum() >= 3
-                                                  for split in (train, validation, holdout))]
+    keep = [i for i in range(len(names)) if all((targets[r, i] == 0).sum() >= 3 and (targets[r, i] == 1).sum() >= 3
+                                                  for r in rounds)]
+    if architecture == SIDES:
+        kept = {names[i] for i in keep}
+        keep = [i for i in keep if {names[i].removesuffix("Left").removesuffix("Right") + side
+                                    for side in ("Left", "Right")} <= kept]
     for i in sorted(set(range(len(names))) - set(keep)):
         print(f"TRAIN_SKIPPED {names[i]}", flush=True)
     if not keep:
         parser.error("Every pose was skipped, so there's nothing to calibrate.")
     targets, names = targets[:, keep], [names[i] for i in keep]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, best_epoch = develop(images, targets, names, train, validation, device, architecture, args.encoder, args.epochs)
-    development = train | validation
-    predictions = predict(model, images[holdout], device)
-    report = evaluate(predictions, targets[holdout], names)
+    train, holdout = groups != 2, groups == 2
+    checked = develop(images[train], targets[train], names, args.epochs, device, 1, architecture, args.encoder)
+    report = evaluate(predict(checked, images[holdout], device), targets[holdout], names)
     for name, metrics in report.items():
         print(f"HOLDOUT {name}: {json.dumps(metrics)}", flush=True)
+    model = develop(images, targets, names, args.epochs, device, 2, architecture, args.encoder)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     provenance = {"pretrainedEncoder": {"sha256": hashlib.sha256(args.encoder.read_bytes()).hexdigest(),
-                                        "data": "Ava-256 (CC BY-NC 4.0)"}} if architecture == MOUTH else {}
+                                        "data": "Ava-256 (CC BY-NC 4.0)"}} if architecture != FIVE_CAMERA else {}
+    method = "per-side-halfway-ordinal-v1" if architecture == SIDES else "balanced-ordinal-fixed-v1"
     torch.save({"modelState": model.cpu().state_dict(), "expressionNames": names,
                 "architecture": architecture, "imageSize": IMAGE_SIZE[architecture], **provenance,
                 "schema": "extra-face-stills-v1", "validation": report,
-                "selectedEpoch": best_epoch, "trainingMethod": "balanced-ordinal-sides-v1",
+                "epochs": args.epochs, "trainingMethod": method,
                 "approvedForOutput": False}, args.output)
     args.output.with_suffix(".validation.json").write_text(json.dumps({
-        "trainFrames": int(development.sum()), "selectionFrames": int(validation.sum()),
-        "selectedEpoch": best_epoch, "holdoutFrames": int(holdout.sum()), "targets": report,
-        "status": "Research only. Review images and live held-out poses before enabling any override."
+        "checkFrames": int(train.sum()), "holdoutFrames": int(holdout.sum()), "finalFrames": len(images),
+        "epochs": args.epochs, "targets": report,
+        "status": "Holdout scores come from a model trained on rounds 1-2; the saved model uses the same recipe on all rounds."
     }, indent=2))
     print(f"MODEL_READY path={args.output}", flush=True)
 
