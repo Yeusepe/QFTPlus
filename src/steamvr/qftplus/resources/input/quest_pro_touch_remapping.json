@@ -1,0 +1,206 @@
+{
+	"to_controller_type": "quest_pro_touch",
+	"layouts": [
+		{
+			"priority": 100,
+			"from_controller_type": "knuckles",
+			"simulate_controller_type": true,
+			"simulate_render_model": true,
+			"simulate_HMD": true,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/grip",
+					"to": "/user/hand/right/input/grip",
+					"parameters": {
+						"click_activate_threshold": "0.7",
+						"click_deactivate_threshold": "0.65",
+						"touch_activate_threshold": "0.05",
+						"touch_deactivate_threshold": "0.02"
+					}
+				},
+				{
+					"from": "/user/hand/right/input/thumbstick",
+					"to": "/user/hand/right/input/joystick"
+				},
+				{
+					"from": "/user/hand/right/input/trackpad",
+					"to": "/user/hand/right/input/trackpad"
+				},
+				{
+					"from": "/user/hand/right/input/pinch",
+					"to": "/user/hand/right/input/trigger"
+				},
+				{
+					"from": "/user/hand/left/input/a",
+					"to": "/user/hand/left/input/x",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/left/input/b",
+					"to": "/user/hand/left/input/y",
+					"mirror": false
+				}
+			]
+		},
+		{
+			"priority": 95,
+			"from_controller_type": "oculus_touch",
+			"simulate_controller_type": true,
+			"simulate_render_model": false,
+			"simulate_HMD": false,
+			"remappings": []
+		},
+		{
+			"priority": 90,
+			"from_controller_type": "khr_generic_controller",
+			"simulate_controller_type": false,
+			"simulate_render_model": false,
+			"simulate_HMD": false,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/grip",
+					"to": "/user/hand/right/input/grip"
+				},
+				{
+					"from": "/user/hand/right/input/trigger",
+					"to": "/user/hand/right/input/trigger"
+				},
+				{
+					"from": "/user/hand/right/input/thumbstick",
+					"to": "/user/hand/right/input/joystick"
+				},
+				{
+					"from": "/user/hand/left/input/primary",
+					"to": "/user/hand/left/input/x",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/left/input/secondary",
+					"to": "/user/hand/left/input/y",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/right/input/primary",
+					"to": "/user/hand/right/input/a",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/right/input/secondary",
+					"to": "/user/hand/right/input/b",
+					"mirror": false
+				}
+			]
+		},
+		{
+			"priority": 85,
+			"from_controller_type": "holographic_controller",
+			"simulate_controller_type": true,
+			"simulate_render_model": true,
+			"simulate_HMD": false,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/joystick",
+					"to": "/user/hand/right/input/joystick"
+				},
+				{
+					"from": "/user/hand/right/input/trackpad",
+					"to": "/user/hand/right/input/trackpad"
+				},
+				{
+					"from": "/user/hand/right/input/grip",
+					"to": "/user/hand/right/input/grip"
+				},
+				{
+					"from": "/user/hand/right/input/application_menu",
+					"to": "/user/hand/right/input/b",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/left/input/application_menu",
+					"to": "/user/hand/left/input/y",
+					"mirror": false
+				}
+			]
+		},
+		{
+			"priority": 70,
+			"from_controller_type": "hand_interaction_ext",
+			"simulate_controller_type": false,
+			"simulate_render_model": false,
+			"simulate_HMD": false,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/grasp_ext",
+					"to": "/user/hand/right/input/grip"
+				},
+				{
+					"from": "/user/hand/right/input/pinch_ext",
+					"to": "/user/hand/right/input/trigger"
+				},
+				{
+					"from": "/user/hand/right/input/aim_activate_ext",
+					"to": "/user/hand/right/input/trigger"
+				}
+			]
+		},
+		{
+			"priority": 20,
+			"from_controller_type": "vive_controller",
+			"simulate_controller_type": true,
+			"simulate_render_model": true,
+			"simulate_HMD": true,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/grip",
+					"to": "/user/hand/right/input/grip",
+					"parameters": {
+						"click_activate_threshold": "0.7",
+						"click_deactivate_threshold": "0.65",
+						"touch_activate_threshold": "0.05",
+						"touch_deactivate_threshold": "0.02"
+					}
+				},
+				{
+					"from": "/user/hand/right/input/trackpad",
+					"to": [
+						"/user/hand/right/input/trackpad",
+						"/user/hand/right/input/joystick"
+					]
+				},
+				{
+					"from": "/user/hand/right/input/application_menu",
+					"to": "/user/hand/right/input/a",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/left/input/application_menu",
+					"to": "/user/hand/left/input/x",
+					"mirror": false
+				}
+			]
+		},
+		{
+			"priority": 10,
+			"from_controller_type": "khr_simple_controller",
+			"simulate_controller_type": false,
+			"simulate_render_model": false,
+			"simulate_HMD": false,
+			"autoremappings": [
+				{
+					"from": "/user/hand/right/input/select",
+					"to": "/user/hand/right/input/trigger"
+				},
+				{
+					"from": "/user/hand/right/input/menu",
+					"to": "/user/hand/right/input/a",
+					"mirror": false
+				},
+				{
+					"from": "/user/hand/left/input/menu",
+					"to": "/user/hand/left/input/x",
+					"mirror": false
+				}
+			]
+		}
+	]
+}

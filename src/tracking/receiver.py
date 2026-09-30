@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import http.server
 import os
 import socket
@@ -124,7 +125,7 @@ class FrameReplayStats:
         replayed = bool(
             len(self.recent) >= 2
             and fingerprint != self.recent[-1]
-            and fingerprint in list(self.recent)[:-1]
+            and fingerprint in self.recent
         )
         if replayed:
             self.suspected_replays += 1
@@ -416,32 +417,67 @@ def label_strip(
     return display
 
 
-def load_studio_reload(arguments, tongue_model_preview):
+def studio_config():
     import json
-    config = json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+    return json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+
+
+def face_log_path(config, kind):
+    """<researchDataPath>/sessions/<date>-<kind>.facelog.jsonl when 'Save face-tracking logs' is on, else None."""
+    if not config.get('faceLog'):
+        return None
+    root = Path(config.get('researchDataPath') or Path(os.environ.get('LOCALAPPDATA', '.')) / 'QFTPlus' / 'research')
+    return str(root / 'sessions' / (time.strftime('%Y%m%d-%H%M%S') + f'-{kind}.facelog.jsonl'))
+
+
+def load_studio_reload(arguments, tongue_model_preview):
+    config = studio_config()
     tongue = None
-    if (tongue_model_preview is not None and config.get('tongueModelPath')
-            and (Path(config['tongueModelPath']).resolve() != tongue_model_preview.checkpoint_path.resolve()
-                 or Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.direction_checkpoint_path)):
+    if (tongue_model_preview is not None and Path(config.get('tongueDirectionModelPath') or '').is_file()
+            and Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.checkpoint_path):
         from tongue_model_preview import LiveTongueModelPreview
-        tongue = LiveTongueModelPreview(config['tongueModelPath'],
-            direction_checkpoint_path=config.get('tongueDirectionModelPath'),
-            smoothing=1.0 - .88*(arguments.tongue_smoothing/100), visibility_mode=arguments.tongue_visibility_mode)
-    from extra_face_preview import ExtraFacePreview, configured_models
+        tongue = LiveTongueModelPreview(config['tongueDirectionModelPath'],
+            smoothing=1.0 - .88*(arguments.tongue_smoothing/100), bias=float(config.get('faceEventBias') or 0),
+            log=face_log_path(config, 'tongue'))
     extra_face = None
+    legacy_ready = importlib.util.find_spec('torch') is not None
+    if config.get('faceEngine') != 'legacy' or not legacy_ready:
+        try:
+            from universal_face import FAMILIES, UniversalFace
+            from tongue_output import TongueBroadcaster
+            model = config.get('universalModelPath') or str(Path(__file__).resolve().parent / 'models' / 'universal-face-v2.npz')
+            extra_face = UniversalFace(model, config.get('faceEnrollment'), config.get('extraFaceOutput', True) is not False,
+                families=[f for f in FAMILIES if config.get(f'extraFaceOutput-{f}', True) is not False],
+                render=not arguments.no_window, bias=float(config.get('faceEventBias') or 0), log=face_log_path(config, 'universal'),
+                tongue=TongueBroadcaster(enabled=config.get('tongueOutput', True)))
+            return config, None, extra_face, PupilDilationLoader(arguments, config)
+        except Exception as error:
+            print('UNIVERSAL_FALLBACK ' + str(error), flush=True)
+            config = dict(config, universalError='Using your previous calibration: ' + str(error))
+    if not legacy_ready:
+        return config, tongue, None, PupilDilationLoader(arguments, config)
+    from extra_face_preview import ExtraFacePreview, configured_models
     if config.get('extraFaceOutput') and configured_models(config):
-        extra_face = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window)
+        extra_face = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window,
+                                      bias=float(config.get('faceEventBias') or 0), enrollment=config.get('faceEnrollment'),
+                                      log=face_log_path(config, 'face'))
+    return config, tongue, extra_face, PupilDilationLoader(arguments, config)
+
+
+def PupilDilationLoader(arguments, config):
     from pupil_dilation import PupilDilation
-    pupil = PupilDilation(path=arguments.pupil_calibration,
+    return PupilDilation(path=arguments.pupil_calibration,
         enabled=config.get('pupilDilation', False), render=not arguments.no_window,
         asynchronous=arguments.no_window)
-    return config, tongue, extra_face, pupil
 
 
 def main() -> int:
     cv2.setNumThreads(1)
-    import torch
-    torch.set_num_threads(2)
+    try:
+        import torch
+        torch.set_num_threads(2)
+    except ImportError:
+        pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=27273)
@@ -478,17 +514,9 @@ def main() -> int:
     parser.add_argument("--pupil-dilation", action="store_true")
     parser.add_argument("--extra-face-model", action="append", help="repeat once per expression group")
     parser.add_argument("--extra-face-output", action="store_true")
-    parser.add_argument("--model")
-    parser.add_argument("--model-device", default="auto")
-    parser.add_argument("--tongue-model")
-    parser.add_argument("--tongue-direction-model")
+    parser.add_argument("--tongue-model", help="direction checkpoint; Meta's native TongueOut decides visibility")
     parser.add_argument("--tongue-model-device", default="auto")
     parser.add_argument("--tongue-smoothing", type=int, default=55)
-    parser.add_argument(
-        "--tongue-visibility-mode",
-        choices=("camera", "native", "weighted", "agreement"),
-        default="weighted",
-    )
     parser.add_argument(
         "--tongue-output",
         action="store_true",
@@ -498,22 +526,6 @@ def main() -> int:
         "--stop-file",
         help="exit cleanly when this supervisor-owned file appears",
     )
-    parser.add_argument("--open-source-preview", action="store_true")
-    parser.add_argument("--hybrid-preview", action="store_true")
-    parser.add_argument(
-        "--hybrid-calibration",
-        default="calibration/qpro-hybrid-eye-calibration.json",
-    )
-    parser.add_argument("--next-model")
-    parser.add_argument("--face-model")
-    parser.add_argument("--eye-calibration", action="store_true")
-    parser.add_argument("--calibration-overlay")
-    parser.add_argument(
-        "--eye-calibration-output",
-        default="calibration/qpro-stereo-eye-calibration.json",
-    )
-    parser.add_argument("--gaze-calibration-seconds", type=int, default=60)
-    parser.add_argument("--convergence-calibration-seconds", type=int, default=40)
     arguments = parser.parse_args()
     if arguments.resume_session and not (arguments.tongue_refinement_calibration and arguments.record not in (None, "auto")):
         parser.error("--resume-session requires tongue refinement and a new record path")
@@ -549,52 +561,18 @@ def main() -> int:
             or arguments.tongue_refinement_calibration
             or arguments.tongue_arc_calibration) and arguments.no_window and not calibration_ui:
         parser.error("--calibration requires the visible prompt window")
-    if arguments.model and arguments.no_window:
-        parser.error("--model requires a visible comparison window")
-    if arguments.model and arguments.no_labels:
-        parser.error("--model comparison requires live factory labels")
     if arguments.tongue_model and arguments.no_window and not arguments.tongue_output:
         parser.error("hidden tongue tracking requires --tongue-output")
     if arguments.tongue_model and arguments.no_labels:
         parser.error("--tongue-model requires live native TongueOut confidence")
     if arguments.tongue_model and (
-        arguments.model or arguments.open_source_preview or arguments.hybrid_preview
-        or arguments.calibration or arguments.tongue_calibration
-        or arguments.tongue_still_calibration or arguments.eye_calibration
+        arguments.calibration or arguments.tongue_calibration
+        or arguments.tongue_still_calibration
         or arguments.tongue_correction_calibration
         or arguments.tongue_refinement_calibration
         or arguments.tongue_arc_calibration
     ):
         parser.error("--tongue-model must run by itself")
-    if (arguments.open_source_preview or arguments.hybrid_preview
-            or arguments.eye_calibration) and arguments.no_window:
-        parser.error("--open-source-preview requires visible windows")
-    if arguments.open_source_preview and arguments.model:
-        parser.error("choose either --open-source-preview or --model")
-    if arguments.hybrid_preview and (
-        arguments.open_source_preview or arguments.model
-        or arguments.calibration or arguments.eye_calibration
-    ):
-        parser.error("--hybrid-preview must run by itself")
-    if (arguments.open_source_preview or arguments.hybrid_preview
-            or arguments.eye_calibration) and not arguments.next_model:
-        parser.error("--open-source-preview requires --next-model")
-    if (arguments.open_source_preview or arguments.hybrid_preview
-            or arguments.eye_calibration) and not arguments.face_model:
-        parser.error("--open-source-preview requires --face-model")
-    if arguments.hybrid_preview and arguments.no_labels:
-        parser.error("--hybrid-preview requires live Meta/VRCFT labels")
-    if arguments.eye_calibration and arguments.calibration:
-        parser.error("--eye-calibration cannot be combined with --calibration")
-    if arguments.eye_calibration and arguments.model:
-        parser.error("--eye-calibration cannot be combined with --model")
-    if arguments.eye_calibration and not arguments.calibration_overlay:
-        parser.error("--eye-calibration requires --calibration-overlay")
-    if arguments.gaze_calibration_seconds < 10:
-        parser.error("--gaze-calibration-seconds must be at least 10")
-    if arguments.convergence_calibration_seconds < 10:
-        parser.error("--convergence-calibration-seconds must be at least 10")
-
     shared = SharedPreview()
     server = start_mjpeg_server(shared, arguments.mjpeg_port)
     threading.Thread(
@@ -635,16 +613,10 @@ def main() -> int:
             or arguments.tongue_arc_calibration)
         else "Quest Pro whole-face calibration"
     )
-    model_window_name = "Quest Pro pilot model validation"
-    live_model = None
     tongue_model_window_name = "Quest Pro personalized stereo tongue preview"
     tongue_model_preview = None
     tongue_broadcaster = None
     tongue_inference_worker = None
-    open_source_window_name = "Quest Pro open-source model preview"
-    open_source_preview = None
-    hybrid_preview = None
-    stereo_eye_calibration = None
     extra_face_preview = None
     pupil_dilation = None
     from studio_capture import StudioCapture
@@ -749,10 +721,8 @@ def main() -> int:
                 )
         if not arguments.no_labels and (
             arguments.record is not None
-            or arguments.model is not None
             or arguments.tongue_model is not None
-            or arguments.eye_calibration
-            or arguments.hybrid_preview
+            or arguments.studio
         ):
             if capture_writer is not None:
                 label_path = capture_writer.path.with_suffix(".qplabel.jsonl")
@@ -765,16 +735,6 @@ def main() -> int:
                 f"Listening for timestamped factory labels on "
                 f"127.0.0.1:{arguments.labels_port}"
             )
-        if arguments.model is not None:
-            from model_preview import LiveModelPreview
-
-            live_model = LiveModelPreview(
-                arguments.model, device_name=arguments.model_device
-            )
-            print(
-                f"Loaded pilot model on {live_model.device}: "
-                f"{live_model.checkpoint_path}"
-            )
         if arguments.tongue_model is not None:
             from tongue_model_preview import (
                 LiveTongueModelPreview,
@@ -785,11 +745,10 @@ def main() -> int:
             tongue_model_preview = LiveTongueModelPreview(
                 arguments.tongue_model,
                 device_name=arguments.tongue_model_device,
-                direction_checkpoint_path=arguments.tongue_direction_model,
                 smoothing=1.0 - 0.88 * (arguments.tongue_smoothing / 100.0),
-                visibility_mode=arguments.tongue_visibility_mode,
             )
-            tongue_broadcaster = TongueBroadcaster(enabled=arguments.tongue_output, supported=tongue_model_preview.supported_targets)
+            tongue_output = arguments.tongue_output and (not arguments.studio or studio_config().get('tongueOutput', True))
+            tongue_broadcaster = TongueBroadcaster(enabled=tongue_output, supported=tongue_model_preview.supported_targets)
             tongue_inference_worker = TongueInferenceWorker(
                 tongue_model_preview, tongue_broadcaster, render=not arguments.no_window
             )
@@ -797,51 +756,9 @@ def main() -> int:
                 f"Loaded opt-in stereo tongue model on "
                 f"{tongue_model_preview.device}: {tongue_model_preview.checkpoint_path}"
             )
-            if tongue_model_preview.direction_checkpoint_path is not None:
-                print(
-                    "Direction ensemble model: "
-                    f"{tongue_model_preview.direction_checkpoint_path}"
-                )
             print(
                 "Experimental VRCFT tongue output starts "
-                + ("ON." if arguments.tongue_output else "OFF. Press T to toggle it.")
-            )
-        if (arguments.open_source_preview or arguments.hybrid_preview
-                or arguments.eye_calibration):
-            from open_source_preview import OpenSourceModelPreview
-
-            open_source_preview = OpenSourceModelPreview(
-                arguments.next_model,
-                arguments.face_model,
-                smoothing=1.0 if arguments.eye_calibration else 0.35,
-            )
-            print(
-                "Loaded observation-only open-source models: "
-                f"NEXT={open_source_preview.eye_model_path}; "
-                f"Babble={open_source_preview.face_model_path}"
-            )
-        if arguments.hybrid_preview:
-            from hybrid_preview import HybridModelPreview
-
-            hybrid_preview = HybridModelPreview(arguments.hybrid_calibration)
-            open_source_window_name = "Quest Pro hybrid tracking preview"
-            print(
-                "Loaded observation-only hybrid calibration: "
-                f"{hybrid_preview.calibration_path}"
-            )
-        if arguments.eye_calibration:
-            from stereo_eye_calibration import StereoEyeCalibrationController
-
-            stereo_eye_calibration = StereoEyeCalibrationController(
-                overlay_executable=arguments.calibration_overlay,
-                output_path=arguments.eye_calibration_output,
-                gaze_seconds=arguments.gaze_calibration_seconds,
-                convergence_seconds=arguments.convergence_calibration_seconds,
-            )
-            stereo_eye_calibration.start()
-            print(
-                "Stereo eye calibration starting. Follow the instructions in VR; "
-                "press Space in the PC window or console when prompted."
+                + ("ON." if tongue_output else "OFF. Press T to toggle it.")
             )
         if not arguments.no_window:
             cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
@@ -857,15 +774,9 @@ def main() -> int:
                     cv2.WND_PROP_FULLSCREEN,
                     cv2.WINDOW_FULLSCREEN,
                 )
-            if live_model is not None:
-                cv2.namedWindow(model_window_name, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(model_window_name, 1100, 760)
             if tongue_model_preview is not None:
                 cv2.namedWindow(tongue_model_window_name, cv2.WINDOW_NORMAL)
                 cv2.resizeWindow(tongue_model_window_name, 1100, 760)
-            if open_source_preview is not None:
-                cv2.namedWindow(open_source_window_name, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(open_source_window_name, 1240, 880)
         print("Connecting to headset streamer (up to 20 seconds)...")
         deadline = time.monotonic() + 20.0
         while connection is None:
@@ -975,7 +886,7 @@ def main() -> int:
                     try:
                         config, tongue_candidate, extra_face_candidate, pupil_candidate = reload_future.result()
                         if tongue_broadcaster is not None:
-                            tongue_broadcaster.set_enabled(config.get('tongueOutput', True))
+                            tongue_broadcaster.set_enabled(config.get('tongueOutput', True) and type(extra_face_candidate).__name__ != 'UniversalFace')
                         if tongue_candidate is not None:
                             tongue_inference_worker.close()
                             tongue_model_preview = tongue_candidate
@@ -985,7 +896,7 @@ def main() -> int:
                         extra_face_preview = extra_face_candidate
                         if pupil_dilation is not None: pupil_dilation.close()
                         pupil_dilation = pupil_candidate
-                        studio.state['error'] = ''
+                        studio.state['error'] = config.get('universalError', '')
                         studio.state['reloaded'] = time.time()
                     except Exception as error:
                         studio.state['error'] = 'Could not load calibration: '+str(error)
@@ -1013,56 +924,14 @@ def main() -> int:
                 if not arguments.no_window:
                     cv2.imshow("Quest Pro pupil dilation", pupil_image)
             if extra_face_preview:
-                extra_face_image = extra_face_preview.update(strip)
+                extra_face_image = extra_face_preview.update(
+                    strip, label_recorder.nearest_sample(pc_monotonic_ns) if label_recorder else None,
+                    label_recorder.schema_names if label_recorder else (), pc_monotonic_ns)
                 if not arguments.no_window:
                     cv2.imshow("Quest Pro extra expression preview", extra_face_image)
-            model_image = None
             tongue_model_image = None
-            open_source_image = None
-            if live_model is not None:
-                teacher_sample = (
-                    label_recorder.nearest_sample(pc_monotonic_ns)
-                    if label_recorder is not None else None
-                )
-                labels_live_for_model = bool(
-                    label_recorder is not None and label_recorder.source_is_live()
-                )
-                prediction = live_model.predict(strip)
-                model_image = live_model.render(
-                    prediction,
-                    teacher_sample,
-                    pc_monotonic_ns,
-                    labels_live_for_model,
-                )
             if tongue_model_preview is not None:
                 tongue_prediction, tongue_model_image = tongue_inference_worker.latest()
-            if open_source_preview is not None:
-                open_source_prediction = open_source_preview.predict(strip)
-                factory_sample = (
-                    label_recorder.nearest_sample(pc_monotonic_ns)
-                    if label_recorder is not None else None
-                )
-                if stereo_eye_calibration is not None:
-                    stereo_eye_calibration.add_sample(
-                        open_source_prediction,
-                        pc_monotonic_ns,
-                        factory_sample=factory_sample,
-                    )
-                if hybrid_preview is not None:
-                    hybrid_prediction = hybrid_preview.predict(
-                        open_source_prediction,
-                        factory_sample,
-                        label_recorder.schema_names if label_recorder else [],
-                    )
-                    open_source_image = hybrid_preview.render(hybrid_prediction)
-                else:
-                    open_source_image = open_source_preview.render(
-                        open_source_prediction
-                    )
-                if stereo_eye_calibration is not None:
-                    open_source_image = stereo_eye_calibration.decorate(
-                        open_source_image, open_source_prediction
-                    )
             if not arguments.no_window:
                 with shared.lock:
                     selected = shared.selected
@@ -1077,12 +946,8 @@ def main() -> int:
                         *stream_gap_stats.summaries(),
                     ),
                 )
-                if model_image is not None:
-                    cv2.imshow(model_window_name, model_image)
                 if tongue_model_image is not None:
                     cv2.imshow(tongue_model_window_name, tongue_model_image)
-                if open_source_image is not None:
-                    cv2.imshow(open_source_window_name, open_source_image)
                 key = cv2.waitKeyEx(1)
                 if key >= 0:
                     if pupil_dilation is not None:
@@ -1096,23 +961,6 @@ def main() -> int:
                             "EXPERIMENTAL_TONGUE_OUTPUT_ON"
                             if enabled else "EXPERIMENTAL_TONGUE_OUTPUT_OFF stock=restored"
                         )
-            if stereo_eye_calibration is not None:
-                latest_factory = (
-                    label_recorder.nearest_sample(time.monotonic_ns())
-                    if label_recorder is not None else None
-                )
-                factory_ready = bool(
-                    label_recorder is not None
-                    and label_recorder.sample_count >= 10
-                    and label_recorder.source_change_sequence >= 3
-                    and latest_factory is not None
-                    and latest_factory.get("leftEyeIsValid", False)
-                    and latest_factory.get("rightEyeIsValid", False)
-                )
-                for calibration_key in shared.take_calibration_keys():
-                    stereo_eye_calibration.handle_key(
-                        calibration_key, factory_ready=factory_ready
-                    )
             if calibration_session is not None:
                 labels_live = bool(
                     label_recorder is not None and label_recorder.source_is_live()
@@ -1201,13 +1049,6 @@ def main() -> int:
         server.server_close()
         if window_created:
             cv2.destroyAllWindows()
-        if stereo_eye_calibration is not None:
-            stereo_eye_calibration.close()
-            if stereo_eye_calibration.result is not None:
-                print(
-                    "Stereo eye calibration complete: "
-                    f"{stereo_eye_calibration.output_path}"
-                )
         if tongue_inference_worker is not None:
             tongue_inference_worker.close()
         if extra_face_preview is not None:

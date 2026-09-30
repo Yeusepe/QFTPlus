@@ -1,0 +1,301 @@
+#define _GNU_SOURCE
+
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
+#define PORT 27055
+#define PID_PATH "/data/local/tmp/qft-thumbrest.pid"
+#define LOG_PATH "/data/local/tmp/qft-thumbrest.log"
+#define SERVICE "trackingservice"
+#define PAGE_BYTES 4096
+#define SEQ_OFFSET 0x1e8
+#define RECORD_OFFSET 0x1f0
+#define RECORD_BYTES 16
+#define PACKET_BYTES 14
+#define TRIGGER_SEQ_OFFSET 0x210
+#define TRIGGER_RECORD_OFFSET 0x218
+#define TRIGGER_RECORD_BYTES 0x24
+
+typedef struct {
+    pid_t pid;
+    const uint8_t *pages[2];
+    unsigned long inodes[2];
+} Source;
+
+static const char *const PAGE_NAMES[2] = {"TS_CONTROLLER_LEFT", "TS_CONTROLLER_RIGHT"};
+static volatile sig_atomic_t g_stop;
+
+static void on_signal(int number) {
+    (void)number;
+    g_stop = 1;
+}
+
+static int read_text(const char *path, char *buffer, size_t size) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    ssize_t count = read(fd, buffer, size - 1);
+    close(fd);
+    if (count < 0) return -1;
+    buffer[count] = 0;
+    return (int)count;
+}
+
+static int is_service(pid_t pid) {
+    char path[64], command[128];
+    snprintf(path, sizeof path, "/proc/%d/cmdline", (int)pid);
+    if (read_text(path, command, sizeof command) < 0) return 0;
+    const char *name = strrchr(command, '/');
+    return strcmp(name != NULL ? name + 1 : command, SERVICE) == 0;
+}
+
+static pid_t find_service(void) {
+    DIR *proc = opendir("/proc");
+    if (proc == NULL) return -1;
+    pid_t found = -1;
+    struct dirent *entry;
+    while (found < 0 && (entry = readdir(proc)) != NULL) {
+        if (isdigit((unsigned char)entry->d_name[0]) && is_service((pid_t)atoi(entry->d_name)))
+            found = (pid_t)atoi(entry->d_name);
+    }
+    closedir(proc);
+    return found;
+}
+
+static int find_page(pid_t pid, const char *name, unsigned long *start, unsigned long *end, unsigned long *inode) {
+    char path[64], needle[64], line[512];
+    int found = 0;
+    snprintf(path, sizeof path, "/proc/%d/maps", (int)pid);
+    snprintf(needle, sizeof needle, "/dev/ashmem/%s ", name);
+    FILE *maps = fopen(path, "re");
+    if (maps == NULL) return 0;
+    while (!found && fgets(line, sizeof line, maps))
+        found = strstr(line, needle) != NULL && sscanf(line, "%lx-%lx %*s %*s %*s %lu", start, end, inode) == 3;
+    fclose(maps);
+    return found && *end - *start == PAGE_BYTES;
+}
+
+static const uint8_t *map_page(pid_t pid, const char *name, unsigned long *inode) {
+    char path[96];
+    unsigned long start, end;
+    if (!find_page(pid, name, &start, &end, inode)) return NULL;
+    snprintf(path, sizeof path, "/proc/%d/map_files/%lx-%lx", (int)pid, start, end);
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return NULL;
+    void *page = mmap(NULL, PAGE_BYTES, PROT_READ, MAP_SHARED, fd, 0);
+    close(fd);
+    return page == MAP_FAILED ? NULL : page;
+}
+
+static void close_source(Source *source) {
+    for (int side = 0; side < 2; side++) {
+        if (source->pages[side] != NULL) munmap((void *)source->pages[side], PAGE_BYTES);
+        source->pages[side] = NULL;
+    }
+    source->pid = -1;
+}
+
+static int current_pages(const Source *source) {
+    unsigned long start, end, inode;
+    for (int side = 0; side < 2; side++)
+        if (!find_page(source->pid, PAGE_NAMES[side], &start, &end, &inode) || inode != source->inodes[side]) return 0;
+    return 1;
+}
+
+static int ensure_source(Source *source) {
+    if (source->pid > 0 && current_pages(source)) return 1;
+    int restarted = source->pid > 0;
+    close_source(source);
+    source->pid = find_service();
+    if (source->pid < 0) return 0;
+    for (int side = 0; side < 2; side++) source->pages[side] = map_page(source->pid, PAGE_NAMES[side], &source->inodes[side]);
+    if (restarted) fprintf(stderr, "trackingservice changed; remapping to pid %d\n", (int)source->pid);
+    if (source->pages[0] != NULL && source->pages[1] != NULL) return 1;
+    close_source(source);
+    return 0;
+}
+
+static int read_record(const uint8_t *page, size_t seq_offset, size_t record_offset, size_t bytes, uint32_t *seq, uint8_t *record) {
+    const uint32_t *counter = (const uint32_t *)(const void *)(page + seq_offset);
+    for (int tries = 0; tries < 4; tries++) {
+        uint32_t before = __atomic_load_n(counter, __ATOMIC_ACQUIRE);
+        memcpy(record, page + record_offset + bytes * (before & 1), bytes);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(counter, __ATOMIC_RELAXED) != before) continue;
+        *seq = before;
+        return 1;
+    }
+    return 0;
+}
+
+static int read_packet(const uint8_t *page, int kind, int side, uint32_t *seq, uint8_t packet[PACKET_BYTES]) {
+    uint8_t record[TRIGGER_RECORD_BYTES];
+    memset(packet, 0, PACKET_BYTES);
+    packet[0] = (uint8_t)(2 * kind + side);
+    if (kind == 0) {
+        if (!read_record(page, SEQ_OFFSET, RECORD_OFFSET, RECORD_BYTES, seq, record)) return 0;
+        packet[1] = record[12];
+        memcpy(packet + 2, record, 12);
+    } else {
+        if (!read_record(page, TRIGGER_SEQ_OFFSET, TRIGGER_RECORD_OFFSET, TRIGGER_RECORD_BYTES, seq, record)) return 0;
+        memcpy(packet + 6, record + 4, 4);
+        memcpy(packet + 10, record, 4);
+    }
+    return 1;
+}
+
+static uint64_t now_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
+}
+
+static void stream(int client, Source *source) {
+    uint32_t sent[2][2] = {{0}};
+    int have[2][2] = {{0}};
+    uint64_t checked = now_ms();
+    struct pollfd watch = {.fd = client, .events = POLLIN};
+    while (!g_stop) {
+        if (now_ms() - checked >= 1000) {
+            checked = now_ms();
+            if (!ensure_source(source)) memset(have, 0, sizeof have);
+        }
+        for (int side = 0; side < 2 && source->pages[side] != NULL; side++) {
+            for (int kind = 0; kind < 2; kind++) {
+                uint32_t seq;
+                uint8_t packet[PACKET_BYTES];
+                if (!read_packet(source->pages[side], kind, side, &seq, packet) || (have[kind][side] && seq == sent[kind][side])) continue;
+                if (send(client, packet, sizeof packet, MSG_NOSIGNAL) != (ssize_t)sizeof packet) return;
+                sent[kind][side] = seq;
+                have[kind][side] = 1;
+            }
+        }
+        int ready = poll(&watch, 1, 1);
+        if (ready < 0 && errno != EINTR) return;
+        if (ready > 0) {
+            char byte;
+            ssize_t count = recv(client, &byte, 1, MSG_DONTWAIT);
+            if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) return;
+        }
+    }
+}
+
+static int listen_socket(void) {
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+    int on = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
+    struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(PORT)};
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(fd, (struct sockaddr *)&address, sizeof address) != 0 || listen(fd, 1) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static void serve(int server) {
+    Source source = {.pid = -1};
+    struct sigaction action = {.sa_handler = on_signal};
+    sigaction(SIGTERM, &action, NULL);
+    sigaction(SIGINT, &action, NULL);
+    while (!g_stop) {
+        int client = accept4(server, NULL, NULL, SOCK_CLOEXEC);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            perror("accept");
+            break;
+        }
+        int on = 1;
+        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+        fprintf(stderr, "client connected; %s\n", ensure_source(&source) ? "controller pages mapped" : SERVICE " not found yet");
+        stream(client, &source);
+        close(client);
+        fprintf(stderr, "client disconnected\n");
+    }
+    close_source(&source);
+    close(server);
+}
+
+static pid_t running_pid(void) {
+    char text[32], path[64], command[256];
+    if (read_text(PID_PATH, text, sizeof text) < 0) return -1;
+    pid_t pid = (pid_t)atoi(text);
+    snprintf(path, sizeof path, "/proc/%d/cmdline", (int)pid);
+    if (pid <= 0 || read_text(path, command, sizeof command) < 0 || strstr(command, "qft-thumbrest") == NULL) return -1;
+    return pid;
+}
+
+static int write_pid(pid_t pid) {
+    FILE *file = fopen(PID_PATH, "we");
+    if (file == NULL) return 0;
+    fprintf(file, "%d\n", (int)pid);
+    return fclose(file) == 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--stop") == 0) {
+        pid_t pid = running_pid();
+        if (pid > 0) {
+            kill(pid, SIGTERM);
+            for (int i = 0; i < 50 && kill(pid, 0) == 0; i++) usleep(20000);
+        }
+        unlink(PID_PATH);
+        puts("THUMBREST_STOPPED");
+        return 0;
+    }
+    int daemon_mode = argc == 2 && strcmp(argv[1], "--daemon") == 0;
+    if (argc > 1 && !daemon_mode) {
+        fprintf(stderr, "usage: %s [--daemon | --stop]\n", argv[0]);
+        return 2;
+    }
+    if (running_pid() > 0) {
+        puts("THUMBREST_RUNNING");
+        return 0;
+    }
+    int server = listen_socket();
+    if (server < 0) {
+        perror("listen on 127.0.0.1:27055");
+        return 1;
+    }
+    if (daemon_mode) {
+        pid_t child = fork();
+        if (child < 0) {
+            perror("fork");
+            return 1;
+        }
+        if (child > 0) {
+            if (!write_pid(child)) perror(PID_PATH);
+            printf("THUMBREST_RUNNING pid=%d\n", (int)child);
+            return 0;
+        }
+        setsid();
+        int input = open("/dev/null", O_RDONLY | O_CLOEXEC);
+        int log = open(LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (input >= 0) dup2(input, STDIN_FILENO);
+        if (log >= 0) {
+            dup2(log, STDOUT_FILENO);
+            dup2(log, STDERR_FILENO);
+        }
+    } else if (!write_pid(getpid())) {
+        perror(PID_PATH);
+    }
+    serve(server);
+    if (running_pid() == getpid()) unlink(PID_PATH);
+    return 0;
+}

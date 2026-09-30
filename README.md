@@ -29,7 +29,7 @@ No account or analytics. Camera frames, calibration recordings and personal mode
 
 ## Build
 
-With the .NET SDK from `global.json`: `dotnet build src/app/QFTPlus.csproj -c Release`. The VRCFT bridge also requires VRCFaceTracking's SDK; headset components require the Android NDK.
+With the .NET SDK from `global.json`: `dotnet build src/app/QFTPlus.csproj -c Release`. The VRCFT bridge also requires VRCFaceTracking's SDK; headset components require the Android NDK; the SteamVR driver requires CMake and the Visual Studio C++ tools.
 
 ## Credits and license
 
