@@ -28,7 +28,7 @@ function loadedClass(assemblyName, namespace, name) {
     if (klass.isNull()) throw new Error('Missing class ' + name);
     return klass;
 }
-const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, setMulti, setSharedMulti, convert} = managed(() => {
+const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert} = managed(() => {
     const klass = loadedClass('Xenko.VR', 'Xenko.VR', 'OpenXRHMD');
     if (klass.isNull()) throw new Error('OpenXRHMD metadata missing');
     function method(name, argc) {
@@ -69,96 +69,141 @@ const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, se
         Object.entries(addresses).map(([k,v]) => [k, {address:v.toString(),
             module:Process.findModuleByAddress(v)?.name, code:hexdump(v,{length:24,header:false,ansi:false})}]))});
 
-    const setMulti = new NativeFunction(addresses.setMultiModal, 'void', ['pointer','int']);
-    const setSharedMulti = new NativeFunction(compile(getMethod(sharedClass,utf8('set_UseMultiModal'),1)),
-        'void',['pointer','int']);
     const convert = new NativeFunction(addresses.convertFingerState, 'int', ['pointer','int','pointer']);
-    return {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, setMulti, setSharedMulti, convert};
+    return {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert};
 });
 const gcPin = api('mono_gchandle_new', 'uint', ['pointer','int']);
 const gcFree = api('mono_gchandle_free', 'void', ['uint']);
 let listener = null, handListener = null, lastSend = 0, frames = 0;
 let state = 'idle', originalShared = null, originalHmd = null, sharedPin = null;
 let hmdObject=null, hmdPin=null, deadline=null, restoreFallback=null;
+let reason=null, cleanupError=null, restoring=false;
 const invoke=api('mono_runtime_invoke','pointer',['pointer','pointer','pointer','pointer']);
 function invokeBool(klass, name, object, value) {
+    const method=getMethod(klass,utf8(name),1);
+    if(method.isNull())throw new Error('Missing method '+name);
     const argument=Memory.alloc(4);argument.writeS32(value);
     const argv=Memory.alloc(Process.pointerSize);argv.writePointer(argument);
     const exception=Memory.alloc(Process.pointerSize);exception.writePointer(ptr(0));
-    invoke(getMethod(klass,utf8(name),1),object,argv,exception);
+    invoke(method,object,argv,exception);
     if(!exception.readPointer().isNull())throw new Error('Managed restore failed: '+name);
 }
 function requestRestore() {
-    if(state!=='running' && state!=='starting')return;
+    if(state==='idle' || state==='stopped' || state==='restoring')return;
     state='restoring';
+    cleanupError=null;
+    if(deadline!==null){clearTimeout(deadline);deadline=null;}
     restoreFallback=setTimeout(()=>{
         if(state!=='restoring')return;
-        managed(()=>{
-            invokeBool(sharedClass,'set_UseMultiModal',shared,originalShared);
-            if(hmdObject!==null)invokeBool(klass,'set_UseMultiModalInput',hmdObject,originalHmd);
-            finish();
-        });
+        try { managed(()=>restore(true)); }
+        catch(error) { cleanupError=String(error); }
+        if(state!=='stopped') {
+            state='restore-failed';
+            send({event:'restore-failed',cleanupError});
+        }
     },2000);
 }
+function restore(fallback=false) {
+    if(restoring)return;
+    restoring=true;
+    try {
+        const failures=[];
+        for(const [type,name,object,value,offset] of [
+            [klass,'set_UseMultiModalInput',hmdObject,originalHmd,multiOffset],
+            [sharedClass,'set_UseMultiModal',shared,originalShared,sharedMultiOffset]]) {
+            if(value===null)continue;
+            try {
+                if(fallback && object===hmdObject)object.add(offset).writeU8(value);
+                else invokeBool(type,name,object,value);
+                if(object.add(offset).readU8()!==value)throw Error('Restore verification failed: '+name);
+            } catch(error) { failures.push(String(error)); }
+        }
+        cleanupError=failures.length ? failures.join('; ') : null;
+        if(cleanupError===null)finish();
+    } catch(error) { cleanupError=String(error); }
+    finally { restoring=false; }
+}
 function renew(seconds) {
-    if(seconds<1 || seconds>60)throw new Error('Invalid lease');
+    if(!Number.isFinite(seconds) || seconds<1 || seconds>60 ||
+        (state!=='starting' && state!=='running'))throw new Error('Invalid lease');
     if(deadline!==null)clearTimeout(deadline);
     deadline=setTimeout(requestRestore,seconds*1000);
 }
 function finish() {
-    if(deadline!==null){clearTimeout(deadline);deadline=null;}
-    if(restoreFallback!==null){clearTimeout(restoreFallback);restoreFallback=null;}
     if (handListener) { handListener.detach(); handListener=null; }
     if (listener) { listener.detach(); listener=null; }
+    const sharedMulti=shared.add(sharedMultiOffset).readU8();
     if (sharedPin !== null) { gcFree(sharedPin); sharedPin=null; }
     if (hmdPin !== null) { gcFree(hmdPin); hmdPin=null; }
+    if(deadline!==null){clearTimeout(deadline);deadline=null;}
+    if(restoreFallback!==null){clearTimeout(restoreFallback);restoreFallback=null;}
     state='stopped';
-    send({event:'stopped',frames,sharedMulti:shared.add(sharedMultiOffset).readU8()});
+    send({event:'stopped',frames,sharedMulti});
 }
 rpc.exports = {
     apply(seconds) {
-        if (state !== 'idle' || seconds < 1 || seconds > 60) throw new Error('Invalid apply request');
+        if (state !== 'idle' || !Number.isFinite(seconds) || seconds < 1 || seconds > 60) throw new Error('Invalid apply request');
         sharedPin = managed(() => gcPin(shared, 1));
         originalShared = shared.add(sharedMultiOffset).readU8();
         state='starting';
-        handListener = Interceptor.attach(addresses.getHandState, {
-            onEnter(args) { this.self=args[0]; this.output=args[1]; },
-            onLeave() {
-                if (state !== 'running') return;
-                const before=[this.output.readU8(),this.output.add(1).readU8()];
-                const active=[convert(this.self,0,this.output.add(4)),convert(this.self,1,this.output.add(1460))];
-                this.output.writeU8(active[0] ? 1 : 0);
-                this.output.add(1).writeU8(active[1] ? 1 : 0);
-                frames++;
-                const now=Date.now();
-                if (now-lastSend >= 1000) {
-                    lastSend=now;
-                    send({event:'hands',frames,before,active});
-                }
-            }
-        });
-        listener = Interceptor.attach(addresses.update, {
-            onEnter(args) {
-                if (state === 'starting') {
-                    hmdObject=args[0];hmdPin=gcPin(hmdObject,1);
-                    originalHmd=args[0].add(multiOffset).readU8();
-                    setSharedMulti(shared,1);
-                    setMulti(args[0],1);
-                    state='running';
-                    send({event:'applied',originalShared,originalHmd});
-                } else if (state === 'restoring') {
-                    setSharedMulti(shared,originalShared);
-                    if (originalHmd !== null) setMulti(args[0],originalHmd);
-                    finish();
-                }
-            }
-        });
         renew(seconds);
+        try {
+            handListener = Interceptor.attach(addresses.getHandState, {
+                onEnter(args) { this.self=args[0]; this.output=args[1]; },
+                onLeave() {
+                    if (state !== 'running') return;
+                    const before=[this.output.readU8(),this.output.add(1).readU8()];
+                    const active=[convert(this.self,0,this.output.add(4)),convert(this.self,1,this.output.add(1460))];
+                    this.output.writeU8(active[0] ? 1 : 0);
+                    this.output.add(1).writeU8(active[1] ? 1 : 0);
+                    frames++;
+                    const now=Date.now();
+                    if (now-lastSend >= 1000) {
+                        lastSend=now;
+                        send({event:'hands',frames,before,active});
+                    }
+                }
+            });
+            listener = Interceptor.attach(addresses.update, {
+                onEnter(args) {
+                    if (state === 'starting') {
+                        state='applying';
+                        try {
+                            hmdObject=args[0];hmdPin=gcPin(hmdObject,1);
+                            originalHmd=hmdObject.add(multiOffset).readU8();
+                            invokeBool(sharedClass,'set_UseMultiModal',shared,1);
+                            if(state!=='applying')return;
+                            invokeBool(klass,'set_UseMultiModalInput',hmdObject,1);
+                            if(state!=='applying')return;
+                            state='running';
+                            send({event:'applied',originalShared,originalHmd});
+                        } catch(error) {
+                            reason=String(error);
+                            requestRestore();
+                            send({event:'apply-failed',reason});
+                        }
+                    } else if (state === 'restoring' && cleanupError===null) {
+                        restore();
+                    }
+                }
+            });
+        } catch(error) { requestRestore(); throw error; }
     },
     renew,
     stop() {
         requestRestore();
         return state;
     },
-    status() { return {state,frames}; }
+    dispose() {
+        requestRestore();
+        return new Promise((resolve,reject)=>{
+            function check() {
+                if(state==='idle' || state==='stopped')resolve();
+                else if(state==='restore-failed')reject(new Error(cleanupError));
+                else setTimeout(check,50);
+            }
+            check();
+        });
+    },
+    status() { return {state,frames,reason,cleanupError}; }
 };

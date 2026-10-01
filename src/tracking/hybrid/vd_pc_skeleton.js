@@ -1,17 +1,37 @@
 let driver=null,driverGone=false,stopped=false,reason=null,cleanupError=null;
+const observations=[0,1].map(side=>({side,state:'waiting-driver',samples:0,
+    trackedCounts:[0,0,0,0],routes:0,posesSuppressed:0}));
+let ticks=0,poses=0;
+function physicalSkeleton(controller,side) {
+    const captured=driver.base.add(0x9a7a8+side*8).readU64();
+    const native=controller.add(0xf0).readU64();
+    const skeleton=captured.equals(0) ? native : captured;
+    Object.assign(observations[side],{physicalSkeleton:skeleton.toString(),
+        capturedSkeleton:captured.toString(),controllerSkeleton:native.toString()});
+    return skeleton;
+}
 function resolve(side) {
+    const observed=observations[side];
     const controller=driver.base.add(0x9a740+side*8).readPointer();
+    Object.assign(observed,{state:'waiting-controller',controller:controller.toString(),
+        hand:null,physicalSkeleton:null,capturedSkeleton:null,controllerSkeleton:null,
+        handSkeleton:null,device:null,data:null,frame:null,
+        trackedRaw:null,tracked:null,optical:null});
     if(controller.isNull())return null;
     const hand=controller.add(0x48).readPointer();
-    const skeleton=driver.base.add(0x9a7a8+side*8).readU64();
-    if(hand.isNull() || skeleton.equals(0))return null;
+    observed.hand=hand.toString();
+    observed.state='waiting-hand';
+    if(hand.isNull())return null;
     if(controller.add(0x1c).readU32()!==side+1 || hand.add(0x1c).readU32()!==side+1)
         throw new Error('Controller role mismatch');
+    const skeleton=physicalSkeleton(controller,side);
     const original={controllerMulti:controller.add(0x1a).readU8(),
         handMulti:hand.add(0x1a).readU8(),skeleton:hand.add(0xf0).readU64()};
     send({event:'resolved',side,controller:controller.toString(),hand:hand.toString(),
         physicalSkeleton:skeleton.toString(),handSkeleton:original.skeleton.toString()});
-    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),active:false,physical:false};
+    Object.assign(observed,{state:'resolved',handSkeleton:original.skeleton.toString(),
+        device:hand.add(0x40).readU32()});
+    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),active:false,physical:false,priority:false};
 }
 function current(h) {
     if(driverGone)return false;
@@ -34,6 +54,7 @@ function restore(h) {
     h.controller.add(0x1a).writeU8(h.original.controllerMulti);
     h.active=false;
     h.physical=false;
+    h.priority=false;
 }
 function renew(seconds) {
     if(seconds<1 || seconds>90)throw new Error('Invalid lease');
@@ -85,17 +106,21 @@ rpc.exports={
             onEnter(args) {
                 if(stopped)return;
                 try {
+                    poses++;
                     const device=args[1].toUInt32();
-                    if(!hands.some(h=>h!==null && h.device===device))return;
+                    const h=hands.find(h=>h!==null && h.device===device);
+                    if(h===undefined)return;
                     const pose=args[2];
                     pose.add(0x114).writeU8(0);
                     pose.add(0x117).writeU8(0);
+                    observations[h.side].posesSuppressed++;
                 } catch(error) { halt('PC pose routing failed: '+error); }
             }
         });
         timer=setInterval(()=>{
             if(stopped)return;
             try {
+                ticks++;
                 for(let side=0;side<2;side++) {
                     let h=hands[side];
                     if(h===null || !current(h)) {
@@ -104,20 +129,36 @@ rpc.exports={
                         if(h===null)continue;
                     }
                     h.device=h.hand.add(0x40).readU32();
+                    const observed=observations[side];
+                    const skeleton=physicalSkeleton(h.controller,side);
                     const data=h.controller.add(0x10).readPointer();
+                    Object.assign(observed,{state:'waiting-data',device:h.device,data:data.toString(),
+                        frame:null,trackedRaw:null,tracked:null,optical:null});
+                    if(data.isNull())continue;
                     const frame=data.readPointer();
-                    const tracked=frame.add(0x8c+h.side*0x44).readU8()&3;
+                    Object.assign(observed,{state:'waiting-frame',frame:frame.toString()});
+                    if(frame.isNull())continue;
+                    const trackedRaw=frame.add(0x8c+h.side*0x44).readU8();
+                    const tracked=trackedRaw&3;
                     const optical=data.add(0xc8+0x168+h.side).readU8();
+                    Object.assign(observed,{state:'sampling',trackedRaw,tracked,optical});
+                    observed.samples++;
+                    observed.trackedCounts[tracked]++;
                     const physical=tracked===1;
-                    const active=physical && optical===1;
-                    if(active!==h.active || physical!==h.physical) {
-                        h.hand.add(0xf0).writeU64(active ? h.skeleton : h.original.skeleton);
+                    const priority=physical && optical===1;
+                    const active=priority && !skeleton.equals(0);
+                    if(active!==h.active || physical!==h.physical || priority!==h.priority || (active && !skeleton.equals(h.skeleton))) {
+                        h.hand.add(0xf0).writeU64(active ? skeleton : h.original.skeleton);
                         h.hand.add(0x1a).writeU8(physical ? 1 : h.original.handMulti);
-                        h.controller.add(0x1a).writeU8(active ? 1 : h.original.controllerMulti);
+                        h.controller.add(0x1a).writeU8(priority ? 1 : h.original.controllerMulti);
                         h.active=active;
                         h.physical=physical;
-                        send({event:'route',side:h.side,active,physical,tracked,optical});
+                        h.priority=priority;
+                        observed.routes++;
+                        send({event:'route',side:h.side,active,physical,priority,tracked,optical,
+                            physicalSkeleton:skeleton.toString()});
                     }
+                    h.skeleton=skeleton;
                 }
             } catch(error) { halt('PC routing failed: '+error); }
         },10);
@@ -125,7 +166,11 @@ rpc.exports={
         return true;
     },
     renew,
-    status(){return {running:timer!==null,reason,cleanupError,active:hands.map(h=>h!==null && h.active)};},
+    status(){return {running:timer!==null,reason,cleanupError,ticks,poses,driverPath:driver?.path ?? null,
+        active:hands.map(h=>h!==null && h.active),
+        sides:observations.map((observed,side)=>({...observed,
+            physical:hands[side]!==null && hands[side].physical,
+            priority:hands[side]!==null && hands[side].priority}))};},
     stop,
     dispose:stop,
 };

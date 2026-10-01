@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import threading
 import time
 
@@ -25,12 +26,22 @@ import frida
 from qroot_owner import owner_alive
 
 
-def load_hand_hook(session, receive):
+class HookCompatibilityError(RuntimeError):
+    pass
+
+
+class HookCleanupError(RuntimeError):
+    pass
+
+
+def load_hand_hook(session, receive, filename='vd_hand_hook.js'):
     errors = []
-    script = session.create_script((HERE / 'vd_hand_hook.js').read_text())
+    script = session.create_script((HERE / filename).read_text())
     def startup_message(event, data):
         if event['type'] == 'error':
             errors.append(event.get('description', str(event)))
+        else:
+            receive(event, data)
     script.on('message', startup_message)
     try:
         script.load()
@@ -38,7 +49,12 @@ def load_hand_hook(session, receive):
         if errors:
             raise RuntimeError(errors[-1])
     except Exception as exc:
-        script.unload()
+        try:
+            script.unload()
+        except Exception:
+            pass
+        if errors and 'Unsupported controller routing code' in errors[-1]:
+            raise HookCompatibilityError(errors[-1]) from exc
         raise RuntimeError(errors[-1] if errors else 'Headset hook did not initialize') from exc
     script.off('message', startup_message)
     script.on('message', receive)
@@ -54,7 +70,7 @@ def wait_for_hand_frames(quest, keep_alive, timeout=30):
         if state['state'] == 'running' and state.get('frames', 0) > 0:
             return
         if state['state'] not in ('starting', 'running'):
-            raise RuntimeError('Headset hook stopped before tracking began')
+            raise RuntimeError(state.get('reason') or 'Headset hook stopped before tracking began')
         if time.monotonic() >= end:
             raise RuntimeError('No headset tracking frames received. Wear the headset and connect Virtual Desktop.')
         time.sleep(0.25)
@@ -66,7 +82,7 @@ def attach_steamvr(keep_alive):
     while True:
         keep_alive()
         try:
-            return device.attach('vrserver.exe', persist_timeout=60)
+            return device.attach('vrserver.exe')
         except frida.ProcessNotFoundError:
             if not waiting:
                 print('Waiting for SteamVR before starting hybrid tracking.', flush=True)
@@ -101,12 +117,19 @@ def stop_scripts(scripts, detached, keep_alive):
             if source == 'Quest':
                 for _ in range(80):
                     keep_alive()
-                    if script.exports_sync.status()['state'] in ('idle', 'stopped'):
+                    state = script.exports_sync.status()
+                    if state['state'] in ('idle', 'stopped'):
                         break
+                    if state['state'] == 'restore-failed':
+                        raise RuntimeError(state.get('cleanupError') or 'Headset restoration failed')
                     time.sleep(0.1)
                 else:
                     raise RuntimeError('Headset restoration was not acknowledged. Restart Virtual Desktop on the headset.')
         except Exception as exc:
+            end = time.monotonic() + 2
+            while session_source not in detached and time.monotonic() < end:
+                keep_alive()
+                time.sleep(0.05)
             if detached.get(session_source) != 'process-terminated':
                 errors.append(source + ': ' + str(exc))
     return errors
@@ -145,7 +168,6 @@ def main():
 
     sessions, scripts, errors = [], [], []
     detached = {}
-    failed = False
     starter = None
     priority = None
     quest = None
@@ -166,14 +188,14 @@ def main():
             raise RuntimeError(errors[-1])
     def track_session(source, session):
         session.on('detached', lambda reason, crash: detached.__setitem__(source, reason))
-        sessions.append(session)
+        sessions.append((source, session))
         return session
     def watchdog():
         while True:
             time.sleep(1)
             if progress[0] is not None and time.monotonic() - progress[0] > 20:
                 print('Headset stopped responding (Virtual Desktop closed, headset asleep or Wi-Fi dropped).', flush=True)
-                os._exit(3)
+                os._exit(5)
     threading.Thread(target=watchdog, daemon=True).start()
 
     def adb(*commands):
@@ -190,8 +212,8 @@ def main():
                 print('ERROR:', errors[-1], flush=True)
                 return
             payload = event.get('payload', {})
-            if payload.get('event') in ('applied', 'stopped', 'route', 'restored', 'controller-changed'):
-                print(source, json.dumps(payload), flush=True)
+            if payload.get('event') in ('applied', 'apply-failed', 'restore-failed', 'stopped', 'resolved', 'route', 'restored', 'controller-changed', 'controller-runtime'):
+                print(time.strftime('%H:%M:%S.') + '%03d' % (time.time() * 1000 % 1000), source, json.dumps(payload), flush=True)
         return receive
 
     try:
@@ -249,18 +271,15 @@ def main():
 
         pid = int(adb('shell', 'pidof', 'VirtualDesktop.Android'))
         try:
-            quest_session = device.attach(pid, persist_timeout=60)
+            quest_session = device.attach(pid)
         except (frida.ProcessNotFoundError, frida.ProcessNotRespondingError):
             current_pid = int(adb('shell', 'pidof', 'VirtualDesktop.Android'))
             if current_pid == pid:
                 raise
-            quest_session = device.attach(current_pid, persist_timeout=60)
+            quest_session = device.attach(current_pid)
         track_session('Quest', quest_session)
-        priority = quest_session.create_script((HERE / 'vd_controller_priority.js').read_text())
-        priority.on('message', message('Controllers'))
+        priority = load_hand_hook(quest_session, message('Controllers'), 'vd_controller_priority.js')
         scripts.append(('Quest controllers', priority))
-        priority.load()
-        priority.exports_sync.status()
         quest = load_hand_hook(quest_session, message('Quest'))
         scripts.append(('Quest', quest))
         pc = pc_session.create_script((HERE / 'vd_pc_skeleton.js').read_text())
@@ -297,7 +316,7 @@ def main():
         print('Hybrid tracking is running.', flush=True)
         print('QROOT_READY', flush=True)
         end = time.monotonic() + args.seconds
-        next_renew = 0
+        next_renew = next_report = 0
         while time.monotonic() < end and not STOP.exists() and owner_alive(CONTEXT.get('ownerPid')):
             keep_alive()
             if time.monotonic() >= next_renew:
@@ -306,26 +325,31 @@ def main():
                 pc_state = pc.exports_sync.status()
                 if not pc_state['running']:
                     raise RuntimeError(pc_state.get('reason') or 'PC routing stopped unexpectedly')
-                if not priority.exports_sync.status()['running']:
+                selection = priority.exports_sync.status()
+                if not selection['running']:
                     raise RuntimeError('Controller selection stopped unexpectedly')
                 priority.exports_sync.renew(30)
                 quest.exports_sync.renew(30)
                 pc.exports_sync.renew(30)
+                if time.monotonic() >= next_report:
+                    print(time.strftime('%H:%M:%S.') + '%03d' % (time.time() * 1000 % 1000), 'PC',
+                        json.dumps({'event': 'routing-status', **pc_state}), flush=True)
+                    print(time.strftime('%H:%M:%S.') + '%03d' % (time.time() * 1000 % 1000), 'Controllers',
+                        json.dumps({'event': 'selection', 'queries': selection['queries'], 'selected': selection['selected']}), flush=True)
+                    next_report = time.monotonic() + 10
                 next_renew = time.monotonic() + 5
             time.sleep(0.25)
     except KeyboardInterrupt:
         print('Stopping...', flush=True)
-    except Exception:
-        failed = True
-        raise
     finally:
         cleanup_errors = stop_scripts(scripts, detached, beat)
-        for session in reversed(sessions):
+        for source, session in reversed(sessions):
             beat()
             try:
                 session.detach()
-            except Exception:
-                pass
+            except Exception as exc:
+                if detached.get(source) != 'process-terminated':
+                    cleanup_errors.append(source + ' detach: ' + str(exc))
         progress[0] = None
         if owned_server:
             try:
@@ -347,12 +371,20 @@ def main():
         STOP.unlink(missing_ok=True)
         kernel.CloseHandle(mutex)
         if cleanup_errors:
+            if sys.exception() is not None:
+                print('Tracking failed before cleanup: ' + str(sys.exception()), flush=True)
             print('Cleanup needs attention: ' + '; '.join(cleanup_errors), flush=True)
-            if not failed:
-                raise RuntimeError('Runtime restoration was not verified')
+            raise HookCleanupError('Runtime restoration was not verified. Restart Virtual Desktop on the headset and SteamVR before starting hybrid tracking again.')
         else:
             print('Stopped; cleanup completed.', flush=True)
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except HookCompatibilityError as error:
+        print('QROOT_INCOMPATIBLE ' + str(error), flush=True)
+        sys.exit(4)
+    except HookCleanupError as error:
+        print('QROOT_CLEANUP_FAILED ' + str(error), flush=True)
+        sys.exit(5)

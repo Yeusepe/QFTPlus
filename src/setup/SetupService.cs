@@ -46,6 +46,7 @@ internal sealed class SetupService(string root) : IDisposable
             foreach (var file in new[] { "platform-tools/adb.exe", "setup-runtime.ps1", "enable-quest-wireless.ps1", "autostart_runtime.py" })
                 if (!File.Exists(Path.Combine(_root, file))) throw new IOException("The app is missing a required file. Run the complete installer again.");
             Stage("Connecting", "Looking for your Quest Pro…", 5);
+            await AdbServer.EnsureAsync(Adb, token: token);
             var connection = await ConnectQuestAsync(token, connectionMode, preferredSerial);
 
             if (!File.Exists(Path.Combine(_root, "runtime/runtime-ready.json")) || !File.Exists(FindPython(_root)))
@@ -73,7 +74,7 @@ internal sealed class SetupService(string root) : IDisposable
 
             if (face) await WaitForSteamAppAsync("3329480", "VRCFaceTracking", token);
             await WaitForSteamAppAsync("250820", "SteamVR", token);
-            if (use == "hands") await WaitForVirtualDesktopAsync(token);
+            if (use == "hands") { await WaitForVirtualDesktopAsync(token); await WaitForHandSettingsAsync(connection.Target, token); }
             if (face && installModule && !SameFile(source, installed))
             {
                 Stage("Updating tracking", "Installing the updated VRCFaceTracking bridge…", 70);
@@ -136,6 +137,32 @@ internal sealed class SetupService(string root) : IDisposable
         {
             Stage("Install Virtual Desktop", "Hand tracking uses Virtual Desktop. Install the Virtual Desktop Streamer on this PC to continue.", 60,
                 "https://www.vrdesktop.net/", "Get Virtual Desktop");
+            await Task.Delay(2500, token);
+        }
+    }
+
+    internal async Task<string?> HandSettingsProblemAsync(string target, CancellationToken token)
+    {
+        var read = await ProbeAsync(["-s", target, "shell", "su -c 'oculuspreferences --get hand_tracking_enabled; oculuspreferences --get multimodal_hands_and_controllers_enabled; oculuspreferences --getc simultaneous_hands_and_controllers_mode; pidof frida-server >/dev/null && echo SINGULARITY_FRIDA'"], token, 10);
+        return HandSettingsProblem(read.Text);
+    }
+
+    internal static string? HandSettingsProblem(string output)
+    {
+        var values = Regex.Matches(output, @"\[(\w+) : (\w+)\]").ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+        bool Off(string key) => values.TryGetValue(key, out var value) && value is "false" or "0";
+        var problems = new List<string>();
+        if (Off("hand_tracking_enabled")) problems.Add("Turn on hand tracking in the headset: Settings → Movement tracking → Hand tracking.");
+        if (Off("multimodal_hands_and_controllers_enabled") || Off("simultaneous_hands_and_controllers_mode")) problems.Add("In Singularity, turn on Simultaneous Hands & Controllers.");
+        if (output.Contains("SINGULARITY_FRIDA")) problems.Add("In Singularity, turn off Frida Server. Hybrid tracking starts its own.");
+        return problems.Count == 0 ? null : string.Join(" ", problems);
+    }
+
+    private async Task WaitForHandSettingsAsync(string target, CancellationToken token)
+    {
+        while (await HandSettingsProblemAsync(target, token) is {} problem)
+        {
+            Stage("Set up hand tracking", problem + " Setup continues on its own.", 65);
             await Task.Delay(2500, token);
         }
     }
