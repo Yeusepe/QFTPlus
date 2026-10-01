@@ -10,6 +10,7 @@ import cv2
 from capture_format import CaptureWriter, TRANSPORT_HEADER
 from tongue_still_capture import TongueStillCaptureSession, TONGUE_REFINEMENT_PROMPTS
 from extra_face_capture import ExtraFaceCapture, FAMILIES
+from guided_session import EnrollmentSession, GuidedSession, benchmark_steps, enrollment_steps
 
 
 def publish(path, value):
@@ -36,7 +37,7 @@ class StudioCapture:
         self.runtime_id = uuid.uuid4().hex
         self.last_id = 0
         self.last_poll = self.last_publish = 0.
-        self.session = self.writer = self.video = self.labels = self.timeline = self.pupil = None
+        self.session = self.writer = self.video = self.labels = self.timeline = self.pupil = self.guided = None
         self.kind = None
         self.state = {'phase': 'idle'}
         self.prefix = None
@@ -60,7 +61,7 @@ class StudioCapture:
             if self.writer is not None or self.pupil is not None:
                 raise ValueError('A calibration is already recording')
             kind = command.get('kind')
-            if kind not in ('tongue', 'pupils', *FAMILIES):
+            if kind not in ('tongue', 'pupils', 'benchmark', 'benchmark-quick', 'enroll', *FAMILIES):
                 raise ValueError('Unknown calibration')
             self.kind = kind
             self.automatic = command.get('automatic', True) is True
@@ -70,7 +71,21 @@ class StudioCapture:
             self.paused = False
             self.changed = now
             self.state = {'phase': 'recording', 'prefix': str(self.prefix), 'kind': kind}
-            if kind == 'pupils':
+            if kind in ('benchmark', 'benchmark-quick', 'enroll'):
+                self.writer = CaptureWriter(self.prefix.with_suffix('.qpcap'))
+                self.labels = self.prefix.with_suffix('.qplabel.jsonl').open('x', encoding='utf-8')
+                if kind.startswith('benchmark'):
+                    seed = uuid.uuid4().int & 0xFFFFFFFF
+                    self.guided = GuidedSession(self.prefix.with_suffix('.qpsession.json'), benchmark_steps(seed, quick=kind == 'benchmark-quick'), 'benchmark-v1',
+                                                time.monotonic_ns(), seed=seed, recordEvery=2)
+                else:
+                    self.guided = EnrollmentSession(self.prefix.with_suffix('.qpsession.json'), enrollment_steps(), time.monotonic_ns())
+                self.frames = 0
+                self.last_record = 0.
+                self.last_hash = None
+                self.label_sequence = self.label_schema = None
+                self.open_video()
+            elif kind == 'pupils':
                 from pupil_dilation import PupilDilation
                 self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False)
                 self.pupil.handle_key('c')
@@ -84,11 +99,7 @@ class StudioCapture:
                     self.labels = self.prefix.with_suffix('.qplabel.jsonl').open('x', encoding='utf-8')
                 else:
                     self.session = ExtraFaceCapture(self.prefix.with_suffix('.qpsession.json'), kind)
-                self.video = cv2.VideoWriter(str(self.prefix)+'.avi', cv2.VideoWriter_fourcc(*'MJPG'), 8., (1000, 200), True)
-                if not self.video.isOpened():
-                    raise OSError('Couldn’t save the recording. Make sure this PC has free disk space, then try again.')
-                self.timeline = self.prefix.with_suffix('.video.jsonl').open('x', encoding='utf-8')
-                self.video_index = 0
+                self.open_video()
                 self.last_hash = None
         elif action == 'cancel':
             self.finish(False)
@@ -97,6 +108,10 @@ class StudioCapture:
             self.changed = now
         elif action == 'reload':
             self.reload_requested = True
+        elif action == 'skip' and self.guided:
+            self.guided.skip(time.monotonic_ns())
+            if self.guided.completed:
+                self.finish(True)
         elif action == 'skip' and self.kind in FAMILIES and self.session:
             self.session.handle_key('k')
             self.changed = now
@@ -138,6 +153,8 @@ class StudioCapture:
                     if self.pupil.result in ('passed', 'failed'):
                         self.state['error'] = '' if self.pupil.result == 'passed' else self.pupil.message
                         self.finish(self.pupil.result == 'passed')
+            if self.guided:
+                self.update_guided(strip, header, payload, monotonic_ns, labels, now)
             if self.session:
                 if strip.shape != (400, 2000):
                     raise ValueError('Calibration needs all five headset cameras. Restart tracking, then try again.')
@@ -208,7 +225,57 @@ class StudioCapture:
             self.last_publish = now
             publish(self.root/'studio.state.json', dict(self.state, runtimeId=self.runtime_id, ack=self.last_id, time=time.time()))
 
+    def open_video(self):
+        self.video = cv2.VideoWriter(str(self.prefix)+'.avi', cv2.VideoWriter_fourcc(*'MJPG'), 8., (1000, 200), True)
+        if not self.video.isOpened():
+            raise OSError('Couldn’t save the recording. Make sure this PC has free disk space, then try again.')
+        self.timeline = self.prefix.with_suffix('.video.jsonl').open('x', encoding='utf-8')
+        self.video_index = 0
+
+    def update_guided(self, strip, header, payload, monotonic_ns, labels, now):
+        if strip.shape != (400, 2000):
+            raise ValueError('This needs all five headset cameras. Restart tracking, then try again.')
+        if now-self.last_ui > 3:
+            self.paused = True
+        guided = self.guided
+        guided.update(monotonic_ns, self.paused)
+        if guided.completed:
+            self.finish(True)
+            return
+        if not self.paused:
+            self.frames += 1
+            every, hz = guided.record.get('recordEvery'), guided.current.record_hz
+            holding = guided.elapsed >= guided.current.ramp
+            if (every and self.frames % every == 0) or (hz and holding and now-self.last_record >= 1/hz - .01):
+                if not every:
+                    guided.note_frame(self.writer.frame_count, monotonic_ns)
+                self.writer.write(header, payload, monotonic_ns, time.time_ns())
+                self.last_record = now
+            label = labels.nearest_sample(monotonic_ns) if labels else None
+            if isinstance(guided, EnrollmentSession):
+                fingerprint = zlib.crc32(payload)
+                fresh = label is not None and abs(int(label['arrivalMonotonicNs'])-monotonic_ns) <= 100_000_000
+                guided.observe(strip, dict(zip(labels.schema_names or [], label['values'])) if fresh else None,
+                               fingerprint == self.last_hash)
+                self.last_hash = fingerprint
+            if label is not None and label.get('sourceSequence') != self.label_sequence:
+                if labels.schema_names != self.label_schema:
+                    self.label_schema = list(labels.schema_names or [])
+                    self.labels.write(json.dumps({'type': 'schema', 'names': self.label_schema})+'\n')
+                self.labels.write(json.dumps(label)+'\n')
+                self.label_sequence = label.get('sourceSequence')
+            if now-self.last_video >= .125:
+                self.video.write(cv2.cvtColor(cv2.resize(strip, (1000, 200)), cv2.COLOR_GRAY2BGR))
+                self.timeline.write(json.dumps({'frame': self.video_index, 'monotonicNs': monotonic_ns, 'promptIndex': guided.index,
+                    'condition': guided.current.condition})+'\n')
+                self.video_index += 1; self.last_video = now
+        self.state.update(guided.ui(), paused=self.paused, automatic=True, ready=True, count=0)
+        if self.paused:
+            self.state['cue'] = 'Paused'
+
     def finish(self, complete):
+        if self.guided:
+            self.guided.finish(complete)
         if self.session:
             self.session.finish(completed=complete)
             path = self.session.path
@@ -220,7 +287,7 @@ class StudioCapture:
                 else: obj.close()
         if self.video is not None: self.video.release()
         if self.pupil is not None: self.pupil.close()
-        self.session = self.writer = self.labels = self.timeline = self.video = self.pupil = None
+        self.session = self.writer = self.labels = self.timeline = self.video = self.pupil = self.guided = None
         self.state.update(phase='complete' if complete else 'cancelled', completed=complete)
 
     def close(self):

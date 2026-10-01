@@ -19,14 +19,19 @@ internal static class CalibrationSettings
         byte[]? previousPupil = null;
         if (kind == "tongue")
         {
-            if (!File.Exists(result + "-gate.pt") || !File.Exists(result + "-direction.pt")) throw new IOException("The new tongue model pair is incomplete.");
-            config["tongueModelPath"] = result + "-gate.pt";
+            if (!File.Exists(result + "-direction.pt")) throw new IOException("The new tongue model is missing.");
+            config.Remove("tongueModelPath");
             config["tongueDirectionModelPath"] = result + "-direction.pt";
         }
         else if (IsFaceGroup(kind))
         {
             if (!File.Exists(result)) throw new IOException("The expression model is missing.");
             config[FaceModelKey(kind)] = result; config["extraFaceOutput"] = true; config[FaceOutputKey(kind)] = true;
+        }
+        else if (kind == "enroll")
+        {
+            if (!File.Exists(result)) throw new IOException("The face setup file is missing.");
+            config["faceEnrollment"] = result;
         }
         else if (kind == "pupils")
         {

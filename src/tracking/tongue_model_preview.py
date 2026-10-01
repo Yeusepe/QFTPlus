@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import time
-import socket
-import struct
 import threading
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -16,147 +14,13 @@ import torch
 
 from train_tongue_model import create_model
 from inference_backend import prepare_inputs
+from face_events import TONGUE, FaceEvents
 
 
-TONGUE_PACKET = struct.Struct("<4sBBH12f")
-TONGUE_MAGIC = b"QPTO"
-TONGUE_VERSION = 1
-TONGUE_PACKET_V2 = struct.Struct("<4sBBH12f2d")
-OUTPUT_HEADS = ("extension", "vertical", "vertical", "horizontal", "horizontal",
-                "roll", "bend_down", "curl_up", "squish", "flat", "twist", "twist")
-
-
-def vrcft_tongue_values(
-    prediction: "TonguePrediction", target_names: list[str]
-) -> np.ndarray:
-    """Map ten model heads to VRCFT's twelve detailed tongue expressions."""
-    values = {
-        name: float(prediction.values[index])
-        for index, name in enumerate(target_names)
-    }
-    if not prediction.visible:
-        return np.zeros(12, dtype=np.float32)
-    horizontal = float(np.clip(values.get("horizontal", 0.0), -1.0, 1.0))
-    vertical = float(np.clip(values.get("vertical", 0.0), -1.0, 1.0))
-    twist = float(np.clip(values.get("twist", 0.0), -1.0, 1.0))
-    tongue_out = float(np.clip(values.get("extension", 0.0), 0.0, 1.0))
-    return np.asarray(
-        [
-            tongue_out,
-            max(vertical, 0.0),
-            max(-vertical, 0.0),
-            max(-horizontal, 0.0),
-            max(horizontal, 0.0),
-            float(np.clip(values.get("roll", 0.0), 0.0, 1.0)),
-            float(np.clip(values.get("bend_down", 0.0), 0.0, 1.0)),
-            float(np.clip(values.get("curl_up", 0.0), 0.0, 1.0)),
-            float(np.clip(values.get("squish", 0.0), 0.0, 1.0)),
-            float(np.clip(values.get("flat", 0.0), 0.0, 1.0)),
-            max(-twist, 0.0),
-            max(twist, 0.0),
-        ],
-        dtype=np.float32,
-    )
-
-
-def encode_tongue_packet(values: np.ndarray, enabled: bool, *, supported: list[str] | None = None,
-                         received_at: float = 0.0, sent_at: float = 0.0) -> bytes:
-    values = np.asarray(values, dtype=np.float32)
-    if values.shape != (12,):
-        raise ValueError("A VRCFT tongue packet needs exactly twelve values")
-    if not np.isfinite(values).all():
-        raise ValueError("Tongue output must be finite")
-    if supported is not None:
-        mask = sum(1 << i for i, name in enumerate(OUTPUT_HEADS) if name in supported)
-        return TONGUE_PACKET_V2.pack(TONGUE_MAGIC, 2, int(enabled), mask,
-            *np.clip(values, 0, 1), received_at, sent_at)
-    return TONGUE_PACKET.pack(
-        TONGUE_MAGIC, TONGUE_VERSION, int(enabled), 0,
-        *[float(np.clip(value, 0.0, 1.0)) for value in values],
-    )
-
-
-class TongueBroadcaster:
-    """Opt-in UDP override; disabled or stale packets restore stock tracking."""
-
-    def __init__(self, port: int = 27276, *, enabled: bool = False,
-                 supported: list[str] | None = None) -> None:
-        self.enabled = bool(enabled)
-        self.supported = supported
-        self.received_at = 0.0
-        self._address = ("127.0.0.1", int(port))
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._last_values: np.ndarray | None = None
-        self._last_sent = 0.0
-        self._minimum_interval = 1.0 / 24.0
-        self._keepalive_interval = 0.20
-        self._lock = threading.RLock()
-
-    def toggle(self) -> bool:
-        self.set_enabled(not self.enabled)
-        return self.enabled
-
-    def set_enabled(self, enabled: bool) -> None:
-        with self._lock:
-            if self.enabled == bool(enabled):
-                return
-            self.enabled = bool(enabled)
-            self._last_values = None
-            self._last_sent = 0.0
-            if not self.enabled:
-                self._send(np.zeros(12, dtype=np.float32), enabled=False)
-
-    def send_prediction(
-        self, prediction: "TonguePrediction", target_names: list[str], *, now: float | None = None
-    ) -> None:
-        with self._lock:
-            self._send_prediction(prediction, target_names, now=now)
-
-    def _send_prediction(self, prediction, target_names, *, now=None):
-        if not self.enabled:
-            return
-        values = vrcft_tongue_values(prediction, target_names)
-        self.received_at = prediction.received_at
-        now = time.perf_counter() if now is None else now
-        elapsed = now - self._last_sent
-        if elapsed < self._minimum_interval:
-            return
-        changed = (
-            self._last_values is None
-            or float(np.max(np.abs(values - self._last_values))) >= 0.015
-        )
-        if not changed and elapsed < self._keepalive_interval:
-            return
-        self._send(values, enabled=True)
-        self._last_values = values.copy()
-        self._last_sent = now
-
-    def _send(self, values: np.ndarray, *, enabled: bool) -> None:
-        self._socket.sendto(encode_tongue_packet(values, enabled, supported=self.supported,
-            received_at=self.received_at, sent_at=time.perf_counter()), self._address)
-
-    def close(self) -> None:
-        with self._lock:
-            try:
-                self.enabled = False
-                self._send(np.zeros(12, dtype=np.float32), enabled=False)
-            finally:
-                self._socket.close()
-
-
-@dataclass(frozen=True)
-class TonguePrediction:
-    values: np.ndarray
-    native_tongue_out: float
-    fused_visibility: float
-    visible: bool
-    inference_ms: float
-    pipeline_ms: float = 0.0
-    dropped_frames: int = 0
-    preprocessing_ms: float = 0.0
-    receiver_ms: float = 0.0
-    queue_ms: float = 0.0
-    received_at: float = 0.0
+from tongue_output import (
+    NATIVE_MAX_AGE_NS, OUTPUT_HEADS, TONGUE_MAGIC, TONGUE_PACKET, TONGUE_PACKET_V2, TONGUE_VERSION,
+    TongueBroadcaster, TonguePrediction, encode_tongue_packet, vrcft_tongue_values,
+)
 
 
 def supported_targets(checkpoint: dict) -> list[str]:
@@ -169,14 +33,15 @@ def supported_targets(checkpoint: dict) -> list[str]:
 
 
 class LiveTongueModelPreview:
+    """Our model gives direction and extension; Meta's native TongueOut decides whether the tongue is out."""
+
     def __init__(
         self,
         checkpoint_path: str | Path,
         device_name: str = "auto",
-        direction_checkpoint_path: str | Path | None = None,
         smoothing: float = 0.35,
-        visibility_mode: str = "weighted",
-        camera_weight: float | None = None,
+        bias: float = 0.,
+        log: str | None = None,
     ) -> None:
         self.checkpoint_path = Path(checkpoint_path).resolve()
         from inference_backend import select_device, prepare_model
@@ -184,63 +49,16 @@ class LiveTongueModelPreview:
         self.device = torch.device("cpu" if selected == "directml" else selected)
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         self.target_names = list(checkpoint["targetNames"])
-        self.supported_targets = supported_targets(checkpoint)
+        self.supported_targets = [n for n in supported_targets(checkpoint) if n != "visibility"]
         self.image_size = int(checkpoint["imageSize"])
         self.architecture = str(checkpoint.get("architecture", "legacy-late-fusion-v1"))
-        self.model = create_model(self.architecture, self.target_names)
-        self.model.load_state_dict(checkpoint["modelState"])
-        self.model.to(self.device).eval()
-        self.direction_checkpoint_path: Path | None = None
-        self.direction_model = None
-        self.direction_image_size = self.image_size
-        if direction_checkpoint_path:
-            self.direction_checkpoint_path = Path(direction_checkpoint_path).resolve()
-            direction_checkpoint = torch.load(
-                self.direction_checkpoint_path, map_location="cpu", weights_only=True
-            )
-            direction_names = list(direction_checkpoint["targetNames"])
-            if direction_names != self.target_names:
-                raise ValueError(
-                    "Visibility and direction checkpoints use different target schemas"
-                )
-            direction_architecture = str(
-                direction_checkpoint.get("architecture", "legacy-late-fusion-v1")
-            )
-            self.direction_image_size = int(direction_checkpoint["imageSize"])
-            self.direction_model = create_model(
-                direction_architecture, self.target_names
-            )
-            self.direction_model.load_state_dict(direction_checkpoint["modelState"])
-            self.direction_model.to(self.device).eval()
-            self.supported_targets = [n for n in supported_targets(direction_checkpoint) if n != "visibility"]
-            if "visibility" in supported_targets(checkpoint):
-                self.supported_targets.append("visibility")
-        if "visibility" not in self.supported_targets:
-            raise ValueError("Tongue inference requires a supported visibility gate")
-        self.paired = ((selected.startswith("cuda") or selected == "directml") and self.direction_model is not None
-                       and self.direction_image_size == self.image_size
-                       and self.image_size in (64, 96, 128, 160, 192, 224, 256))
-        if self.paired:
-            from inference_backend import prepare_tongue_pair
-            self.model = prepare_tongue_pair(self.model, self.direction_model, self.image_size,
-                                            selected=selected, checkpoint=self.checkpoint_path)
-            self.direction_model = None
-        else:
-            self.model = prepare_model(self.model, self.checkpoint_path, (1, 2, self.image_size, self.image_size), selected)
-            if self.direction_model is not None:
-                self.direction_model = prepare_model(self.direction_model, self.direction_checkpoint_path,
-                    (1, 2, self.direction_image_size, self.direction_image_size), selected)
-        gate = checkpoint.get("visibilityGate", {})
-        self.camera_weight = float(
-            gate.get("cameraWeight", 0.5) if camera_weight is None else camera_weight
-        )
-        self.threshold = float(gate.get("threshold", 0.44))
+        model = create_model(self.architecture, self.target_names)
+        model.load_state_dict(checkpoint["modelState"])
+        model.to(self.device).eval()
+        self.model = prepare_model(model, self.checkpoint_path, (1, 2, self.image_size, self.image_size), selected)
         self.smoothing = float(np.clip(smoothing, 0.05, 1.0))
-        if visibility_mode not in {"camera", "native", "weighted", "agreement"}:
-            raise ValueError(f"Unsupported tongue visibility mode: {visibility_mode}")
-        self.visibility_mode = visibility_mode
         self._smoothed: np.ndarray | None = None
-        self._visible_latched = False
+        self.events = FaceEvents({"TongueOut": TONGUE}, bias=bias, log=log)
 
     def _inputs(self, strip: np.ndarray, image_size: int, model=None) -> torch.Tensor:
         return prepare_inputs(self.model if model is None else model, strip, image_size, 2)
@@ -258,24 +76,10 @@ class LiveTongueModelPreview:
             )
         preprocessing_started = time.perf_counter()
         inputs = self._inputs(strip, self.image_size)
-        raw = getattr(self.model, "raw_input", False)
-        same_input = (getattr(self.direction_model, "raw_input", False) == raw
-                      and (raw or self.direction_image_size == self.image_size))
-        direction_inputs = (inputs if same_input else
-            self._inputs(strip, self.direction_image_size, self.direction_model)) if self.direction_model is not None else None
         started = time.perf_counter()
         preprocessing_ms = (started - preprocessing_started) * 1000
         with torch.inference_mode():
-            values = self.model(inputs)
-            if self.paired or self.direction_model is not None:
-
-
-                pair = (values if self.paired else torch.cat((values, self.direction_model(direction_inputs)), dim=0)).float().cpu().numpy()
-                visibility_index = self.target_names.index("visibility")
-                values = pair[1].copy()
-                values[visibility_index] = pair[0, visibility_index]
-            else:
-                values = values[0].float().cpu().numpy()
+            values = self.model(inputs)[0].float().cpu().numpy()
         inference_ms = (time.perf_counter() - started) * 1000.0
         values[[i for i, n in enumerate(self.target_names) if n not in self.supported_targets]] = 0
         self._smoothed = (
@@ -284,27 +88,16 @@ class LiveTongueModelPreview:
             else self.smoothing * values + (1.0 - self.smoothing) * self._smoothed
         )
         native = 0.0
-        if factory_sample is not None and "TongueOut" in factory_names:
+        if (factory_sample is not None and "TongueOut" in factory_names
+                and time.monotonic_ns() - int(factory_sample["arrivalMonotonicNs"]) <= NATIVE_MAX_AGE_NS):
             native = float(factory_sample["values"][factory_names.index("TongueOut")])
-        visibility = float(self._smoothed[self.target_names.index("visibility")])
-        if self.visibility_mode == "camera":
-            fused = visibility
-        elif self.visibility_mode == "native":
-            fused = native
-        elif self.visibility_mode == "agreement":
-            fused = min(visibility, native)
-        else:
-            fused = self.camera_weight * visibility + (1.0 - self.camera_weight) * native
-        self._visible_latched = (
-            fused >= self.threshold - 0.08
-            if self._visible_latched
-            else fused >= self.threshold
-        )
+        fused = native
+        self.events.step({"TongueOut": fused}, factory_sample, factory_names, time.monotonic_ns())
         return TonguePrediction(
             values=self._smoothed.copy(),
             native_tongue_out=native,
             fused_visibility=fused,
-            visible=self._visible_latched,
+            visible=self.events.on["TongueOut"],
             inference_ms=inference_ms,
             preprocessing_ms=preprocessing_ms,
         )
@@ -328,22 +121,13 @@ class LiveTongueModelPreview:
         color = (80, 235, 120) if prediction.visible else (170, 170, 170)
         cv2.putText(image, status, (24, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.68,
                     color, 2, cv2.LINE_AA)
-        visibility = float(prediction.values[self.target_names.index("visibility")])
         summary = (
-            f"camera {visibility:.2f}  native {prediction.native_tongue_out:.2f}  "
-            f"{self.visibility_mode} {prediction.fused_visibility:.2f} / threshold {self.threshold:.2f}  "
+            f"native TongueOut {prediction.native_tongue_out:.2f}  "
             f"infer {prediction.inference_ms:.1f} ms  "
             f"pipeline {prediction.pipeline_ms:.1f} ms  dropped {prediction.dropped_frames}"
         )
         cv2.putText(image, summary, (24, 151), cv2.FONT_HERSHEY_SIMPLEX, 0.49,
                     (190, 220, 255), 1, cv2.LINE_AA)
-        if self.direction_checkpoint_path is not None:
-            cv2.putText(
-                image,
-                "ENSEMBLE: clean manual visibility gate + dense motion directions",
-                (24, 177), cv2.FONT_HERSHEY_SIMPLEX, 0.46,
-                (120, 225, 255), 1, cv2.LINE_AA,
-            )
         bar_x, bar_width = 260, 560
         for row, (name, value) in enumerate(zip(self.target_names, prediction.values)):
             y = 205 + row * 46

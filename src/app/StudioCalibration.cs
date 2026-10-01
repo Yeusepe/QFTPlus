@@ -20,6 +20,7 @@ public partial class StudioWindow
  (bool Passed,string Message)? calibrationResult;
  long recordingCommand;
  bool cancelPending;
+ WindowState? restoreState;
  static string Intro(string kind)=>(kind switch
  {
     "tongue"=>"Fits tongue tracking to you, so smiles and open-mouth poses don't trigger it.",
@@ -30,8 +31,11 @@ public partial class StudioWindow
     "mouth"=>"You'll move your mouth, then your jaw, to each side.",
     "nose"=>"You'll breathe in deeply and sniff, which widens and narrows your nostrils by themselves.",
     "jaw"=>"You'll rest your teeth together, bite down and pull your jaw back.",
+    "enroll"=>"Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range.",
+    "benchmark-quick"=>"For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change.",
+    "benchmark"=>"For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change.",
     _=>"Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start."
- })+" Open it in the Steam overlay so you can see this window.";
+ })+" To see this window in the headset, open the desktop in the Steam overlay.";
  void ResizeGuide()
  {
     if(page!="Calibration"||face is null)return;
@@ -46,7 +50,7 @@ public partial class StudioWindow
     if(manualControls is not null)manualControls.Visibility=recording&&!automatic?Visibility.Visible:Visibility.Collapsed;
     if(begin is not null)begin.Visibility=recording||training?Visibility.Collapsed:Visibility.Visible;
     if(pause is not null)pause.Visibility=recording&&kind!="pupils"?Visibility.Visible:Visibility.Collapsed;
-    if(skip is not null)skip.Visibility=recording&&QproFaceTracking.Hub.CalibrationSettings.IsFaceGroup(kind)?Visibility.Visible:Visibility.Collapsed;
+    if(skip is not null)skip.Visibility=recording&&(QproFaceTracking.Hub.CalibrationSettings.IsFaceGroup(kind)||kind is "benchmark" or "benchmark-quick" or "enroll")?Visibility.Visible:Visibility.Collapsed;
     if(cancel is not null)cancel.Visibility=recording?Visibility.Visible:Visibility.Collapsed;
     if(progress is not null)progress.Visibility=recording||training?Visibility.Visible:Visibility.Collapsed;
     StartButton.IsEnabled=!recording;
@@ -55,15 +59,18 @@ public partial class StudioWindow
  {
     manualControls=null;captureOptions=null;
     if(training)kind=trainingKind;
+    else if(!session.Legacy&&(kind=="tongue"||QproFaceTracking.Hub.CalibrationSettings.IsFaceGroup(kind)))kind="enroll";
     var modes=calibrationModes=new ComboBox{Margin=new(0,0,0,16)};
-    foreach(var (id,title) in new[]{("tongue","Tongue")}.Concat(QproFaceTracking.Hub.CalibrationSettings.FaceGroups).Append(("pupils","Pupils")))
+    var testers=session.Config["benchmarkMode"]?.GetValue<bool>()==true?new[]{("benchmark-quick","Short benchmark"),("benchmark","Full benchmark")}:[];
+    var perUser=session.Legacy?new[]{("tongue","Tongue")}.Concat(QproFaceTracking.Hub.CalibrationSettings.FaceGroups):[];
+    foreach(var (id,title) in new[]{("enroll","Face")}.Concat(perUser).Append(("pupils","Pupils")).Concat(testers))
     {var item=new ComboBoxItem{Content=title,Tag=id,IsSelected=kind==id};modes.Items.Add(item);}
     modes.SelectionChanged+=(_,_)=>{if(recording||training||modes.SelectedItem is not ComboBoxItem item)return;var focus=modes.IsKeyboardFocusWithin;kind=(string)item.Tag;candidate=prefix="";calibrationResult=null;CalibrationReset();if(focus)Dispatcher.BeginInvoke(()=>calibrationModes?.Focus(),System.Windows.Threading.DispatcherPriority.Input);};
     Field(Page,"Tracking area",modes);
     var content=calibrationContent=new StackPanel();
     poseTitle=Text("Calibrate "+GroupTitle(kind).ToLowerInvariant(),23);poseTitle.TextAlignment=TextAlignment.Center;content.Children.Add(poseTitle);
     poseDetail=Text(Intro(kind),14,true);poseDetail.TextAlignment=TextAlignment.Center;content.Children.Add(poseDetail);
-    cue=Text(kind=="pupils"?"About 80 seconds":"3 short rounds",25);cue.FontWeight=FontWeights.SemiBold;cue.TextAlignment=TextAlignment.Center;cue.Margin=new(0,4,0,0);content.Children.Add(cue);
+    cue=Text(kind switch{"pupils"=>"About 80 seconds","benchmark"=>"About 18 minutes","benchmark-quick"=>"About 5 minutes","enroll"=>"About 1 minute",_=>"3 short rounds"},25);cue.FontWeight=FontWeights.SemiBold;cue.TextAlignment=TextAlignment.Center;cue.Margin=new(0,4,0,0);content.Children.Add(cue);
     face=new Canvas{Width=360,Height=250};DrawFace(face,new JsonObject(),kind);
     content.Children.Add(new Viewbox{Stretch=Stretch.Uniform,StretchDirection=StretchDirection.DownOnly,Child=face});
     ResizeGuide();
@@ -76,18 +83,18 @@ public partial class StudioWindow
     skip=Button("Skip pose",()=>Send("skip"));skip.Margin=new(8,0,0,0);skip.Visibility=Visibility.Collapsed;actions.Children.Add(skip);
     cancel=Button("Cancel",()=>{cancelPending=true;cancel!.IsEnabled=false;cue!.Text="Stopping calibration…";});cancel.Margin=new(12,0,0,0);cancel.Visibility=Visibility.Collapsed;actions.Children.Add(cancel);
     review=Button("Review video",()=>Open(prefix+".avi"));review.Visibility=Visibility.Collapsed;review.Margin=new(12,0,0,0);actions.Children.Add(review);
-    if(kind!="pupils")
+    if(kind is not "pupils" and not "benchmark" and not "benchmark-quick" and not "enroll")
     {
         var manual=manualControls=new WrapPanel{Margin=new(0,14,0,0),Visibility=Visibility.Collapsed};
         foreach(var (title,action) in new[]{("Capture","capture"),("Next pose","next"),("Undo","undo")}){var button=Button(title,()=>Send(action));button.Margin=new(0,0,8,0);manual.Children.Add(button);}
-        var options=captureOptions=new Expander{Header="Options",Margin=new(0,0,0,0)};var stack=new StackPanel();
+        var options=captureOptions=new Expander{Header="Capture options",Margin=new(0,0,0,0)};var stack=new StackPanel();
         var auto=new CheckBox{Content="Capture automatically",IsChecked=automatic};auto.Click+=(_,_)=>{if(recording)return;automatic=auto.IsChecked==true;};stack.Children.Add(auto);
-        var combo=new ComboBox{ItemsSource=new[]{"Normal","Slow"},SelectedIndex=settle>3?1:0,MinWidth=150,HorizontalAlignment=HorizontalAlignment.Left};combo.SelectionChanged+=(_,_)=>{if(!recording)settle=combo.SelectedIndex==1?4:2.0;};Field(stack,"Pace",combo);options.Content=stack;Page.Children.Add(options);Page.Children.Add(manual);
+        var slow=new CheckBox{Content="Hold each pose longer",IsChecked=settle>3};slow.Click+=(_,_)=>{if(!recording)settle=slow.IsChecked==true?4:2.0;};stack.Children.Add(slow);options.Content=stack;Page.Children.Add(options);Page.Children.Add(manual);
     }
     if(training){RefreshCalibrationControls();ShowTraining();}
     else if(calibrationResult is {} result&&kind==trainingKind)Finished(result.Passed,result.Message);
  }
- static string GroupTitle(string kind)=>kind=="tongue"?"Tongue":kind=="pupils"?"Pupils":Array.Find(QproFaceTracking.Hub.CalibrationSettings.FaceGroups,group=>group.Kind==kind).Title??kind;
+ static string GroupTitle(string kind)=>kind=="tongue"?"Tongue":kind=="pupils"?"Pupils":kind.StartsWith("benchmark")?"Benchmark":kind=="enroll"?"Face":Array.Find(QproFaceTracking.Hub.CalibrationSettings.FaceGroups,group=>group.Kind==kind).Title??kind;
  void CalibrationReset(){Page.Children.Clear();manualControls=null;captureOptions=null;Calibration();}
  async Task Begin()
  {
@@ -98,7 +105,7 @@ public partial class StudioWindow
     if(!Send("begin",new JsonObject{["kind"]=kind,["automatic"]=automatic,["settle"]=settle}))return;
     recordingCommand=command;cancelPending=false;
     recording=true;calibrationResult=null;CalibrationReset();count!.Visibility=Visibility.Visible;RefreshCalibrationControls();
-    if(kind=="pupils")WindowState=WindowState.Maximized;
+    if(kind=="pupils"&&WindowState!=WindowState.Maximized){restoreState=WindowState;WindowState=WindowState.Maximized;}
     await Task.CompletedTask;
  }
  bool Send(string action,JsonObject? fields=null)
@@ -134,7 +141,7 @@ public partial class StudioWindow
  }
  void ShowTraining()
  {
-    if(page!="Calibration"||!training||poseTitle is null)return;
+    if(page!="Calibration"||!training||poseTitle is null||trainingKind.StartsWith("benchmark"))return;
     poseTitle.Text="Creating your calibration";poseDetail!.Text="You can take off the headset and keep using QFT+. Tracking stays on.";
     var elapsed=(DateTime.UtcNow-trainingStarted).TotalSeconds;
     var left=trainingFraction<.05?-1:elapsed*(1-trainingFraction)/trainingFraction;
@@ -151,7 +158,16 @@ public partial class StudioWindow
     AutomationProperties.SetHeadingLevel(poseTitle,AutomationHeadingLevel.Level2);AutomationProperties.SetLiveSetting(poseTitle,AutomationLiveSetting.Polite);
     calibrationContent.Children.Add(poseTitle);
     poseDetail!.Text=passed?"Check your avatar to see the difference.":"Your current calibration hasn't changed.";poseDetail.TextAlignment=TextAlignment.Left;
+    if(passed&&trainingKind.StartsWith("benchmark")){poseTitle.Text="Benchmark recorded";poseDetail.Text=message;}
     calibrationContent.Children.Add(poseDetail);
+    if(passed&&trainingKind.StartsWith("benchmark")&&File.Exists(candidate))
+    {
+        var file=candidate;var show=new Button{Content="Show file",HorizontalAlignment=HorizontalAlignment.Left,Margin=new(0,12,0,0)};show.SetResourceReference(StyleProperty,"PrimaryButton");
+        show.Click+=(_,_)=>{try{System.Diagnostics.Process.Start("explorer.exe",$"/select,\"{file}\"");}catch(Exception){Error("Couldn’t open File Explorer. The file is in "+Path.GetDirectoryName(file)+".");}};
+        var actions=new WrapPanel{Margin=new(0,12,0,0)};show.Margin=new(0,0,8,8);actions.Children.Add(show);
+        if(DiscordProfile.Length>0){var discord=new Button{Content="Message on Discord",Margin=new(0,0,0,8)};discord.Click+=MessageOnDiscord;actions.Children.Add(discord);}
+        calibrationContent.Children.Add(actions);
+    }
     if(!passed)
     {
         var lines=message.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
@@ -188,7 +204,7 @@ public partial class StudioWindow
         if(training)ShowTraining();
         if(recording&&!FreshState())Error("Camera feed paused. Make sure the headset is awake and connected, or cancel.");
         if(page=="Cameras"&&IsVisible)await UpdateCameras();
-        if(IsVisible)liveLog?.Invoke();
+        if(IsVisible){liveLog?.Invoke();adjustmentRefresh?.Invoke();}
         if(state["error"]?.GetValue<string>() is {Length:>0} error && (!recording||state["ack"]?.GetValue<long>()>=recordingCommand) && (recording||page=="Calibration"))Error(error);
         if(page!="Tracking"&&session.Hybrid is not null&&!Session.Alive(session.Hybrid))Error("Hybrid hands stopped. The Hybrid hands log in Settings shows why.");
     }
@@ -212,13 +228,29 @@ public partial class StudioWindow
     if(pause is not null)pause.Content=state["paused"]?.GetValue<bool>()==true?"Resume":"Pause";
     if(state["phase"]?.GetValue<string>() is "complete" or "cancelled")
     {
-        recording=false;Theme(session.Config["theme"]?.GetValue<string>()??"System");
+        recording=false;Theme("System");if(restoreState is {} before){WindowState=before;restoreState=null;}
         if(state["phase"]!.GetValue<string>()!="complete"){CalibrationReset();RefreshCalibrationControls();return;}
         begin!.Content="Calibrate again";begin.ClearValue(StyleProperty);count.Text="";prefix=state["prefix"]!.GetValue<string>();progress.Value=100;
         RefreshCalibrationControls();
         if(kind=="pupils"){candidate=prefix+".pupils.json";_=ApplyPupils();}
+        else if(kind.StartsWith("benchmark")){trainingKind=kind;_=ShareBenchmark();}
         else _=Train();
     }
+ }
+ async Task ShareBenchmark()
+ {
+    candidate="";
+    if(!session.Tester){Finished(true,"Benchmark recorded. Its files start with "+Path.GetFileName(prefix)+" in "+Path.GetDirectoryName(prefix)+".");return;}
+    training=true;RefreshCalibrationControls();poseTitle!.Text="Preparing your recording";poseDetail!.Text="This takes about a minute. Tracking stays on.";
+    cue!.Text="";progress!.IsIndeterminate=true;progress.Visibility=Visibility.Visible;
+    try
+    {
+        candidate=await session.Package(prefix);
+        var size=new FileInfo(candidate).Length/1e6;
+        training=false;Finished(true,$"Send this file to the QFT+ developer directly: {Path.GetFileName(candidate)} ({size:0} MB). If it’s too big to attach to a message, send a OneDrive or Google Drive link to it instead.");
+    }
+    catch(Exception error){training=false;candidate="";Finished(true,"Benchmark recorded, but it couldn’t be prepared to share. "+error.Message);}
+    finally{training=false;progress.IsIndeterminate=false;RefreshCalibrationControls();}
  }
  async Task ApplyPupils()
  {
