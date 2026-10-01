@@ -22,7 +22,6 @@ FIVE_CAMERA, MOUTH, SIDES = "five-camera-v1", "ava-mouth-v1", "ava-mouth-sides-v
 IMAGE_SIZE = {FIVE_CAMERA: 96, MOUTH: 128, SIDES: 128}
 ENCODER = Path(__file__).resolve().parent / "models" / "ava-mouth-encoder.pt"
 MOUTH_EPOCHS, MOUTH_STEPS_PER_EPOCH = 40, 10
-MOUTH_LAST_STAGE = True
 
 
 class MouthExpressionModel(torch.nn.Module):
@@ -119,17 +118,61 @@ def load_samples(captures: list[Path], size: int = 96):
     return np.stack(images), targets, np.asarray(groups), names
 
 
+NEVER_PUFF = ("tongue", "brows", "pucker", "corners", "nose", "jaw", "mouth")
+
+
+def never_puff_captures(capture: Path) -> list[Path]:
+    """The user's completed tongue and other-group calibrations beside this one: none of their stills is a cheek puff."""
+    found = []
+    for path in sorted(capture.parent.glob("*.qpcap")):
+        try:
+            session = json.loads(path.with_suffix(".qpsession.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if (path.name.split("-", 1)[0] in NEVER_PUFF and session.get("completed")
+                and session.get("sessionType") in ("extra-face-stills-v1", "tongue-stereo-refinement-v2")):
+            found.append(path)
+    return found
+
+
+def load_never_puff(captures: list[Path], count: int, size: int) -> np.ndarray:
+    """Up to `count` stills spread evenly over the captures, as five-camera stacks.
+
+    Tongue captures hold cameras 2-4 only, so cameras 0-1 stay blank; the mouth models never read them.
+    """
+    stills = []
+    for path in captures:
+        try:
+            session = json.loads(path.with_suffix(".qpsession.json").read_text())
+            tongue = session["sessionType"] != "extra-face-stills-v1"
+            entries, _ = scan_frames(path, 0x1C if tongue else 0x1F)
+            stills += [(path, tongue, entries[s["frameIndex"]]) for s in session["samples"]
+                       if not s.get("excluded") and s["promptIndex"] not in session.get("skippedPrompts", [])
+                       and 0 <= s["frameIndex"] < len(entries)]
+        except (OSError, ValueError, KeyError) as error:
+            print(f"TRAIN_NEGATIVES skipped={path.name} reason={error!r}", flush=True)
+    images = []
+    for k in np.unique(np.linspace(0, len(stills) - 1, min(count, len(stills))).round().astype(int)) if stills else []:
+        path, tongue, (offset, _, width, height) = stills[k]
+        with path.open("rb") as stream:
+            stream.seek(offset)
+            raw = stream.read(width * height)
+        try:
+            cameras = resize_cameras(np.frombuffer(raw, np.uint8).reshape(height, width), size, 3 if tongue else 5)
+        except ValueError:
+            continue
+        images.append(np.concatenate([np.zeros((2, size, size), np.uint8), cameras]) if tongue else cameras)
+    return np.stack(images) if images else np.zeros((0, 5, size, size), np.uint8)
+
+
 def spearman(predicted, expected):
     """Rank correlation with averaged ties; None when the labels have no order to check."""
     if len(np.unique(expected)) < 2:
         return None
     ranks = []
     for values in (predicted, expected):
-        rank = np.empty(len(values))
-        rank[np.argsort(values, kind="stable")] = np.arange(len(values))
-        for value in np.unique(values):
-            rank[values == value] = rank[values == value].mean()
-        ranks.append(rank)
+        _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
+        ranks.append((counts.cumsum() - (counts + 1) / 2)[inverse])
     return 0.0 if ranks[0].std() == 0 else float(np.corrcoef(*ranks)[0, 1])
 
 
@@ -285,7 +328,7 @@ def _fit(images, targets, names, epochs, device, stage=1, architecture=FIVE_CAME
     mouth = architecture == MOUTH
     if mouth:
         model.encoder.load_state_dict(torch.load(encoder, map_location="cpu", weights_only=True)["encoderState"])
-        frozen = model.encoder.network[:-4] if MOUTH_LAST_STAGE else torch.nn.Sequential()
+        frozen = model.encoder.network[:-4]
         frozen.requires_grad_(False)
         optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=.001, weight_decay=.05)
         schedule = None
@@ -294,7 +337,7 @@ def _fit(images, targets, names, epochs, device, stage=1, architecture=FIVE_CAME
         schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
     engine = None
     if gpu:
-        engine = gpu_training.MouthEngine(model, names, 32, 3 if MOUTH_LAST_STAGE else 0, .001, .05, IMAGE_SIZE[MOUTH])
+        engine = gpu_training.MouthEngine(model, names, 32, 3, .001, .05, IMAGE_SIZE[MOUTH])
         print(f"TRAIN_ENGINE gpu compile={engine.trainer.init['compileSeconds']:.1f}s", flush=True)
         estimate = engine.predict
     else:
@@ -350,6 +393,8 @@ def main():
     parser.add_argument("--epochs", type=int, help="default 60, or 40 for the pretrained mouth model")
     parser.add_argument("--encoder", type=Path, default=ENCODER,
                         help="pretrained mouth encoder; without it every group uses the five-camera model")
+    parser.add_argument("--never-puff", action="store_true",
+                        help="also train on the completed tongue and other-group calibrations beside the capture as CheekPuff 0")
     args = parser.parse_args()
     architecture = architecture_for(labelled_names(args.captures), args.encoder)
     args.epochs = args.epochs or (60 if architecture == FIVE_CAMERA else MOUTH_EPOCHS)
@@ -371,6 +416,16 @@ def main():
     if not keep:
         parser.error("Every pose was skipped, so there's nothing to calibrate.")
     targets, names = targets[:, keep], [names[i] for i in keep]
+    puff = [i for i, name in enumerate(names) if name.startswith("CheekPuff")]
+    never_puff = 0
+    if args.never_puff and architecture == SIDES and puff:
+        extra = load_never_puff(never_puff_captures(args.captures[0]), len(images), IMAGE_SIZE[architecture])
+        row = np.full(len(names), np.nan, np.float32)
+        row[puff] = 0
+        images, never_puff = np.concatenate([images, extra]), len(extra)
+        targets = np.concatenate([targets, np.tile(row, (never_puff, 1))])
+        groups = np.concatenate([groups, np.full(never_puff, -1)])
+        print(f"TRAIN_NEGATIVES stills={never_puff}", flush=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train, holdout = groups != 2, groups == 2
     checked = develop(images[train], targets[train], names, args.epochs, device, 1, architecture, args.encoder)
@@ -385,7 +440,7 @@ def main():
     torch.save({"modelState": model.cpu().state_dict(), "expressionNames": names,
                 "architecture": architecture, "imageSize": IMAGE_SIZE[architecture], **provenance,
                 "schema": "extra-face-stills-v1", "validation": report,
-                "epochs": args.epochs, "trainingMethod": method,
+                "epochs": args.epochs, "trainingMethod": method, "neverPuffStills": never_puff,
                 "approvedForOutput": False}, args.output)
     args.output.with_suffix(".validation.json").write_text(json.dumps({
         "checkFrames": int(train.sum()), "holdoutFrames": int(holdout.sum()), "finalFrames": len(images),

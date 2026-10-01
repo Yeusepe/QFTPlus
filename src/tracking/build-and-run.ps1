@@ -25,9 +25,6 @@ param(
     [switch]$TongueCorrectionCalibration,
     [switch]$TongueRefinementCalibration,
     [switch]$TongueArcCalibration,
-    [switch]$ModelPreview,
-    [string]$ModelPath = ".\models\qpro-five-camera-pilot.pt",
-    [string]$ModelDevice = "auto",
     [switch]$TonguePreview,
     [switch]$AllCameras,
     [switch]$PupilPreview,
@@ -37,26 +34,12 @@ param(
     [string]$ExtraFaceModel = "",
     [switch]$EnableExtraFaceOutput,
     [switch]$EnableTongueOutput,
-    [string]$TongueModelPath = ".\models\qpro-stereo-tongue-v3.pt",
-    [string]$TongueDirectionModelPath = ".\models\qpro-stereo-tongue-v4-hybrid.pt",
+    [string]$TongueModelPath = ".\models\qpro-stereo-tongue-v8-direction.pt",
+    [switch]$NoTongueModel,
     [string]$TongueModelDevice = "auto",
     [ValidateRange(0, 100)]
     [int]$TongueSmoothing = 55,
-    [ValidateSet("camera", "native", "weighted", "agreement")]
-    [string]$TongueVisibilityMode = "weighted",
-    [string]$StopFile = "",
-    [switch]$OpenSourcePreview,
-    [switch]$HybridPreview,
-    [string]$HybridCalibrationPath = ".\calibration\qpro-hybrid-eye-calibration.json",
-    [string]$NextModelPath = ".\third_party\EyeTrackVR-Beta5\EyeTrackApp\Models\end2end_model.onnx",
-    [string]$FaceModelPath = ".\third_party\ProjectBabble\BabbleApp\Models\EFFB0E11BS128V7.5\onnx\model.onnx",
-    [switch]$EyeCalibration,
-    [string]$CalibrationOverlayPath = ".\third_party\BabbleCalibration-Windows-1.0.8\BabbleCalibration.x86_64.exe",
-    [string]$EyeCalibrationOutput = ".\calibration\qpro-hybrid-eye-calibration.json",
-    [ValidateRange(10, 600)]
-    [int]$GazeCalibrationSeconds = 60,
-    [ValidateRange(10, 600)]
-    [int]$ConvergenceCalibrationSeconds = 40
+    [string]$StopFile = ""
 )
 
 trap { [Console]::Out.WriteLine("QFT_ERROR: " + ($_.Exception.Message -replace '\s+', ' ')); break }
@@ -159,82 +142,33 @@ try {
     if ($ExtraFaceCapture -or $PupilPreview -or $EnablePupilDilation -or $ExtraFaceModel) { $CameraMode = "all" }
     if (($ExtraFaceCapture -or $PupilPreview) -and $NoWindow -and -not $CalibrationUi) { throw "Face/pupil calibration requires a visible window." }
     if ($ExtraFaceCapture -and ($RecordSeconds -gt 0)) { throw "ExtraFaceCapture saves only on Space; do not set RecordSeconds." }
-    $recordEnabled = $Record -or $Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueCorrectionCalibration -or $TongueRefinementCalibration -or $TongueArcCalibration -or $ExtraFaceCapture -or -not [string]::IsNullOrWhiteSpace($RecordPath)
-    $labelsEnabled = ($recordEnabled -or $ModelPreview -or $TonguePreview -or $EyeCalibration -or $HybridPreview) -and -not $NoLabels
-    $vrcftRequired = $Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueCorrectionCalibration -or $TongueRefinementCalibration -or $TongueArcCalibration -or $ModelPreview -or $TonguePreview -or $EyeCalibration -or $HybridPreview
-    $vrcftRequired = $vrcftRequired -or $EnablePupilDilation -or $EnableExtraFaceOutput
-    $steamVrRequired = $vrcftRequired -or $EyeCalibration
-    $openSourceModelsRequired = $OpenSourcePreview -or $EyeCalibration -or $HybridPreview
+    $calibrationModes = @('Calibration', 'TongueCalibration', 'TongueStillCalibration',
+        'TongueCorrectionCalibration', 'TongueRefinementCalibration', 'TongueArcCalibration')
+    $selectedCalibrations = @($calibrationModes | Where-Object { $PSBoundParameters[$_] })
+    $recordEnabled = $Record -or $selectedCalibrations.Count -gt 0 -or $ExtraFaceCapture -or -not [string]::IsNullOrWhiteSpace($RecordPath)
+    $labelsEnabled = ($recordEnabled -or $TonguePreview) -and -not $NoLabels
+    $vrcftRequired = $selectedCalibrations.Count -gt 0 -or $TonguePreview -or $EnablePupilDilation -or $EnableExtraFaceOutput
     if ($RecordSeconds -gt 0 -and -not $recordEnabled) {
         throw "RecordSeconds requires -Record or -RecordPath."
     }
     if ($Calibration -and $CameraMode -ne "all") { throw "Calibration requires -CameraMode all (the default)." }
-    if ($Calibration -and $NoWindow) { throw "Calibration requires the visible prompt window." }
-    if ($Calibration -and $RecordSeconds -gt 0) { throw "Calibration controls its own duration; do not set RecordSeconds." }
-    if ($Calibration -and $NoLabels) { throw "Calibration requires factory labels from Virtual Desktop or Steam Link." }
-    if ($TongueCalibration -and $NoWindow) { throw "TongueCalibration requires the visible prompt window." }
-    if ($TongueCalibration -and $RecordSeconds -gt 0) { throw "TongueCalibration controls its own duration; do not set RecordSeconds." }
-    if ($TongueCalibration -and $NoLabels) { throw "TongueCalibration requires the native TongueOut reference stream." }
-    if ($TongueCalibration -and $Calibration) { throw "Run TongueCalibration separately from whole-face Calibration." }
-    if ($TongueCalibration -and ($ModelPreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TongueCalibration by itself."
+    if ($selectedCalibrations.Count -gt 1 -or ($TonguePreview -and $selectedCalibrations.Count -gt 0)) {
+        throw "Run one calibration or TonguePreview at a time."
     }
-    if ($TongueStillCalibration -and $NoWindow) { throw "TongueStillCalibration requires the visible prompt window." }
-    if ($TongueStillCalibration -and $RecordSeconds -gt 0) { throw "TongueStillCalibration controls its own capture; do not set RecordSeconds." }
-    if ($TongueStillCalibration -and $NoLabels) { throw "TongueStillCalibration requires the native TongueOut reference stream." }
-    if ($TongueStillCalibration -and ($Calibration -or $TongueCalibration -or $TongueCorrectionCalibration -or $TongueRefinementCalibration -or $TongueArcCalibration -or $ModelPreview -or $TonguePreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TongueStillCalibration by itself."
+    foreach ($mode in $selectedCalibrations) {
+        if ($NoWindow -and -not ($mode -eq 'TongueRefinementCalibration' -and $CalibrationUi)) {
+            throw "$mode requires the visible prompt window."
+        }
+        if ($RecordSeconds -gt 0) { throw "$mode controls its own capture; do not set RecordSeconds." }
+        if ($NoLabels) { throw "$mode requires factory labels from Virtual Desktop or Steam Link." }
     }
-    if ($TongueCorrectionCalibration -and $NoWindow) { throw "TongueCorrectionCalibration requires the visible prompt window." }
-    if ($TongueCorrectionCalibration -and $RecordSeconds -gt 0) { throw "TongueCorrectionCalibration controls its own capture; do not set RecordSeconds." }
-    if ($TongueCorrectionCalibration -and $NoLabels) { throw "TongueCorrectionCalibration requires the native TongueOut reference stream." }
-    if ($TongueCorrectionCalibration -and ($Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueRefinementCalibration -or $TongueArcCalibration -or $ModelPreview -or $TonguePreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TongueCorrectionCalibration by itself."
-    }
-    if ($TongueRefinementCalibration -and $NoWindow -and -not $CalibrationUi) { throw "TongueRefinementCalibration requires the visible prompt window." }
-    if ($TongueRefinementCalibration -and $RecordSeconds -gt 0) { throw "TongueRefinementCalibration controls its own capture; do not set RecordSeconds." }
-    if ($TongueRefinementCalibration -and $NoLabels) { throw "TongueRefinementCalibration requires the native TongueOut reference stream." }
-    if ($TongueRefinementCalibration -and ($Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueCorrectionCalibration -or $TongueArcCalibration -or $ModelPreview -or $TonguePreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TongueRefinementCalibration by itself."
-    }
-    if ($TongueArcCalibration -and $NoWindow) { throw "TongueArcCalibration requires the visible prompt window." }
-    if ($TongueArcCalibration -and $RecordSeconds -gt 0) { throw "TongueArcCalibration controls its own capture; do not set RecordSeconds." }
-    if ($TongueArcCalibration -and $NoLabels) { throw "TongueArcCalibration requires the native TongueOut reference stream." }
-    if ($TongueArcCalibration -and ($Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueCorrectionCalibration -or $TongueRefinementCalibration -or $ModelPreview -or $TonguePreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TongueArcCalibration by itself."
-    }
-    if ($ModelPreview -and $CameraMode -ne "all") { throw "ModelPreview requires -CameraMode all (the default)." }
-    if ($ModelPreview -and $NoWindow) { throw "ModelPreview requires visible comparison windows." }
-    if ($ModelPreview -and $NoLabels) { throw "ModelPreview requires factory labels from Virtual Desktop or Steam Link." }
-    if ($ModelPreview -and -not (Test-Path -LiteralPath $ModelPath)) { throw "Model checkpoint not found: $ModelPath" }
     if ($TonguePreview -and $NoWindow -and -not $EnableTongueOutput) { throw "Hidden tongue tracking requires EnableTongueOutput." }
     if ($TonguePreview -and $NoLabels) { throw "TonguePreview requires native TongueOut confidence." }
-    if ($TonguePreview -and -not (Test-Path -LiteralPath $TongueModelPath)) { throw "Tongue model not found: $TongueModelPath" }
-    if ($TonguePreview -and -not [string]::IsNullOrWhiteSpace($TongueDirectionModelPath) -and -not (Test-Path -LiteralPath $TongueDirectionModelPath)) {
-        throw "Tongue direction model not found: $TongueDirectionModelPath"
-    }
-    if ($TonguePreview -and ($Calibration -or $TongueCalibration -or $TongueStillCalibration -or $TongueCorrectionCalibration -or $TongueRefinementCalibration -or $TongueArcCalibration -or $ModelPreview -or $OpenSourcePreview -or $HybridPreview -or $EyeCalibration)) {
-        throw "Run TonguePreview by itself."
-    }
-    if ($openSourceModelsRequired -and $CameraMode -ne "all") { throw "OpenSourcePreview and EyeCalibration require -CameraMode all (the default)." }
-    if ($openSourceModelsRequired -and $NoWindow) { throw "OpenSourcePreview and EyeCalibration require visible preview windows." }
-    if ($OpenSourcePreview -and $ModelPreview) { throw "Choose either -OpenSourcePreview or -ModelPreview." }
-    if ($HybridPreview -and ($OpenSourcePreview -or $ModelPreview -or $Calibration -or $EyeCalibration)) {
-        throw "Run HybridPreview by itself."
-    }
-    if ($OpenSourcePreview -and $Calibration) { throw "Run OpenSourcePreview separately from calibration." }
-    if ($EyeCalibration -and $Calibration) { throw "Run EyeCalibration separately from whole-face Calibration." }
-    if ($EyeCalibration -and $ModelPreview) { throw "Run EyeCalibration separately from ModelPreview." }
-    if ($EyeCalibration -and $NoLabels) { throw "EyeCalibration requires the Meta streaming-app factory eye baseline." }
-    if ($HybridPreview -and $NoLabels) { throw "HybridPreview requires live Meta streaming-app signals." }
-    if ($HybridPreview -and -not (Test-Path -LiteralPath $HybridCalibrationPath)) { throw "Hybrid calibration not found: $HybridCalibrationPath" }
-    if ($EyeCalibration -and -not (Test-Path -LiteralPath $CalibrationOverlayPath)) { throw "BabbleCalibration executable not found: $CalibrationOverlayPath" }
-    if ($openSourceModelsRequired -and -not (Test-Path -LiteralPath $NextModelPath)) { throw "EyeTrackVR NEXT model not found: $NextModelPath" }
-    if ($openSourceModelsRequired -and -not (Test-Path -LiteralPath $FaceModelPath)) { throw "Project Babble face model not found: $FaceModelPath" }
+    if ($TonguePreview -and -not $NoTongueModel -and -not (Test-Path -LiteralPath $TongueModelPath)) { throw "Tongue model not found: $TongueModelPath" }
     if ($vrcftRequired -and -not (Get-Process -Name "VRCFaceTracking" -ErrorAction SilentlyContinue)) {
         throw "Start VRCFaceTracking first. No VRCFaceTracking process was found."
     }
-    if ($steamVrRequired -and -not (Get-Process -Name "vrserver" -ErrorAction SilentlyContinue)) {
+    if ($vrcftRequired -and -not (Get-Process -Name "vrserver" -ErrorAction SilentlyContinue)) {
         throw "Start SteamVR first. SteamVR's vrserver process was not found."
     }
 
@@ -354,55 +288,16 @@ try {
         if ($TongueRefinementCalibration) { $receiverArguments += "--tongue-refinement-calibration" }
         if ($TongueArcCalibration) { $receiverArguments += "--tongue-arc-calibration" }
     }
-    if ($ModelPreview) {
-        $resolvedModelPath = (Resolve-Path -LiteralPath $ModelPath).Path
-        $receiverArguments += @("--model", $resolvedModelPath, "--model-device", $ModelDevice, "--labels-port", "$LabelsPort")
-    }
     if ($TonguePreview) {
-        $resolvedTongueModelPath = (Resolve-Path -LiteralPath $TongueModelPath).Path
-        $receiverArguments += @(
-            "--tongue-model", $resolvedTongueModelPath,
-            "--tongue-model-device", $TongueModelDevice,
-            "--tongue-smoothing", "$TongueSmoothing",
-            "--tongue-visibility-mode", $TongueVisibilityMode,
-            "--labels-port", "$LabelsPort"
-        )
-        if (-not [string]::IsNullOrWhiteSpace($TongueDirectionModelPath)) {
-            $resolvedTongueDirectionModelPath = (Resolve-Path -LiteralPath $TongueDirectionModelPath).Path
-            $receiverArguments += @("--tongue-direction-model", $resolvedTongueDirectionModelPath)
+        if (-not $NoTongueModel) {
+            $resolvedTongueModelPath = (Resolve-Path -LiteralPath $TongueModelPath).Path
+            $receiverArguments += @("--tongue-model", $resolvedTongueModelPath, "--tongue-model-device", $TongueModelDevice)
         }
+        $receiverArguments += @("--tongue-smoothing", "$TongueSmoothing", "--labels-port", "$LabelsPort")
         if ($EnableTongueOutput) { $receiverArguments += "--tongue-output" }
     }
     if (-not [string]::IsNullOrWhiteSpace($StopFile)) {
         $receiverArguments += @("--stop-file", (Resolve-WorkspacePath $StopFile))
-    }
-    if ($openSourceModelsRequired) {
-        $resolvedNextModelPath = (Resolve-Path -LiteralPath $NextModelPath).Path
-        $resolvedFaceModelPath = (Resolve-Path -LiteralPath $FaceModelPath).Path
-        $previewSwitch = if ($HybridPreview) { "--hybrid-preview" } else { "--open-source-preview" }
-        $receiverArguments += @(
-            $previewSwitch,
-            "--next-model", $resolvedNextModelPath,
-            "--face-model", $resolvedFaceModelPath
-        )
-        if ($HybridPreview) {
-            $resolvedHybridCalibrationPath = (Resolve-Path -LiteralPath $HybridCalibrationPath).Path
-            $receiverArguments += @(
-                "--hybrid-calibration", $resolvedHybridCalibrationPath,
-                "--labels-port", "$LabelsPort"
-            )
-        }
-    }
-    if ($EyeCalibration) {
-        $resolvedCalibrationOverlayPath = (Resolve-Path -LiteralPath $CalibrationOverlayPath).Path
-        $receiverArguments += @(
-            "--eye-calibration",
-            "--calibration-overlay", $resolvedCalibrationOverlayPath,
-            "--eye-calibration-output", $EyeCalibrationOutput,
-            "--labels-port", "$LabelsPort",
-            "--gaze-calibration-seconds", "$GazeCalibrationSeconds",
-            "--convergence-calibration-seconds", "$ConvergenceCalibrationSeconds"
-        )
     }
     & $python @receiverArguments
     if ($LASTEXITCODE -ne 0) { throw "The PC tracking runtime exited with code $LASTEXITCODE." }

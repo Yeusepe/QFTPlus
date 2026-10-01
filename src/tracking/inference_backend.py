@@ -1,24 +1,23 @@
 """Optional DirectML inference; CPU training and fallback work on every PC."""
 import hashlib
-import copy
 import io
 import math
 import os
 import statistics
 import sys
 import threading
-import tempfile
 import time
 from pathlib import Path
 from functools import lru_cache
 import numpy as np
 import torch
 from prepare_training import resize_cameras
+from gpu_lock import GPU_LOCK
 
 
 
 
-_gpu_lock = threading.RLock()
+_gpu_lock = GPU_LOCK  # shared with the universal model (gpu_lock.py)
 
 
 class AreaResizeModel(torch.nn.Module):
@@ -123,128 +122,6 @@ class CudaModel:
             return torch.split(values, self.widths, dim=1) if self.widths is not None else values
 
 
-class TonguePair(torch.nn.Module):
-    """Keep each model's weights while sharing upload, resize and CPU return."""
-    def __init__(self, gate, direction):
-        super().__init__()
-        self.gate, self.direction = gate, direction
-
-    def forward(self, inputs):
-        return torch.cat((self.gate(inputs), self.direction(inputs)), dim=0)
-
-
-_trt_logger = None
-
-
-class TensorRTTongue(torch.nn.Module):
-    """Optional fixed-shape engine; pointers remain alive through graph replay."""
-    def __init__(self, source, size, precision):
-        super().__init__()
-        import tensorrt as trt
-        global _trt_logger
-        if _trt_logger is None:
-            _trt_logger = trt.Logger(trt.Logger.WARNING)
-        self.dtype = torch.float32
-        self.precision = precision
-        device = next(source.parameters()).device
-        self.anchor = torch.nn.Parameter(torch.empty(0, device=device), requires_grad=False)
-
-        exported = io.BytesIO()
-        torch.onnx.export(copy.deepcopy(source).to(device="cpu", dtype=self.dtype).eval(),
-                          torch.zeros((1, 2, size, size), dtype=self.dtype), exported,
-                          input_names=["cameras"], output_names=["values"],
-                          opset_version=17, dynamo=False)
-        onnx_bytes = exported.getvalue()
-        identity = repr((trt.__version__, torch.version.cuda, torch.cuda.get_device_name(device),
-                         torch.cuda.get_device_capability(device), precision)).encode()
-        digest = hashlib.sha256(onnx_bytes + identity + Path(__file__).read_bytes()).hexdigest()
-        cache = Path(os.environ.get("LOCALAPPDATA", str(Path.home()/".cache")))/"QFT-Plus"/"inference"
-        cache.mkdir(parents=True, exist_ok=True)
-        plan = cache/(digest+".engine")
-        self.runtime = trt.Runtime(_trt_logger)
-        self.engine = None
-        if plan.exists():
-            self.engine = self.runtime.deserialize_cuda_engine(plan.read_bytes())
-        if self.engine is None:
-            print("INFERENCE_PREPARING TensorRT tongue " + precision + " (cached after compilation)", flush=True)
-            builder = trt.Builder(_trt_logger)
-            network = builder.create_network(0)
-            parser = trt.OnnxParser(network, _trt_logger)
-            if not parser.parse(onnx_bytes):
-                raise RuntimeError("; ".join(str(parser.get_error(i)) for i in range(parser.num_errors)))
-            config = builder.create_builder_config()
-            config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 256*1024*1024)
-            config.clear_flag(trt.BuilderFlag.TF32)
-            if precision == "mixed":
-                config.set_flag(trt.BuilderFlag.FP16)
-                config.set_flag(trt.BuilderFlag.OBEY_PRECISION_CONSTRAINTS)
-                protected_inputs = 0
-                for i in range(network.num_layers):
-                    layer = network.get_layer(i)
-                    first_conv = "/encoder/network/network.0/Conv" in layer.name
-                    protected_inputs += int(first_conv)
-                    if (first_conv or "/head/" in layer.name) and layer.type != trt.LayerType.CONSTANT:
-                        layer.precision = trt.float32
-                        for j in range(layer.num_outputs):
-                            if layer.get_output(j).dtype in (trt.float16, trt.float32):
-                                layer.set_output_type(j, trt.float32)
-                if protected_inputs != 2:
-                    raise RuntimeError("TensorRT tongue input precision constraints did not match")
-            serialized = builder.build_serialized_network(network, config)
-            if serialized is None:
-                raise RuntimeError("TensorRT tongue compilation failed")
-            self.engine = self.runtime.deserialize_cuda_engine(serialized)
-            if self.engine is None:
-                raise RuntimeError("TensorRT tongue engine did not initialize")
-            with tempfile.NamedTemporaryFile(dir=cache, suffix=".tmp", delete=False) as pending:
-                temporary = Path(pending.name)
-                pending.write(bytes(serialized))
-            try:
-                temporary.replace(plan)
-            finally:
-                temporary.unlink(missing_ok=True)
-        self.context = self.engine.create_execution_context()
-        if self.context is None:
-            raise RuntimeError("TensorRT tongue context did not initialize")
-        self.output = torch.empty(tuple(self.context.get_tensor_shape("values")), dtype=self.dtype, device=device)
-        if not self.context.set_tensor_address("values", self.output.data_ptr()):
-            raise RuntimeError("TensorRT tongue output binding failed")
-        print("INFERENCE_BACKEND TensorRT tongue " + precision, flush=True)
-
-    def forward(self, inputs):
-        self.input = inputs.to(self.dtype)
-        if not self.context.set_tensor_address("cameras", self.input.data_ptr()):
-            raise RuntimeError("TensorRT tongue input binding failed")
-        if not self.context.execute_async_v3(torch.cuda.current_stream(self.input.device).cuda_stream):
-            raise RuntimeError("TensorRT tongue execution failed")
-        return self.output.float()
-
-
-def prepare_tongue_pair(gate, direction, size, *, selected="cuda:0", checkpoint=None):
-    """Use one graph, with optional compiled execution and FP32 fallback."""
-    with _gpu_lock, torch.inference_mode():
-        pair = TonguePair(optimize_for_inference(gate), optimize_for_inference(direction)).eval()
-        if selected == "directml":
-            buffer = io.BytesIO()
-            torch.save(pair.state_dict(), buffer)
-            key = Path(checkpoint).parent / ("tongue-pair-" + hashlib.sha256(buffer.getvalue()).hexdigest()[:16] + ".pt")
-            if not key.exists():
-                key.write_bytes(buffer.getvalue())
-            return prepare_model(pair, key, (1, 2, size, size), selected)
-        precision = os.environ.get("QFT_TONGUE_TENSORRT", "mixed")
-        if precision not in ("off", "fp32", "mixed"):
-            raise ValueError("QFT_TONGUE_TENSORRT must be off, fp32 or mixed")
-        if precision == "mixed" and any(type(model).__name__ != "SpatialStereoTongueModel" for model in (gate, direction)):
-            precision = "fp32"
-        if precision != "off":
-            try:
-                compiled = TensorRTTongue(pair, size, precision)
-                return CudaModel(AreaResizeModel(compiled, size, 2).to(next(pair.parameters()).device).eval(), (400, 800))
-            except Exception as error:
-                print("INFERENCE_OPTIMIZATION_SKIPPED TensorRT tongue: " + str(error), flush=True)
-        return CudaModel(AreaResizeModel(pair, size, 2).to(next(pair.parameters()).device).eval(), (400, 800))
-
-
 def optimize_for_inference(model):
     """Fold only eval-mode BatchNorm; preserve checkpoint/training state layouts."""
     if model.training:
@@ -328,7 +205,7 @@ class DirectMLModel:
             raise ValueError("DirectML mixed precision is validated only for 224-pixel tongue inputs")
         self.precision = precision
         example = torch.zeros(shape, dtype=torch.uint8 if self.raw_input else torch.float32)
-        sources = (source_model.gate, source_model.direction) if isinstance(source_model, TonguePair) else (source_model,)
+        sources = (source_model,)
         digest = hashlib.sha256(checkpoint.read_bytes() + Path(__file__).read_bytes()
             + b"".join(Path(sys.modules[type(m).__module__].__file__).read_bytes() for m in sources)
             + repr((shape, precision)).encode()).hexdigest()
@@ -412,12 +289,11 @@ def prepare_model(model, checkpoint, shape, selected):
             result = None
 
 
-            tongue_models = (model.gate, model.direction) if isinstance(model, TonguePair) else (model,)
             precision = os.environ.get("QFT_DIRECTML_PRECISION")
             if precision is None:
                 adapter = max(0, min(15, int(os.environ.get("QFT_GPU_INDEX", "0"))))
                 precision = "mixed" if directml_vendor(adapter) == 0x10DE else "fp32"
-            if (all(type(member).__name__ == "SpatialStereoTongueModel" for member in tongue_models)
+            if (type(model).__name__ == "SpatialStereoTongueModel"
                     and tuple(shape) == (1, 2, 224, 224)
                     and precision == "mixed"):
                 try:

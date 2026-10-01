@@ -20,17 +20,9 @@ try {
         $AdbTarget = (Get-Content -LiteralPath $wirelessConfig -Raw | ConvertFrom-Json).adbTarget
     }
     $candidates = @()
-    foreach ($gate in Get-ChildItem .\models -Filter "qpro-stereo-tongue-v*-gate.pt" -File) {
-        if ($gate.Name -match '^qpro-stereo-tongue-v(?<version>\d+)-gate\.pt$') {
-            $candidateVersion = [int]$Matches.version
-            $direction = Join-Path $gate.DirectoryName ("qpro-stereo-tongue-v{0}-direction.pt" -f $candidateVersion)
-            if (Test-Path -LiteralPath $direction) {
-                $candidates += [pscustomobject]@{
-                    Version = $candidateVersion
-                    Gate = $gate.FullName
-                    Direction = (Resolve-Path -LiteralPath $direction).Path
-                }
-            }
+    foreach ($direction in Get-ChildItem .\models -Filter "qpro-stereo-tongue-v*-direction.pt" -File) {
+        if ($direction.Name -match '^qpro-stereo-tongue-v(?<version>\d+)-direction\.pt$') {
+            $candidates += [pscustomobject]@{ Version = [int]$Matches.version; Direction = $direction.FullName }
         }
     }
     $latest = if ($Version -gt 0) {
@@ -40,14 +32,13 @@ try {
     }
     if ($null -eq $latest) {
         $requested = if ($Version -gt 0) { "v$Version" } else { "any version" }
-        throw "No paired gate/direction tongue checkpoint was found for $requested in .\models."
+        throw "No tongue direction checkpoint was found for $requested in .\models."
     }
-    Write-Host "Previewing paired tongue model v$($latest.Version)"
+    Write-Host "Previewing tongue model v$($latest.Version)"
     $launcherArguments = @{
         TonguePreview = $true
         MaxFps = $MaxFps
-        TongueModelPath = $latest.Gate
-        TongueDirectionModelPath = $latest.Direction
+        TongueModelPath = $latest.Direction
         TongueModelDevice = $Device
     }
     if (-not [string]::IsNullOrWhiteSpace($AdbTarget)) {

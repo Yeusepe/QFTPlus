@@ -54,7 +54,7 @@ def failure_reason(log: Path) -> str:
     return reasons[-1] if reasons else (lines[-1] if lines else "")
 
 
-def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_arguments=(), *, quiet=False, tongue_models=None, independent_gaze=True, vergence_gain=1.0) -> None:
+def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_arguments=(), *, quiet=False, tongue_model=None, independent_gaze=True, vergence_gain=1.0) -> None:
     children: list[subprocess.Popen] = []
     names: list[str] = []
     with ExitStack() as files:
@@ -104,13 +104,9 @@ def supervise(root: Path, stop_file: Path, target: str, owner_alive, camera_argu
                     time.sleep(1)
             if not running():
                 return
-            models = tongue_models or (root / "models" / "qpro-stereo-tongue-v8-gate.pt",
-                                       root / "models" / "qpro-stereo-tongue-v8-direction.pt")
             launch("build-and-run.ps1", "tongue", [
                 "-TonguePreview", "-EnableTongueOutput", "-AllCameras", "-StudioMode", "-SkipPythonSetup", "-MaxFps", "24",
-                "-TongueModelPath", str(models[0]),
-                "-TongueDirectionModelPath", str(models[1]),
-            ] + list(camera_arguments))
+            ] + (["-TongueModelPath", str(tongue_model)] if tongue_model else ["-NoTongueModel"]) + list(camera_arguments))
             logging.info("Tracking launchers started; preview Q or module shutdown stops tracking")
             connected = False
             while running() and all(child.poll() is None for child in children):
@@ -150,16 +146,13 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--no-independent-gaze", action="store_true")
     parser.add_argument("--vergence-gain", type=float, default=1.0)
-    parser.add_argument("--tongue-model", type=Path)
-    parser.add_argument("--tongue-direction-model", type=Path)
+    parser.add_argument("--tongue-model", type=Path, help="tongue direction checkpoint (older per-user models); none: universal model")
     parser.add_argument("--extra-face-capture", choices=("puff", "cheeks", "brows", "pucker", "corners", "nose", "jaw", "mouth"))
     parser.add_argument("--extra-face-model", type=Path)
     parser.add_argument("--extra-face-output", action="store_true")
     args = parser.parse_args()
     if not math.isfinite(args.vergence_gain) or not 0 <= args.vergence_gain <= 3:
         parser.error("Convergence strength must be between 0 and 3")
-    if bool(args.tongue_model) != bool(args.tongue_direction_model):
-        parser.error("Both personal tongue checkpoints are required")
     root = Path(__file__).resolve().parent
     logging.basicConfig(filename=root / "autostart.log", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -199,9 +192,8 @@ def main() -> None:
                     camera_arguments += ["-EnableExtraFaceOutput"]
                 if args.quiet and not args.extra_face_capture and not args.pupil_preview:
                     camera_arguments += ["-NoWindow"]
-                models = (args.tongue_model, args.tongue_direction_model) if args.tongue_model else None
                 supervise(root, args.stop_file, args.adb_target, owner_alive, camera_arguments,
-                          quiet=args.quiet, tongue_models=models, independent_gaze=not args.no_independent_gaze,
+                          quiet=args.quiet, tongue_model=args.tongue_model, independent_gaze=not args.no_independent_gaze,
                           vergence_gain=args.vergence_gain)
             finally:
                 lock.seek(0)
