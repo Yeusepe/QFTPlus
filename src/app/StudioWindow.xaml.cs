@@ -59,11 +59,11 @@ public partial class StudioWindow : Window
     }
     Navigation.SelectionChanged+=(_,_)=>{if(Navigation.SelectedItem is ListBoxItem item&&item.Tag is string name&&name!=page)Navigate(name);};
     SetTextScale(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Accessibility","TextScaleFactor",100) is int scale?scale/100.0:1);
-    Theme(session.Config["theme"]?.GetValue<string>()??"System");InitializeUpdates();UseChanged(session.Use);Navigate("Tracking");SidebarStatus();
+    Theme("System");InitializeUpdates();UseChanged(session.Use);Navigate("Tracking");SidebarStatus();RestorePlacement();
     SizeChanged+=(_,_)=>ResizeGuide();
     if(!preview)
     {
-        tray=new(){Icon=System.Drawing.SystemIcons.Application,Text="QFT+",Visible=true};
+        tray=new(){Icon=System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!),Text="QFT+",Visible=true};
         var menu=new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Open QFT+",null,(_,_)=>Dispatcher.Invoke(()=>{Show();WindowState=WindowState.Normal;Activate();}));
         menu.Items.Add("Settings",null,(_,_)=>Dispatcher.Invoke(()=>{Show();Navigate("Settings");Activate();}));
@@ -75,15 +75,40 @@ public partial class StudioWindow : Window
         Closed+=(_,_)=>SystemEvents.UserPreferenceChanged-=PreferencesChanged;
     }
     PreviewKeyDown+=(_,e)=>{if(Keyboard.Modifiers==ModifierKeys.Control&&e.Key==Key.OemComma){Navigate("Settings");e.Handled=true;}};
+    KeyDown+=(_,e)=>
+    {
+        if(e.Key!=Key.Escape)return;
+        if(recording&&cancel is {IsVisible:true,IsEnabled:true}){cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));e.Handled=true;}
+        else if(busy&&Equals(StartButton.Content,"Cancel")){session.CancelSetup();e.Handled=true;}
+    };
     Closing+=(_,e)=>
     {
         StopManual();
         if(quitting||preview)return;
+        SavePlacement();
         if(busy){e.Cancel=true;session.CancelSetup();return;}
         if(recording) { e.Cancel=true; Error("Finish or cancel calibration before closing this window.");return; }
         if(training||session.Running){e.Cancel=true;Hide();return;}
         quitting=true;tray?.Dispose();Application.Current.Shutdown();
     };
+ }
+ void RestorePlacement()
+ {
+    if(preview||session.Config["window"] is not JsonObject saved)return;
+    double Get(string key)=>saved[key] is JsonValue value&&value.TryGetValue<double>(out var number)&&double.IsFinite(number)?number:double.NaN;
+    var (left,top,width,height)=(Get("left"),Get("top"),Get("width"),Get("height"));
+    var screen=new Rect(SystemParameters.VirtualScreenLeft,SystemParameters.VirtualScreenTop,SystemParameters.VirtualScreenWidth,SystemParameters.VirtualScreenHeight);
+    if(double.IsNaN(left+top+width+height)||!screen.Contains(new Point(left+100,top+16)))return;
+    WindowStartupLocation=WindowStartupLocation.Manual;Left=left;Top=top;Width=Math.Max(MinWidth,width);Height=Math.Max(MinHeight,height);
+    if(saved["maximized"]?.GetValue<bool>()==true)WindowState=WindowState.Maximized;
+ }
+ void SavePlacement()
+ {
+    if(preview)return;
+    var bounds=WindowState==WindowState.Normal?new Rect(Left,Top,ActualWidth,ActualHeight):RestoreBounds;
+    if(bounds.IsEmpty)return;
+    try{session.Save("window",new JsonObject{["left"]=bounds.Left,["top"]=bounds.Top,["width"]=bounds.Width,["height"]=bounds.Height,["maximized"]=WindowState==WindowState.Maximized&&restoreState is null});}
+    catch(Exception error) when(error is IOException or UnauthorizedAccessException){}
  }
  void UseChanged(string use){foreach(var name in new[]{"Adjustments","Manual","Calibration","Cameras"})nav[name].Visibility=use=="hands"?Visibility.Collapsed:Visibility.Visible;}
  internal void Error(string message){Notice.Text=message;NoticeBox.Visibility=Visibility.Visible;SetupHelp.Visibility=session.HelpTarget is null?Visibility.Collapsed:Visibility.Visible;SetupHelp.Content=session.HelpCaption;}
@@ -112,7 +137,7 @@ public partial class StudioWindow : Window
  {
     if(busy){Show();session.CancelSetup();Error("Finishing the current step before quitting.");return;}
     if(recording||training){Show();Error("Finish or cancel calibration before quitting.");return;}
-    StartButton.IsEnabled=false;
+    StartButton.IsEnabled=false;SavePlacement();
     try{await session.Stop();quitting=true;timer.Stop();tray?.Dispose();http.Dispose();Application.Current.Shutdown();}
     catch(Exception error){Show();Error(error.Message);StartButton.IsEnabled=true;}
  }
@@ -134,7 +159,7 @@ public partial class StudioWindow : Window
  void Navigate(string name)
  {
     if(recording){if(name!=page)Error("Finish or cancel calibration first.");return;}
-    StopManual();setupRefresh=null;trackingRefresh=null;liveLog=null;updateRefresh=null;
+    StopManual();setupRefresh=null;trackingRefresh=null;adjustmentRefresh=null;liveLog=null;updateRefresh=null;
     page=name;Page.Children.Clear();Actions.Children.Clear();cameras.Clear();ClearNotice();PageTitle.Text=name=="Manual"?"Test movements":name;Title=PageTitle.Text+" — QFT+";Subtitle.Visibility=Visibility.Collapsed;PageScroll.ScrollToTop();
     foreach(var item in nav){item.Value.IsSelected=item.Key==name;item.Value.FontWeight=item.Key==name?FontWeights.SemiBold:FontWeights.Normal;}
     Navigation.ScrollIntoView(nav[name]);
@@ -195,10 +220,19 @@ public partial class StudioWindow : Window
     {
         var needsEyeSetup=session.IndependentGaze&&!eyeModel;
         Show(Row("Eye gaze",()=>Navigate(needsEyeSetup?"Setup":"Settings")),!session.IndependentGaze?"Standard":needsEyeSetup?"Needs setup":"Independent",needsEyeSetup);
-        Show(Row("Tongue",()=>{kind="tongue";Navigate("Calibration");}),!On("tongueOutput",true)?"Off":Has("tongueModelPath")?"Calibrated":"Standard model");
+        if(!session.Legacy)
+        {
+            var enrolled=Has("faceEnrollment");
+            Show(Row("Cheeks, tongue and brows",()=>{kind="enroll";Navigate("Calibration");}),
+                !On("extraFaceOutput",true)&&!On("tongueOutput",true)?"Off":enrolled?"Calibrated":"Standard");
+        }
+        else
+        {
+        Show(Row("Tongue",()=>{kind="tongue";Navigate("Calibration");}),!On("tongueOutput",true)?"Off":Has("tongueDirectionModelPath")?"Calibrated":"Standard model");
         var groups=QproFaceTracking.Hub.CalibrationSettings.FaceGroups;var calibratedGroups=groups.Count(group=>session.FaceCalibrated(group.Kind));var onGroups=groups.Count(group=>session.FaceOn(group.Kind));
         Show(Row("Extra expressions",()=>{kind=groups.FirstOrDefault(group=>!session.FaceCalibrated(group.Kind)).Kind??"puff";Navigate("Calibration");}),
             calibratedGroups==0?"Not calibrated":onGroups==0?"Off":onGroups<calibratedGroups?$"{onGroups} of {calibratedGroups} on":$"{calibratedGroups} of {groups.Length} calibrated");
+        }
         Show(Row("Pupil dilation",()=>{kind="pupils";Navigate("Calibration");}),!pupils?"Not calibrated":On("pupilDilation")?"Calibrated":"Off");
     }
     var hybridStopped=false;
@@ -219,7 +253,7 @@ public partial class StudioWindow : Window
             !setUp?("Set up Quest Pro","Connect the headset to this PC with a USB data cable. Setup runs once and takes a few minutes."):
             ("Ready to track","Put on the headset, then start tracking.");
         var (symbol,brush)=Mark();glyph.Text=symbol;
-        if(session.State=="Connected"&&!Problem){badge.SetResourceReference(Border.BackgroundProperty,"Accent");glyph.Foreground=Brushes.White;}
+        if(session.State=="Connected"&&!Problem){badge.SetResourceReference(Border.BackgroundProperty,"Accent");glyph.SetResourceReference(TextBlock.ForegroundProperty,"OnAccent");}
         else{badge.SetResourceReference(Border.BackgroundProperty,"Line");glyph.SetResourceReference(TextBlock.ForegroundProperty,brush);}
         headline.Text=title;detail.Text=about;detail.Visibility=about.Length>0?Visibility.Visible:Visibility.Collapsed;
         bar.Visibility=busy&&session.SettingUp||session.State=="Connecting"?Visibility.Visible:Visibility.Collapsed;
@@ -239,7 +273,7 @@ public partial class StudioWindow : Window
  void TrackingOptions(List<UIElement> faceOnly,Action<string> useChanged)
  {
     if(!preview)session.DisableUncalibratedOutputs();
-    var heading=Text("Tracking",18);heading.FontWeight=FontWeights.SemiBold;Page.Children.Add(heading);
+    var heading=Text("Tracking",18);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);Page.Children.Add(heading);
     var (useCard,useRefresh,_)=UseOptions(useChanged);Page.Children.Add(useCard);
     var eyes=Page.Children.Count;EyeOptions();faceOnly.Add(Page.Children[eyes]);
     var eyeRefresh=trackingRefresh;trackingRefresh=()=>{eyeRefresh?.Invoke();useRefresh();};
@@ -247,7 +281,7 @@ public partial class StudioWindow : Window
     foreach(var (key,title) in new[]{("tongueOutput","Tongue"),("extraFaceOutput","Extra expressions"),("pupilDilation","Pupil dilation")})
     {
         var calibrated=session.Calibrated(key);
-        var option=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=calibrated&&(session.Config[key]?.GetValue<bool>()??key=="tongueOutput")};AutomationProperties.SetName(option,title);
+        var option=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=calibrated&&(session.Config[key]?.GetValue<bool>()??(key=="tongueOutput"||key=="extraFaceOutput"&&!session.Legacy))};AutomationProperties.SetName(option,title);
         rows.Children.Add(option);
         if(key=="extraFaceOutput"){ExpressionGroups(rows,option);continue;}
         option.Click+=(_,_)=>{if(preview)return;session.Save(key,JsonValue.Create(option.IsChecked==true));if(session.Running)Send("reload");};
@@ -257,7 +291,7 @@ public partial class StudioWindow : Window
  void ExpressionGroups(Panel rows,CheckBox parent)
  {
     var groups=new List<(string Kind,CheckBox Box)>();
-    foreach(var (kind,title) in QproFaceTracking.Hub.CalibrationSettings.FaceGroups)
+    foreach(var (kind,title) in QproFaceTracking.Hub.CalibrationSettings.FaceGroups.Where(g=>session.Legacy||Session.UniversalGroups.Contains(g.Kind)))
     {
         var calibrated=session.FaceCalibrated(kind);
         var box=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=session.FaceOn(kind),Margin=new(28,0,0,0)};
@@ -284,7 +318,7 @@ public partial class StudioWindow : Window
     var grid=new UniformGrid{Columns=2};
     foreach(var (key,title) in new[]{("pupil0","Left eye"),("pupil1","Right eye"),("camera2","Left face"),("camera3","Right face"),("camera4","Brow")})
     {
-        var stack=new StackPanel();stack.Children.Add(Text(title,14));var image=new Image{Height=180,Stretch=Stretch.Uniform};stack.Children.Add(image);cameras.Add((image,key));var card=Card(stack);card.Margin=new(0,8,12,8);grid.Children.Add(card);
+        var stack=new StackPanel();stack.Children.Add(Text(title,14));var image=new Image{Height=180,Stretch=Stretch.Uniform};AutomationProperties.SetName(image,title+" camera");stack.Children.Add(image);cameras.Add((image,key));var card=Card(stack);card.Margin=new(0,8,12,8);grid.Children.Add(card);
     }
     Page.Children.Add(grid);
  }
@@ -309,13 +343,163 @@ public partial class StudioWindow : Window
     var faceOnly=new List<UIElement>();
     void ShowFace(string use){foreach(var element in faceOnly)element.Visibility=use=="hands"?Visibility.Collapsed:Visibility.Visible;UseChanged(use);}
     TrackingOptions(faceOnly,ShowFace);
-    var appearance=new StackPanel();var theme=new ComboBox{ItemsSource=new[]{"System","Light","Dark"},SelectedItem=session.Config["theme"]?.GetValue<string>()??"System"};
-    Field(appearance,"Appearance",theme);
-    theme.SelectionChanged+=(_,_)=>{Theme((string)theme.SelectedItem);if(!preview)session.Save("theme",JsonValue.Create((string)theme.SelectedItem));};
-    Page.Children.Add(Card(appearance));
+    ThumbrestOptions();
     StartupOptions(faceOnly);var processing=Page.Children.Count;ProcessingOptions();faceOnly.Add(Page.Children[processing]);
+    FaceModelOptions(faceOnly);
+    TesterOptions(faceOnly);
     Diagnostics();
+    UninstallOptions();
     ShowFace(session.Use);
+ }
+ void FaceModelOptions(List<UIElement> faceOnly)
+ {
+    var panel=new StackPanel();var heading=Text("Face calibration",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);panel.Children.Add(heading);
+    panel.Children.Add(Text("Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate.",13,true));
+    var legacy=new CheckBox{Content=new TextBlock{Text="Use older calibrations",TextWrapping=TextWrapping.Wrap},IsChecked=session.Legacy,Margin=new(0,8,0,0)};
+    const string legacyAbout="Calibrations made one area at a time, like cheeks, brows and lip pucker. Turn this on to keep using or redo them. The first time, it downloads about 140 MB.";
+    AutomationProperties.SetHelpText(legacy,legacyAbout);
+    var legacyStatus=Text("",13,true);legacyStatus.Visibility=Visibility.Collapsed;AutomationProperties.SetLiveSetting(legacyStatus,AutomationLiveSetting.Polite);
+    var legacyProgress=new ProgressBar{IsIndeterminate=true,Height=3,Margin=new(0,0,0,8),Visibility=Visibility.Collapsed};legacyProgress.SetResourceReference(ProgressBar.ForegroundProperty,"Accent");
+    legacy.Click+=async(_,_)=>
+    {
+        if(preview)return;
+        var on=legacy.IsChecked==true;
+        if(on&&!session.LegacyInstalled)
+        {
+            legacy.IsEnabled=false;legacyStatus.Visibility=legacyProgress.Visibility=Visibility.Visible;legacyStatus.Text="Downloading older calibration support (about 140 MB)…";
+            try{await session.InstallLegacy(line=>{if(line.StartsWith("Downloading "))Dispatcher.BeginInvoke(()=>legacyStatus.Text=line.TrimEnd('.')+"…");});}
+            catch(IOException error){legacy.IsChecked=false;legacy.IsEnabled=true;legacyProgress.Visibility=Visibility.Collapsed;legacyStatus.Text="Couldn’t turn on older calibrations. "+error.Message;return;}
+            legacy.IsEnabled=true;legacyProgress.Visibility=Visibility.Collapsed;
+        }
+        session.Save("faceEngine",JsonValue.Create(on?"legacy":"universal"));Send("reload");
+        var y=PageScroll.VerticalOffset;Navigate("Settings");Dispatcher.BeginInvoke(()=>PageScroll.ScrollToVerticalOffset(y),System.Windows.Threading.DispatcherPriority.Loaded);
+    };
+    panel.Children.Add(legacy);panel.Children.Add(Text(legacyAbout,13,true));panel.Children.Add(legacyStatus);panel.Children.Add(legacyProgress);
+    var log=new CheckBox{Content=new TextBlock{Text="Save face-tracking logs on this PC (numbers only, no images)",TextWrapping=TextWrapping.Wrap},IsChecked=session.Config["faceLog"]?.GetValue<bool>()==true,Margin=new(0,8,0,0)};
+    log.Click+=(_,_)=>{if(preview)return;session.Save("faceLog",JsonValue.Create(log.IsChecked==true));Send("reload");};
+    panel.Children.Add(log);
+    var card=Card(panel);Page.Children.Add(card);faceOnly.Add(card);
+ }
+ Border? testerCard;
+ void TesterOptions(List<UIElement> faceOnly)
+ {
+    var panel=new StackPanel();var heading=Text("Help improve tracking",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);panel.Children.Add(heading);
+    if(session.Tester)
+    {
+        var id=Text($"You’re a tester. Your tester ID is {session.TesterId}.",13,true);AutomationProperties.SetName(id,"Tester ID "+session.TesterId);panel.Children.Add(id);
+        panel.Children.Add(Text("Record a benchmark, then send the file it makes to the QFT+ developer directly. Use your tester ID to ask for your recordings to be deleted.",13,true));
+        var actions=new WrapPanel{Margin=new(0,8,0,0)};
+        var record=new Button{Content="Record a benchmark",Margin=new(0,0,8,8)};record.SetResourceReference(StyleProperty,"PrimaryButton");
+        record.Click+=(_,_)=>{kind="benchmark-quick";Navigate("Calibration");};
+        var leave=new Button{Content="Stop being a tester",Margin=new(0,0,0,8)};
+        AutomationProperties.SetHelpText(leave,"Benchmark is removed from Calibration. Recordings already on this PC stay there.");
+        leave.Click+=(_,_)=>{if(preview)return;session.LeaveTesting();var y=PageScroll.VerticalOffset;Navigate("Settings");Dispatcher.BeginInvoke(()=>PageScroll.ScrollToVerticalOffset(y),System.Windows.Threading.DispatcherPriority.Loaded);};
+        actions.Children.Add(record);
+        if(DiscordProfile.Length>0){var message=new Button{Content="Message on Discord",Margin=new(0,0,8,8)};message.Click+=MessageOnDiscord;actions.Children.Add(message);}
+        actions.Children.Add(leave);panel.Children.Add(actions);
+    }
+    else
+    {
+        panel.Children.Add(Text("Record a short session and send it to the QFT+ developer. Recordings from many different faces make tracking better for everyone.",13,true));
+        var shared=new StackPanel();
+        foreach(var line in new[]{
+            "Small infrared images of your eyes, brows and mouth from the headset’s face cameras, and the expression values the headset reports.",
+            "No audio, no color camera, and no name or account. Each recording carries a random tester ID instead.",
+            "Recordings are used only to test and improve QFT+ face tracking.",
+            "Nothing is sent automatically. You send recordings yourself, directly to the developer.",
+            "You can ask for your recordings to be deleted at any time with your tester ID."})
+            shared.Children.Add(Text("• "+line,13,true));
+        panel.Children.Add(new Expander{Header="What’s shared",Content=shared,IsExpanded=true,Margin=new(0,8,0,0)});
+        var agree=new CheckBox{Content=new TextBlock{Text="I agree to share the recordings I send",TextWrapping=TextWrapping.Wrap},Margin=new(0,8,0,0)};
+        var join=new Button{Content="Become a tester",IsEnabled=false,HorizontalAlignment=HorizontalAlignment.Left,Margin=new(0,8,0,0)};join.SetResourceReference(StyleProperty,"PrimaryButton");
+        agree.Click+=(_,_)=>join.IsEnabled=agree.IsChecked==true;
+        join.Click+=(_,_)=>{if(preview||agree.IsChecked!=true)return;session.JoinTesting();var y=PageScroll.VerticalOffset;Navigate("Settings");Dispatcher.BeginInvoke(()=>PageScroll.ScrollToVerticalOffset(y),System.Windows.Threading.DispatcherPriority.Loaded);};
+        panel.Children.Add(agree);panel.Children.Add(join);
+    }
+    var card=testerCard=Card(panel);Page.Children.Add(card);faceOnly.Add(card);
+ }
+ void ShareRecordings(object sender,RoutedEventArgs e){Navigate("Settings");Dispatcher.BeginInvoke(()=>testerCard?.BringIntoView(),System.Windows.Threading.DispatcherPriority.Loaded);}
+ static readonly (string Id,string Title,string About)[] ThumbrestModes={
+    ("native","Trackpad","A regular SteamVR trackpad. Games and your SteamVR bindings decide what it does."),
+    ("joystick","Joystick","Drag from where your thumb lands to push a stick. Lift to recenter."),
+    ("swipe","Swipe","Swipe speed pushes the stick and glides out, like scrolling on a phone."),
+    ("mouse","Mouse","Moves the Windows cursor like a laptop touchpad. Press firmly to click.")};
+ void ThumbrestOptions()
+ {
+    var panel=new StackPanel();var heading=Text("Thumbrest and trigger",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);panel.Children.Add(heading);
+    panel.Children.Add(Text("How the Quest Pro controllers’ thumbrests act in SteamVR. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR.",13,true));
+    var status=Text("",13,true);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);
+    var saved=session.Config["thumbrest"] as JsonObject??new JsonObject();
+    string Mode()=>saved["mode"]?.GetValue<string>()??"native";
+    double Get(string key,double fallback)=>saved[key] is JsonValue value&&value.TryGetValue<double>(out var number)?number:fallback;
+    var pending=new Dictionary<string,JsonValue>();
+    var timer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMilliseconds(400)};
+    void Apply()
+    {
+        timer.Stop();
+        if(preview||pending.Count==0){pending.Clear();return;}
+        try
+        {
+            var live=QproFaceTracking.Hub.SteamVr.SetThumbrest(pending);
+            foreach(var (key,value) in pending)saved[key]=value.DeepClone();
+            session.Save("thumbrest",saved.DeepClone());
+            status.Text=live?"Applied.":"Applies when SteamVR starts.";
+        }
+        catch(Exception error) when(error is IOException or UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException){Error("Couldn’t change the thumbrest. "+error.Message);}
+        pending.Clear();
+    }
+    timer.Tick+=(_,_)=>Apply();
+    void Set(string key,JsonValue value,bool now=false){pending[key]=value;timer.Stop();if(now)Apply();else timer.Start();}
+    void Number(string key,double value)=>Set(key,JsonValue.Create(Math.Round(value,3)));
+    var options=new StackPanel();var details=new StackPanel{Margin=new(0,12,0,0)};var joystick=new StackPanel();var swipe=new StackPanel();var mouse=new StackPanel();
+    var straighten=new CheckBox{Content=new TextBlock{Text="Straighten scrolling",TextWrapping=TextWrapping.Wrap},IsChecked=Get("railAngle",35)>0,Margin=new(0,0,0,16)};
+    void Show(string mode)
+    {
+        joystick.Visibility=mode=="joystick"?Visibility.Visible:Visibility.Collapsed;
+        swipe.Visibility=mode=="swipe"?Visibility.Visible:Visibility.Collapsed;
+        mouse.Visibility=mode=="mouse"?Visibility.Visible:Visibility.Collapsed;
+        straighten.Visibility=mode is "joystick" or "swipe"?Visibility.Visible:Visibility.Collapsed;
+    }
+    var driverOn=session.Config["steamvrDriver"]?.GetValue<bool>()==true;
+    var driver=new Button{Content=driverOn?"Uninstall SteamVR driver":"Install SteamVR driver",HorizontalAlignment=HorizontalAlignment.Left,Margin=new(0,12,0,8)};
+    AutomationProperties.SetHelpText(driver,"The QFT+ driver adds the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers.");
+    driver.Click+=async(_,_)=>
+    {
+        if(preview)return;
+        var on=!driverOn;driver.IsEnabled=false;
+        try
+        {
+            var note=await Task.Run(()=>on?QproFaceTracking.Hub.SteamVrDriver.Register(System.IO.Path.Combine(session.Root,"steamvr","qftplus")):QproFaceTracking.Hub.SteamVrDriver.Unregister());
+            session.Save("steamvrDriver",on);options.Visibility=on?Visibility.Visible:Visibility.Collapsed;
+            if(!on)await session.StopThumbrest();
+            driverOn=on;driver.Content=on?"Uninstall SteamVR driver":"Install SteamVR driver";
+            status.Text=note??(on?"The driver is installed. Start tracking to use it.":"The driver is removed.");
+        }
+        catch(Exception error) when(error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or System.Text.Json.JsonException)
+        {Error("Couldn’t change the SteamVR driver. "+error.Message);}
+        finally{driver.IsEnabled=true;}
+    };
+    panel.Children.Add(driver);
+    foreach(var (id,title,about) in ThumbrestModes)
+        options.Children.Add(Choice("thumbrest",title,about,Mode()==id,()=>{Set("mode",JsonValue.Create(id),true);Show(id);}));
+    SliderRow(details,"Left thumbrest angle",-45,45,Get("leftRotation",-20),v=>Number("leftRotation",Math.Round(v)),"0°");
+    SliderRow(details,"Right thumbrest angle",-45,45,Get("rightRotation",20),v=>Number("rightRotation",Math.Round(v)),"0°");
+    details.Children.Add(Text("Turn until a straight up-and-down swipe reads as straight, like Steam Input’s trackpad rotation.",13,true));
+    SliderRow(details,"Press sensitivity",0,1,(0.8-Get("forceLow",0.55))/0.5,v=>Number("forceLow",0.8-0.5*v),"0'%'",100);
+    var resting=new CheckBox{Content=new TextBlock{Text="Ignore a resting thumb",TextWrapping=TextWrapping.Wrap},IsChecked=Get("restingSize",75)>0,Margin=new(0,0,0,8)};
+    resting.Click+=(_,_)=>Set("restingSize",JsonValue.Create(resting.IsChecked==true?75.0:0.0),true);
+    straighten.Click+=(_,_)=>Set("railAngle",JsonValue.Create(straighten.IsChecked==true?35.0:0.0),true);
+    var reversed=new CheckBox{Content=new TextBlock{Text="Reverse trigger slide (normally, sliding toward the tip is up)",TextWrapping=TextWrapping.Wrap},IsChecked=Get("triggerSlideReversed",0)!=0,Margin=new(0,0,0,16)};
+    reversed.Click+=(_,_)=>Set("triggerSlideReversed",JsonValue.Create(reversed.IsChecked==true?1.0:0.0),true);
+    details.Children.Add(resting);details.Children.Add(straighten);details.Children.Add(reversed);
+    SliderRow(joystick,"Drag for a full push",0.2,1,Get("joystickRange",0.5),v=>Number("joystickRange",v),"0'% of the pad'",50);
+    SliderRow(swipe,"Swipe speed",0.1,1,Get("swipeGain",0.35),v=>Number("swipeGain",v),"0'%'",100/0.35);
+    SliderRow(swipe,"Glide",50,1000,Get("swipeDecayMs",350),v=>Number("swipeDecayMs",Math.Round(v)),"0' ms'");
+    SliderRow(mouse,"Pointer speed",300,3000,Get("mouseSpeed",1200),v=>Number("mouseSpeed",Math.Round(v)),"0' px'");
+    foreach(var group in new[]{joystick,swipe,mouse})details.Children.Add(group);
+    Show(Mode());
+    options.Children.Add(details);options.Visibility=driverOn?Visibility.Visible:Visibility.Collapsed;
+    panel.Children.Add(options);panel.Children.Add(status);Page.Children.Add(Card(panel));
  }
  static readonly (string Title,string File,string Empty)[] Logs={("Tracking (autostart.log)","autostart.log","Start tracking to create it."),("Eye tracking (autostart-eyes.log)","autostart-eyes.log","Start tracking with independent eye gaze on to create it."),("Face and tongue (autostart-tongue.log)","autostart-tongue.log","Start tracking to create it."),("Headset relay (questpro-live-relay.txt)","questpro-live-relay.txt","It’s written when a tracking session ends."),("Setup (setup.log)","setup.log","Run setup to create it."),("Components (studio.log)","studio.log","It’s created when calibration or hybrid hands install or train something."),("Hybrid hands (hybrid.log)","hybrid.log","Turn on hybrid hands, then start tracking to create it.")};
  Action? liveLog;
@@ -370,7 +554,7 @@ public partial class StudioWindow : Window
  void PreferencesChanged(object sender,UserPreferenceChangedEventArgs args)=>Dispatcher.BeginInvoke(()=>
  {
     SetTextScale(Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Accessibility","TextScaleFactor",100) is int scale?scale/100.0:1);
-    if(!(recording&&kind=="pupils"))Theme(session.Config["theme"]?.GetValue<string>()??"System");
+    if(!(recording&&kind=="pupils"))Theme("System");
  });
  internal void Theme(string name)
  {
@@ -379,10 +563,12 @@ public partial class StudioWindow : Window
     ThemeMode=dark?System.Windows.ThemeMode.Dark:System.Windows.ThemeMode.Light;
     Application.Current.ThemeMode=ThemeMode;
 #pragma warning restore WPF0001
-    var colors=dark?new[]{"#191A1E","#25262C","#202126","#F3F3F5","#ADB0BA","#383A43","#368CFF"}:new[]{"#F5F5F7","#FFFFFF","#EBEBEF","#202127","#626570","#E1E2E7","#0067D9"};
-    var keys=new[]{"Canvas","Surface","Sidebar","Ink","Muted","Line","Accent"};
+    var colors=dark?new[]{"#191A1E","#25262C","#202126","#F3F3F5","#ADB0BA","#383A43"}:new[]{"#F5F5F7","#FFFFFF","#EBEBEF","#202127","#626570","#E1E2E7"};
+    var keys=new[]{"Canvas","Surface","Sidebar","Ink","Muted","Line"};
     for(var i=0;i<keys.Length;i++)Resources[keys[i]]=new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
-    if(SystemParameters.HighContrast){Resources["Canvas"]=Resources["Surface"]=Resources["Sidebar"]=SystemColors.WindowBrush;Resources["Ink"]=Resources["Muted"]=SystemColors.WindowTextBrush;Resources["Accent"]=SystemColors.HighlightBrush;}
+    Resources["Accent"]=TryFindResource("AccentFillColorDefaultBrush") as Brush??new SolidColorBrush(dark?Color.FromRgb(0x36,0x8C,0xFF):Color.FromRgb(0,0x67,0xD9));
+    Resources["OnAccent"]=TryFindResource("TextOnAccentFillColorPrimaryBrush") as Brush??(dark?Brushes.Black:Brushes.White);
+    if(SystemParameters.HighContrast){Resources["Canvas"]=Resources["Surface"]=Resources["Sidebar"]=SystemColors.WindowBrush;Resources["Ink"]=Resources["Muted"]=SystemColors.WindowTextBrush;Resources["Accent"]=SystemColors.HighlightBrush;Resources["OnAccent"]=SystemColors.HighlightTextBrush;}
     Resources["ListBoxItemSelectedBackgroundThemeBrush"]=Resources["ListBoxItemSelectedBackgroundPointerOverThemeBrush"]=SystemParameters.HighContrast?SystemColors.HighlightBrush:Resources["Surface"];
     Resources["ListBoxItemSelectedForegroundThemeBrush"]=SystemParameters.HighContrast?SystemColors.HighlightTextBrush:Resources["Ink"];
     Resources["ListBoxItemUnselectedBackgroundPointerOverThemeBrush"]=Resources["Line"];
@@ -398,7 +584,7 @@ public partial class StudioWindow : Window
     else Navigate(requested=="Calibrate"?"Calibration":requested);
  }
  static readonly double[] NeutralMouth={32,170,1/3.0,14.67,14.67},SmileMouth={38,168,1/3.0,26.67,26.67},OpenMouth={22,176,1,-20,20},FlatMouth={34,176,1/3.0,0,0},PursedMouth={12,176,1/3.0,2,2};
- readonly double[] facePose=new double[35],faceSpeed=new double[35],faceGoal=new double[35];
+ readonly double[] facePose=new double[37],faceSpeed=new double[37],faceGoal=new double[37];
  string faceType="";int faceIndex=-1,faceCount,faceSide=1,faceGoalSide=1;bool faceAnimating,faceShown;DateTime faceNeutralUntil,facePulse;TimeSpan faceClock;
  bool FaceMotion=>SystemParameters.ClientAreaAnimation&&!preview;
  void DrawFace(Canvas canvas,JsonObject targets,string type)
@@ -415,14 +601,18 @@ public partial class StudioWindow : Window
     else faceIndex=-1;
     double right=Value("CheekPuffRight"),left=Value("CheekPuffLeft"),tongue=0,angle=0,length=0;faceGoalSide=1;
     var mouth=NeutralMouth;
-    if(type=="puff"){if(right>0||left>0)mouth=PursedMouth;}
+    if(right>0||left>0||Value("CheekSuckRight")>0||Value("CheekSuckLeft")>0)mouth=PursedMouth;
+    else if(type=="puff"){}
     else if(Value("visibility")>0)
     {
         double h=Value("horizontal"),v=Value("vertical");
         mouth=FlatMouth;tongue=1;faceGoalSide=v>0?-1:1;angle=v>0?180+h*35:-h*35;length=(12+Value("extension")*16)*(v>0?.7:1-Math.Min(v,0)*.1);
     }
     else if(prompt.Contains("open"))mouth=OpenMouth;
-    else if(prompt.Contains("smil"))mouth=SmileMouth;
+    else if(Value("MouthSmile")>0||prompt.Contains("smil"))mouth=SmileMouth;
+    else if(Value("LipSuck")>0)mouth=FlatMouth;
+    var open=Math.Min(1,Value("MouthOpen"));if(open>0)mouth=mouth.Zip(OpenMouth,(a,b)=>a+open*(b-a)).ToArray();
+    right+=.35*Value("TongueBulgeRight")-.5*Value("CheekSuckRight");left+=.35*Value("TongueBulgeLeft")-.5*Value("CheekSuckLeft");
     double Both(string name)=>(Value(name+"Left")+Value(name+"Right"))/2;
     var kiss=Math.Min(Both("LipPuckerUpper"),Both("LipPuckerLower"));var pout=Both("LipPuckerLower")-kiss;
     var m=(double[])mouth.Clone();
@@ -446,7 +636,8 @@ public partial class StudioWindow : Window
         8*Value("BrowLowererLeft"),8*Value("BrowLowererRight"),8*Value("BrowPinchLeft"),8*Value("BrowPinchRight"),
         10*Value("BrowInnerUpLeft"),10*Value("BrowInnerUpRight"),10*Value("BrowOuterUpLeft"),10*Value("BrowOuterUpRight"),
         Value("NasalDilationLeft")-Value("NasalConstrictLeft"),Value("NasalDilationRight")-Value("NasalConstrictRight"),
-        0,0,Value("JawClench"),Value("JawMandibleRaise"),Value("JawBackward")}.CopyTo(faceGoal,10);
+        0,0,Value("JawClench"),Value("JawMandibleRaise"),Value("JawBackward"),
+        Math.Min(1,Math.Max(Value("EyeClosed"),.6*Value("EyeSquint"))),Value("LookUp")}.CopyTo(faceGoal,10);
     if(!FaceMotion||!faceShown){faceGoal.CopyTo(facePose,0);faceSide=faceGoalSide;faceShown=true;}
     RenderFace(canvas);
     if(!faceAnimating&&type!="pupils"&&FaceMotion){faceAnimating=true;faceClock=default;CompositionTarget.Rendering+=FaceFrame;}
@@ -461,7 +652,7 @@ public partial class StudioWindow : Window
  bool StepFace(double dt)
  {
     var goal=(double[])faceGoal.Clone();
-    if(DateTime.UtcNow<faceNeutralUntil){NeutralMouth.CopyTo(goal,0);goal[5]=goal[8]=goal[9]=0;Array.Clear(goal,10,25);}
+    if(DateTime.UtcNow<faceNeutralUntil){NeutralMouth.CopyTo(goal,0);goal[5]=goal[8]=goal[9]=0;Array.Clear(goal,10,goal.Length-10);}
     if(facePose[5]<.05){faceSide=faceGoalSide;facePose[6]=goal[6];faceSpeed[6]=0;}
     if(faceSide!=faceGoalSide)goal[5]=0;
     if(goal[5]==0){goal[6]=facePose[6];goal[7]=facePose[7];}
@@ -496,10 +687,15 @@ public partial class StudioWindow : Window
     var chin=230-4*p[34];
     var head=F($"M 180,22 C 234,22 258,62 258,112 C {258+p[8]*30},190 220,{chin} 180,{chin} C 140,{chin} {102-p[9]*30},190 102,112 C 102,62 126,22 180,22 Z");
     Line(head,ink);if(since<.6)Line(head,accent,null,1-since/.6);
-    Line("M 142,98 V 116 M 218,98 V 116",ink);
-    if(faceType=="nose")
+    var closed=Math.Clamp(p[35],0,1);var look=6*p[36];
+    foreach(var x in new[]{142.0,218.0})
     {
-        var flare=(p[28]+p[29])/2;
+        if(closed>.85)Line(F($"M {x-9},107 Q {x},112 {x+9},107"),accent);
+        else Line(F($"M {x},{107-9*(1-closed)-look} V {107+9*(1-closed)-look}"),closed>.1||Math.Abs(look)>.5?accent:ink);
+    }
+    var flare=(p[28]+p[29])/2;
+    if(faceType=="nose"||Math.Abs(flare)>.02)
+    {
         Line("M 180,98 V 124",ink);
         Line(F($"M {171-4*flare},135 Q {173-3*flare},127 180,129 Q {187+3*flare},127 {189+4*flare},135"),Math.Abs(flare)>.05?accent:ink,null,1,6);
     }
@@ -511,7 +707,8 @@ public partial class StudioWindow : Window
     }
     if(p[17]>.01)Line("M 173,109 L 187,109 M 174,116 L 186,116",accent,null,Math.Min(1,p[17]),3);
     foreach(var (puff,x,outward) in new[]{(p[9],136.0,-1.0),(p[8],224.0,1.0)})
-        if(puff>.01){var rx=8+22*puff;var ry=6+16*puff;var cx=x+outward*6*puff;Fill(F($"M {cx-rx},168 A {rx},{ry} 0 1 0 {cx+rx},168 A {rx},{ry} 0 1 0 {cx-rx},168 Z"),.15+.3*Math.Min(puff,1));}
+        if(puff<-.02)Line(F($"M {x+outward*8},148 Q {x-outward*(6+24*-puff)},168 {x+outward*8},188"),accent,null,Math.Min(1,-puff*3),5);
+        else if(puff>.01){var rx=8+22*puff;var ry=6+16*puff;var cx=x+outward*6*puff;Fill(F($"M {cx-rx},168 A {rx},{ry} 0 1 0 {cx+rx},168 A {rx},{ry} 0 1 0 {cx-rx},168 Z"),.15+.3*Math.Min(puff,1));}
     if(p[5]>.01)
     {
         var at=new TransformGroup();at.Children.Add(new ScaleTransform(p[5],p[5],180,176));at.Children.Add(new RotateTransform(p[6],180,176));

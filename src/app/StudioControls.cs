@@ -12,6 +12,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using QproFaceTracking.Hub;
+using Qpro.GazeBridge;
 
 namespace QFTPlus;
 public partial class StudioWindow
@@ -20,7 +21,7 @@ public partial class StudioWindow
  JsonObject manualValues=new();
  string outputParameter="*", manualGroup="Tongue";
  string[] Parameters()=>JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(session.Root,"tracking-parameters.json")))??[];
- static string Label(string key)=>key=="*"?"Global defaults":Regex.Replace(key,"([a-z])([A-Z])","$1 $2");
+ static string Label(string key)=>Regex.Replace(key,"([a-z])([A-Z])","$1 $2");
  static double Number(JsonObject data,string key,double fallback)=>data[key] is JsonValue v&&v.TryGetValue<double>(out var n)&&double.IsFinite(n)?n:fallback;
  static double Neutral(string name)=>name.StartsWith("Pupil")?.5:name.StartsWith("Openness")?1:0;
  void Field(Panel parent,string title,Control control)
@@ -29,7 +30,7 @@ public partial class StudioWindow
     parent.Children.Add(label);parent.Children.Add(control);
  }
 
- Slider SliderRow(Panel parent,string title,double min,double max,double value,Action<double> changed,string format="0'%'",double displayScale=1)
+ Slider SliderRow(Panel parent,string title,double min,double max,double value,Action<double> changed,string format="0.##'%'",double displayScale=1)
  {
     var stack=new StackPanel{Margin=new(0,0,0,16)};
     var slider=new Slider{Minimum=min,Maximum=max,Value=Math.Clamp(value,min,max),SmallChange=(max-min)/100,LargeChange=(max-min)/10,MinHeight=40};AutomationProperties.SetName(slider,title);
@@ -42,7 +43,8 @@ public partial class StudioWindow
     var line=new DockPanel();DockPanel.SetDock(number,Dock.Right);line.Children.Add(number);var label=Text(title);label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0);line.Children.Add(label);stack.Children.Add(line);
     void Commit()
     {
-        if(!double.TryParse(number.Text.Trim().TrimEnd('%'),NumberStyles.Float,CultureInfo.CurrentCulture,out var input)||!double.IsFinite(input)||input/displayScale<min||input/displayScale>max){problem.Visibility=Visibility.Visible;return;}
+        var typed=System.Text.RegularExpressions.Regex.Match(number.Text.Trim(),@"^[+\-−]?[\d.,]+").Value.Replace('−','-');
+        if(!double.TryParse(typed,NumberStyles.Float,CultureInfo.CurrentCulture,out var input)||!double.IsFinite(input)||input/displayScale<min||input/displayScale>max){problem.Visibility=Visibility.Visible;return;}
         slider.Value=input/displayScale;number.Text=Display();problem.Visibility=Visibility.Collapsed;
     }
     number.LostKeyboardFocus+=(_,_)=>Commit();
@@ -84,41 +86,130 @@ public partial class StudioWindow
     enabled.Click+=(_,_)=>{if(!preview)session.Save("independentGaze",enabled.IsChecked==true);Refresh();};
     trackingRefresh=Refresh;Refresh();Page.Children.Add(Card(eyes));
  }
+ Action? adjustmentRefresh;
  void Adjustments()
  {
-    var choices=new[]{"*"}.Concat(Parameters()).ToArray();
-    var select=new ComboBox{ItemsSource=choices.Select(Label).ToArray(),SelectedIndex=Array.IndexOf(choices,outputParameter),Margin=new(0,0,0,24)};
-    select.SelectionChanged+=(_,_)=>{if(select.SelectedIndex<0)return;var focus=select.IsKeyboardFocusWithin;outputParameter=choices[select.SelectedIndex];Navigate("Adjustments");if(focus)Page.Children.OfType<ComboBox>().First().Focus();};Field(Page,"Parameter",select);
+    var parameters=Parameters();
+    string[] Members(string area)=>parameters.Where(p=>OutputAdjustments.Area(p)==area).ToArray();
+    var areas=OutputAdjustments.Areas.Where(a=>Members(a).Length>0).ToArray();
+    var area=outputParameter=="*"?null:OutputAdjustments.Areas.Contains(outputParameter)?outputParameter:OutputAdjustments.Area(outputParameter);
+    var single=area is not null&&area!=outputParameter;
+    var members=area is null?parameters:Members(area);string[] names=single?[outputParameter]:members;
+    void Picker(string title,string[] items,int index,Func<int,string> choose,int position)
+    {
+        var picker=new ComboBox{ItemsSource=items,SelectedIndex=index,Margin=new(0,0,0,area is not null&&position==0?16:24)};
+        picker.SelectionChanged+=(_,_)=>{if(picker.SelectedIndex<0)return;var focus=picker.IsKeyboardFocusWithin;outputParameter=choose(picker.SelectedIndex);Navigate("Adjustments");if(focus)Page.Children.OfType<ComboBox>().ElementAt(position).Focus();};
+        Field(Page,title,picker);
+    }
+    Picker("Area",["All areas",..areas],area is null?0:Array.IndexOf(areas,area)+1,i=>i==0?"*":areas[i-1],0);
+    if(area is not null)Picker("Parameter",["All parameters",..members.Select(Label)],single?Array.IndexOf(members,outputParameter)+1:0,i=>i==0?area:members[i-1],1);
     var path=Path.Combine(session.Root,"output-settings.json");var config=Session.Read(path);
-    var inherited=config["*"] as JsonObject??new();var values=(config[outputParameter] as JsonObject??inherited).DeepClone().AsObject();
-    void Save(string key,double value){values[key]=value;if(preview)return;var saved=Session.Read(path);saved[outputParameter]=values.DeepClone();Session.Write(path,saved);}
-    var panel=new StackPanel();
-    SliderRow(panel,"Strength",0,3,Number(values,"strength",1),v=>Save("strength",v),displayScale:100);
-    SliderRow(panel,"Smoothing",0,100,Number(values,"smoothing",0),v=>Save("smoothing",v));
+    var inherited=config["*"] as JsonObject??new();var group=single?config[area!] as JsonObject??new():new JsonObject();
+    var values=(config[outputParameter] as JsonObject??new()).DeepClone().AsObject();
+    double Value(string key,double fallback,bool inherit=true)=>Number(values,key,Number(group,key,inherit?Number(inherited,key,fallback):fallback));
+    bool Defined(string key)=>values.ContainsKey(key)||group.ContainsKey(key)||inherited.ContainsKey(key);
+    var gaze=area=="Gaze";var minimum=gaze?-1.2:0;var maximum=gaze?1.2:1;var scale=gaze?1:100;var format=gaze?"0.###":"0.##'%'";
+    var live=new StackPanel();var status=Text("",13,true);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);live.Children.Add(status);
+    var readout=Text("",16);AutomationProperties.SetName(readout,"Live adjustment values");
+    if(area is null||single)live.Children.Add(readout);Page.Children.Add(Card(live));
+    if(area is not null&&!single)Page.Children.Add(new Expander{Header="Live values",Content=readout,Margin=new(0,-8,0,16)});
+    var problem=Text("",13);problem.Visibility=Visibility.Collapsed;AutomationProperties.SetLiveSetting(problem,AutomationLiveSetting.Polite);Page.Children.Add(problem);
+    void Save(string key,double value)
+    {
+        values[key]=value;
+        var valid=Value("inputMax",maximum,false)-Value("inputMin",minimum,false)>=.0001&&Value("outputMin",minimum,false)<=Value("outputMax",maximum,false);
+        problem.Text=valid?"":"Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.";
+        problem.Visibility=valid?Visibility.Collapsed:Visibility.Visible;
+        if(!valid||preview)return;
+        var saved=Session.Read(path);saved[outputParameter]=values.DeepClone();Session.Write(path,saved);Refresh();
+    }
+    var modeled=names.Any(OutputAdjustments.Modeled);
+    var scope=area is null?"These settings apply to every parameter unless an area or parameter changes them.":single?$"Only settings you change here override {area} and All areas.":$"These settings apply to every parameter in {area}. Only settings you change here override All areas.";
+    Page.Children.Add(Text(modeled?scope:scope+(single?" QFT+’s camera models don’t track this parameter, so it always comes from the headset.":" QFT+’s camera models don’t track these parameters, so they always come from the headset."),13,true));
+    var paired=!single&&names.Any(n=>OutputAdjustments.Partner(n) is not null);
+    if(modeled||paired)
+    {
+        var input=new StackPanel();
+        if(modeled)
+        {
+            var passthrough=new CheckBox{Content=new TextBlock{Text="Headset passthrough"},IsChecked=Value("passthrough",0)>=.5};AutomationProperties.SetName(passthrough,"Headset passthrough");
+            var about="Sends the headset’s own tracking instead of QFT+’s camera models. The adjustments below still apply."+(area is null or "Pupils"?" The headset doesn’t measure pupils, so they stay at 50%.":"");
+            AutomationProperties.SetHelpText(passthrough,about);passthrough.Click+=(_,_)=>Save("passthrough",passthrough.IsChecked==true?1:0);
+            var note=Text(about,13,true);note.Margin=new(0,0,0,paired?20:0);input.Children.Add(passthrough);input.Children.Add(note);
+        }
+        if(paired)
+        {
+            var match=new ComboBox{ItemsSource=new[]{"Off","Average both sides","Follow the stronger side"},SelectedIndex=(int)Math.Clamp(Math.Round(Value("match",0)),0,2),Margin=new(0,0,0,8)};
+            match.SelectionChanged+=(_,_)=>Save("match",match.SelectedIndex);Field(input,"Match left and right",match);
+            input.Children.Add(Text("Moves the two sides of each pair together. Averaging evens out one-sided jitter; following the stronger side keeps blinks together.",13,true));
+        }
+        Page.Children.Add(Card(input));
+    }
+    var panel=new StackPanel();Slider? release=null;var syncing=false;
+    SliderRow(panel,"Strength",0,10,Value("strength",1),v=>Save("strength",v),displayScale:100);
+    SliderRow(panel,"Offset",minimum-maximum,maximum-minimum,Value("offset",0),v=>Save("offset",v),format,scale);
+    SliderRow(panel,"Dead zone",0,maximum-minimum,Value("deadzone",0),v=>Save("deadzone",v),format,scale);
+    panel.Children.Add(Text("Dead zone ignores movement around neutral, then scales the remaining movement to reach full output. Offset shifts the result after this step.",13,true));
+    SliderRow(panel,"Smoothing",0,100,Value("smoothing",0),v=>{Save("smoothing",v);if(release is not null&&!Defined("release")){syncing=true;release.Value=v;syncing=false;}});
     Page.Children.Add(Card(panel));
     var advanced=new StackPanel{Margin=new(0,16,0,0)};
-    SliderRow(advanced,"Dead zone",0,.5,Number(values,"deadzone",0),v=>Save("deadzone",v),displayScale:100);
-    SliderRow(advanced,"Offset",-.5,.5,Number(values,"offset",0),v=>Save("offset",v),displayScale:100);
-    Page.Children.Add(new Expander{Header="Fine tuning",Content=advanced});
-    var reset=Button(outputParameter=="*"?"Reset defaults":"Use global settings",()=>{if(!preview){var data=Session.Read(path);data.Remove(outputParameter);Session.Write(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
+    SliderRow(advanced,"Response curve",.1,5,Value("curve",1),v=>Save("curve",v),"0.##");
+    advanced.Children.Add(Text("1 is linear. Below 1 boosts small movements; above 1 makes them gentler.",13,true));
+    release=SliderRow(advanced,"Smoothing when relaxing",0,100,Value("release",Value("smoothing",0)),v=>{if(!syncing)Save("release",v);});
+    advanced.Children.Add(Text("Used while an expression returns to rest. Higher values let it fade out slowly. Matches Smoothing until you change it.",13,true));
+    var invert=new CheckBox{Content="Invert output",IsChecked=Value("invert",0)>=.5};AutomationProperties.SetName(invert,"Invert output");
+    invert.Click+=(_,_)=>Save("invert",invert.IsChecked==true?1:0);advanced.Children.Add(invert);
+    Page.Children.Add(new Expander{Header="Response",Content=advanced});
+    if(area is not null)
+    {
+        var limits=new StackPanel{Margin=new(0,16,0,0)};
+        limits.Children.Add(Text(gaze?"Gaze values use radians. Set the movement you can comfortably reach, then limit the output sent to VRCFaceTracking.":"Set the input range you can comfortably reach. Output limits clamp the adjusted result; equal limits hold a fixed value.",13,true));
+        SliderRow(limits,"Input minimum",minimum,maximum,Value("inputMin",minimum,false),v=>Save("inputMin",v),format,scale);
+        SliderRow(limits,"Input maximum",minimum,maximum,Value("inputMax",maximum,false),v=>Save("inputMax",v),format,scale);
+        var rests=names.Select(Neutral).Distinct().ToArray();
+        if(rests.Length==1)
+        {
+            SliderRow(limits,"Input neutral",minimum,maximum,Value("neutral",rests[0],false),v=>Save("neutral",v),format,scale);
+            limits.Children.Add(Text("Neutral is your resting input, clamped to the input range. Pupils default to 50%, open eyelids to 100%, and other parameters to 0%.",13,true));
+        }
+        SliderRow(limits,"Output minimum",minimum,maximum,Value("outputMin",minimum,false),v=>Save("outputMin",v),format,scale);
+        SliderRow(limits,"Output maximum",minimum,maximum,Value("outputMax",maximum,false),v=>Save("outputMax",v),format,scale);
+        Page.Children.Add(new Expander{Header="Input and output limits",Content=limits,IsExpanded=single});
+    }
+    Page.Children.Add(Text("Live values show the QFT+ module’s output. Your avatar must support the selected expression; VRCFaceTracking’s own adjustments can change it further.",13,true));
+    string[] own=single?[]:members.Where(m=>config[m] is JsonObject {Count:>0}).ToArray();
+    if(own.Length>0)Page.Children.Add(Text((own.Length==1?$"{Label(own[0])} has its own settings, which take precedence here.":$"{own.Length} parameters have their own settings, which take precedence here.")+" Select one and choose Use inherited settings to remove them.",13,true));
+    void Refresh()
+    {
+        var data=Session.Read(Path.Combine(session.Root,"output-status.json"));
+        var age=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0-Number(data,"updated",0);
+        if(preview){status.Text="Live values appear when the QFT+ module is running in VRCFaceTracking.";readout.Text="Input → Output";return;}
+        if(age<0||age>2){status.Text="No live response from the QFT+ module. Open VRCFaceTracking; if it is already running, update the module in Setup and restart VRCFaceTracking.";readout.Text="Waiting for live values";return;}
+        status.Text=JsonNode.DeepEquals(data["settings"],Session.Read(path))?"Changes applied by the QFT+ module.":"Changes saved. Waiting for the module to apply them…";
+        if(area is null){readout.Text="Select an area to see its live values.";return;}
+        var inputs=data["inputs"] as JsonObject??new();var outputs=data["outputs"] as JsonObject??new();
+        var missing=names.Where(name=>!inputs.ContainsKey(name)||!outputs.ContainsKey(name)).ToArray();
+        readout.Text=string.Join("\n",names.Except(missing).Select(name=>$"{Label(name)}: {(Number(inputs,name,0)*scale).ToString(format)} → {(Number(outputs,name,0)*scale).ToString(format)}")
+            .Concat(missing.Length==0?[]:[$"Not provided by the QFT+ module: {string.Join(", ",missing.Select(Label))}. Check its eye and face modules in VRCFaceTracking."]));
+        if(area=="Pupils")status.Text+=data["pupilTracking"]?.GetValue<bool>()==true?" Pupil tracking is live. Dilation combines both eyes.":" Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes.";
+    }
+    adjustmentRefresh=Refresh;Refresh();
+    var reset=Button(outputParameter=="*"?"Reset defaults":"Use inherited settings",()=>{if(!preview){var data=Session.Read(path);data.Remove(outputParameter);Session.Write(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
  }
  void Manual()
  {
-    var choices=new[]{"Tongue","Cheeks","Eyes","Brows","Mouth","Other"};
+    var choices=OutputAdjustments.Areas.Where(area=>Parameters().Any(name=>OutputAdjustments.Area(name)==area)).ToArray();
     var select=new ComboBox{ItemsSource=choices,SelectedItem=manualGroup,Margin=new(0,0,0,12)};
-    select.SelectionChanged+=(_,_)=>{var focus=select.IsKeyboardFocusWithin;StopManual();manualGroup=(string)select.SelectedItem;Navigate("Manual");if(focus)Page.Children.OfType<ComboBox>().First().Focus();};Field(Page,"Expressions",select);
-    var enabled=new CheckBox{Content="Override live tracking",IsChecked=false,Margin=new(0,0,0,16)};
-    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!preview){var processes=System.Diagnostics.Process.GetProcessesByName("VRCFaceTracking");foreach(var process in processes)process.Dispose();if(processes.Length==0){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");return;}}PublishManual();};Page.Children.Add(enabled);
-    var names=Parameters().Where(name=>manualGroup switch{
-        "Tongue"=>name.StartsWith("Tongue"),"Cheeks"=>name.StartsWith("Cheek"),
-        "Eyes"=>name.StartsWith("Eye")||name.StartsWith("Gaze")||name.StartsWith("Pupil")||name.StartsWith("Openness"),
-        "Brows"=>name.StartsWith("Brow"),"Mouth"=>name.StartsWith("Mouth")||name.StartsWith("Lip")||name.StartsWith("Jaw"),
-        _=>name.StartsWith("Nose")||name.StartsWith("Nasal")||name.StartsWith("Soft")||name.StartsWith("Throat")||name.StartsWith("Neck")}).ToArray();
-    manualValues=new();var stack=new StackPanel();
+    select.SelectionChanged+=(_,_)=>{var focus=select.IsKeyboardFocusWithin;StopManual();manualGroup=(string)select.SelectedItem;Navigate("Manual");if(focus)Page.Children.OfType<ComboBox>().First().Focus();};Field(Page,"Area",select);
+    manualValues=new();var stack=new StackPanel{IsEnabled=false};
+    var enabled=new CheckBox{Content="Override live tracking",IsChecked=false};AutomationProperties.SetName(enabled,"Override live tracking");
+    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!preview){var processes=System.Diagnostics.Process.GetProcessesByName("VRCFaceTracking");foreach(var process in processes)process.Dispose();if(processes.Length==0){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");}}stack.IsEnabled=manualTesting;PublishManual();};Page.Children.Add(enabled);
+    var about=Text("While it’s on, VRCFaceTracking gets these values instead of your face.",13,true);about.Margin=new(0,0,0,16);Page.Children.Add(about);
+    var names=Parameters().Where(name=>OutputAdjustments.Area(name)==manualGroup).ToArray();
     foreach(var name in names)
     {
-        manualValues[name]=Neutral(name);
-        SliderRow(stack,Label(name),name.StartsWith("Gaze")?-1.2:0,name.StartsWith("Gaze")?1.2:1,Neutral(name),v=>{manualValues[name]=v;PublishManual();},"0.00");
+        manualValues[name]=Neutral(name);var gaze=name.StartsWith("Gaze");
+        SliderRow(stack,Label(name),gaze?-1.2:0,gaze?1.2:1,Neutral(name),v=>{manualValues[name]=v;PublishManual();},gaze?"0.###":"0.##'%'",gaze?1:100);
     }
     Page.Children.Add(Card(stack));
     Actions.Children.Add(Button("Reset",()=>{StopManual();Navigate("Manual");}));
@@ -292,7 +383,7 @@ public partial class StudioWindow
  }
  void StartupOptions(List<UIElement> faceOnly)
  {
-    var stack=new StackPanel();var heading=Text("Startup",18);heading.FontWeight=FontWeights.SemiBold;stack.Children.Add(heading);
+    var stack=new StackPanel();var heading=Text("Startup",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);stack.Children.Add(heading);
     foreach(var (key,label) in new[]{("setupOnStart","Set up the headset on Start"),("installModule","Install the VRCFaceTracking module"),("startWithVrcft","Start with VRCFaceTracking"),("openVrApps","Open VR apps on Start")})
     {
         var check=new CheckBox{Content=new TextBlock{Text=label},IsChecked=session.Config[key]?.GetValue<bool>()??true};AutomationProperties.SetName(check,label);check.Click+=(_,_)=>{if(!preview)session.Save(key,check.IsChecked==true);};
@@ -306,7 +397,7 @@ public partial class StudioWindow
  void ProcessingOptions()
  {
     var hardware=new StackPanel{Margin=new(0,16,0,0)};
-    var devices=new[]{"auto","directml","cpu"};var compute=new ComboBox{ItemsSource=new[]{"Automatic","Graphics card (DirectML)","CPU"},SelectedIndex=Math.Max(0,Array.IndexOf(devices,session.Config["inferenceDevice"]?.GetValue<string>()??"auto")),Margin=new(0,0,0,20)};
+    var devices=new[]{"auto","directml","cpu"};var compute=new ComboBox{ItemsSource=new[]{"Automatic","Graphics card (DirectML)","Processor (CPU)"},SelectedIndex=Math.Max(0,Array.IndexOf(devices,session.Config["inferenceDevice"]?.GetValue<string>()??"auto")),Margin=new(0,0,0,20)};
     var graphics=new StackPanel{Visibility=compute.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible};
     compute.SelectionChanged+=(_,_)=>{graphics.Visibility=compute.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible;if(!preview)session.Save("inferenceDevice",devices[compute.SelectedIndex]);};Field(hardware,"Tracking processor",compute);
     var adapters=GraphicsAdapters.List();

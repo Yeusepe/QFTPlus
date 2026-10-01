@@ -11,12 +11,13 @@ import torch
 from extra_face_capture import FAMILIES, STOCK_TRACKED, target_names
 from inference_backend import prepare_inputs, prepare_model, select_device
 from train_extra_face import FIVE_CAMERA, IMAGE_SIZE, create_model
+from face_events import FaceEvents
 
 
 def configured_models(config):
     keys = [("extraFaceModel" if family == "puff" else f"extraFaceModel-{family}", family) for family in FAMILIES]
     return [config[key] for key, family in keys
-            if config.get(key) and config.get(f"extraFaceOutput-{family}", True) is not False]
+            if config.get(key) and Path(config[key]).is_file() and config.get(f"extraFaceOutput-{family}", True) is not False]
 
 
 class CombinedFaceModels(torch.nn.Module):
@@ -30,7 +31,7 @@ class CombinedFaceModels(torch.nn.Module):
 
 
 class ExtraFacePreview:
-    def __init__(self, paths, enabled=False, *, render=True):
+    def __init__(self, paths, enabled=False, *, render=True, bias=0., enrollment=None, log=None):
         paths = [Path(p).resolve() for p in ([paths] if isinstance(paths, (str, Path)) else paths)]
         if not paths:
             raise ValueError("No extra-face checkpoints")
@@ -67,18 +68,47 @@ class ExtraFacePreview:
         self.enabled = enabled
         self.render = render
         self.inference_ms = 0.
+        self.neutral, self.reach = self.personal_range(enrollment)
+        self.events = FaceEvents(bias=bias, neutral=self.neutral, reach=self.reach, log=log)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def update(self, strip):
+    def raw(self, strip):
+        with torch.inference_mode():
+            parts = [model(prepare_inputs(model, strip, size, 5))[0][0].float().cpu().numpy() for size, model in self.passes]
+        return dict(zip(self.expression_names, map(float, np.concatenate(parts))))
+
+    def personal_range(self, enrollment):
+        """This wearer's resting and full values per shape, from the one-minute face setup's anchor frames."""
+        if not enrollment or not Path(enrollment).is_file():
+            return {}, {}
+        try:
+            with np.load(enrollment, allow_pickle=False) as anchors:
+                if json.loads(str(anchors["meta"]))["schema"] != "face-enrollment-v1":
+                    return {}, {}
+                def median(slot):
+                    rows = [self.raw(frame) for frame in anchors[slot]] if slot in anchors else []
+                    return {n: float(np.median([r[n] for r in rows])) for n in self.expression_names} if rows else {}
+                neutral = median("slot_neutral")
+                reach = {}
+                for slot, prefix in (("slot_puff", "CheekPuff"), ("slot_suck", "CheekSuck")):
+                    for name, value in median(slot).items():
+                        if name.startswith(prefix) and value - neutral.get(name, 0.) >= .2:
+                            reach[name] = value
+            return {n: v for n, v in neutral.items() if n.startswith(("CheekPuff", "CheekSuck"))}, reach
+        except (OSError, ValueError, KeyError) as error:
+            print(f"Face setup ignored: {error}", flush=True)
+            return {}, {}
+
+    def update(self, strip, native=None, native_names=(), now_ns=0):
         if strip.shape != (400, 2000):
             raise ValueError(f"Extra-face models require a 400x2000 five-camera strip, got {strip.shape}")
         started = time.perf_counter()
-        with torch.inference_mode():
-            parts = [model(prepare_inputs(model, strip, size, 5))[0][0].float().cpu().numpy() for size, model in self.passes]
+        values = self.raw(strip)
         self.inference_ms = (time.perf_counter() - started) * 1000
-        values = dict(zip(self.expression_names, map(float, np.concatenate(parts))))
         if not all(np.isfinite(v) and 0 <= v <= 1 for v in values.values()):
             raise ValueError("Invalid extra-face prediction")
+        self.last_raw = dict(values)
+        values = self.events.step(values, native, native_names, now_ns)
         if self.enabled:
             sent = {name: value for (name, value), send in zip(values.items(), self.output) if send}
             self.socket.sendto(json.dumps({"version": 1, "enabled": True, "values": sent}).encode(), ("127.0.0.1", 27278))
@@ -86,14 +116,17 @@ class ExtraFacePreview:
             return None
         image = np.zeros((max(250, len(values)*25+90), 800, 3), np.uint8)
         title = "Extra expressions: OUTPUT ENABLED" if self.enabled else "Extra expressions: RESEARCH PREVIEW, no output"
-        cv2.putText(image, f"{title}  ({self.inference_ms:.2f} ms)", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 220, 255), 1)
+        speaking = "  speaking" if self.events.speaking else ""
+        cv2.putText(image, f"{title}  ({self.inference_ms:.2f} ms){speaking}", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 220, 255), 1)
         for i, ((name, value), send) in enumerate(zip(values.items(), self.output)):
             y = 70+i*25
             cv2.putText(image, name + ("" if send else " (stock kept)"), (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (225, 225, 225), 1)
             cv2.rectangle(image, (320, y-12), (320+round(value*440), y), (90, 220, 140), -1)
+            cv2.rectangle(image, (320, y+1), (320+round(self.last_raw[name]*440), y+3), (150, 150, 150), -1)
         return image
 
     def close(self):
+        self.events.close()
         if self.enabled:
             self.socket.sendto(b'{"version":1,"enabled":false,"values":{}}', ("127.0.0.1", 27278))
         self.socket.close()
