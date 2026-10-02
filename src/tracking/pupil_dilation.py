@@ -3,7 +3,6 @@ import json
 import socket
 import struct
 import time
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -110,7 +109,7 @@ class PupilDilation:
         self.last_detection = -1.0
         self.last_valid = -1.0
         self.last_pair = 0.
-        self.last_fingerprint = None
+        self.last_eyes = None
         self.filtered = None
         self.last_pupils = [0., 0.]
         self.last_pupil_time = [-1e9, -1e9]
@@ -122,7 +121,7 @@ class PupilDilation:
 
     def send(self, valid, values=(.5, .5)):
         if self.enabled:
-            self.socket.sendto(PACKET.pack(b"QPPD", 1, int(valid), 0, *values), ("127.0.0.1", 27279))
+            self.socket.sendto(PACKET.pack(b"QPPD", 1, int(valid), 0, *values), ("127.0.0.1", 27275))
 
     def calibrate(self):
         if self._pending is not None:
@@ -140,8 +139,6 @@ class PupilDilation:
         self.send(False)
 
     def update(self, strip, *, preview=False):
-        if strip.shape != (400, 2000):
-            raise ValueError("Pupil dilation requires all five cameras")
         if self._closed:
             return
         if self._pending is not None:
@@ -156,15 +153,15 @@ class PupilDilation:
             return
         self.last_detection = now
         if self._executor is not None and self.phase is None:
-            self._pending = self._executor.submit(self._update, strip.copy())
+            self._pending = self._executor.submit(self._update, strip)
         else:
             self._update(strip)
 
     def _update(self, strip):
         now = time.monotonic()
-        fingerprint = zlib.crc32(strip[:, :800].tobytes())
-        fresh = fingerprint != self.last_fingerprint
-        self.last_fingerprint = fingerprint
+        eyes = strip[:, :800]
+        fresh = self.last_eyes is None or not np.array_equal(eyes, self.last_eyes)
+        self.last_eyes = eyes
         pupils = []
         for i in range(2):
             if not fresh:

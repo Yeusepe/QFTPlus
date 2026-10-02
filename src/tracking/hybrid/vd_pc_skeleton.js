@@ -6,8 +6,7 @@ function physicalSkeleton(controller,side) {
     const captured=driver.base.add(0x9a7a8+side*8).readU64();
     const native=controller.add(0xf0).readU64();
     const skeleton=captured.equals(0) ? native : captured;
-    Object.assign(observations[side],{physicalSkeleton:skeleton.toString(),
-        capturedSkeleton:captured.toString(),controllerSkeleton:native.toString()});
+    Object.assign(observations[side],{physicalSkeleton:skeleton,capturedSkeleton:captured,controllerSkeleton:native});
     return skeleton;
 }
 function resolve(side) {
@@ -132,11 +131,11 @@ rpc.exports={
                     const observed=observations[side];
                     const skeleton=physicalSkeleton(h.controller,side);
                     const data=h.controller.add(0x10).readPointer();
-                    Object.assign(observed,{state:'waiting-data',device:h.device,data:data.toString(),
+                    Object.assign(observed,{state:'waiting-data',device:h.device,data,
                         frame:null,trackedRaw:null,tracked:null,optical:null});
                     if(data.isNull())continue;
                     const frame=data.readPointer();
-                    Object.assign(observed,{state:'waiting-frame',frame:frame.toString()});
+                    Object.assign(observed,{state:'waiting-frame',frame});
                     if(frame.isNull())continue;
                     const trackedRaw=frame.add(0x8c+h.side*0x44).readU8();
                     const tracked=trackedRaw&3;
@@ -168,7 +167,8 @@ rpc.exports={
     renew,
     status(){return {running:timer!==null,reason,cleanupError,ticks,poses,driverPath:driver?.path ?? null,
         active:hands.map(h=>h!==null && h.active),
-        sides:observations.map((observed,side)=>({...observed,
+        sides:observations.map((observed,side)=>({...Object.fromEntries(Object.entries(observed).map(([key,value])=>
+            [key,value!==null && typeof value==='object' && !Array.isArray(value) ? value.toString() : value])),
             physical:hands[side]!==null && hands[side].physical,
             priority:hands[side]!==null && hands[side].priority}))};},
     stop,

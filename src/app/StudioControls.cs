@@ -16,7 +16,6 @@ public partial class StudioWindow
  string outputParameter="*", manualGroup="Tongue";
  string[] Parameters()=>JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(session.Root,"tracking-parameters.json")))??[];
  static string Label(string key)=>Regex.Replace(key,"([a-z])([A-Z])","$1 $2");
- static double Number(JsonObject data,string key,double fallback)=>data[key] is JsonValue v&&v.TryGetValue<double>(out var n)&&double.IsFinite(n)?n:fallback;
  static double Neutral(string name)=>name.StartsWith("Pupil")?.5:name.StartsWith("Openness")?1:0;
  void Field(Panel parent,string title,Control control)
  {
@@ -60,7 +59,8 @@ public partial class StudioWindow
     var options=new StackPanel{Margin=new(0,12,0,0)};
     options.Children.Add(Text("Adjust how much your eyes turn toward each other when looking at something nearby.",13,true));
     var controls=new StackPanel();
-    var strength=SliderRow(controls,"Convergence strength",0,3,session.VergenceGain,v=>{if(!preview)session.SetVergenceGain(v);},displayScale:100);
+    var gain=session.VergenceGain;void SaveGain()=>session.SetVergenceGain(gain);
+    var strength=SliderRow(controls,"Convergence strength",0,3,gain,v=>{gain=v;SaveLater(SaveGain);},displayScale:100);
     strength.SmallChange=.05;strength.LargeChange=.25;strength.TickFrequency=.05;strength.IsSnapToTickEnabled=true;
     controls.Children.Add(Button("Reset to 100%",()=>strength.Value=1));options.Children.Add(controls);
     options.Children.Add(Text("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental.",13,true));
@@ -77,7 +77,7 @@ public partial class StudioWindow
         controls.IsEnabled=on&&!busy&&(!session.Running||session.State=="Connected");
         adjustmentStatus.Text=!on?"Turn on independent eye gaze to adjust convergence.":busy||session.Running&&session.State!="Connected"?"Available when tracking is ready.":session.Running?"Changes apply immediately and are saved automatically.":"Saved automatically. Applies when tracking starts.";
     }
-    enabled.Click+=(_,_)=>{if(!preview)session.Save("independentGaze",enabled.IsChecked==true);Refresh();};
+    enabled.Click+=(_,_)=>{session.Save("independentGaze",enabled.IsChecked==true);Refresh();};
     trackingRefresh=Refresh;Refresh();Page.Children.Add(Card(eyes));
  }
  Action? adjustmentRefresh;
@@ -97,10 +97,12 @@ public partial class StudioWindow
     }
     Picker("Area",["All areas",..areas],area is null?0:Array.IndexOf(areas,area)+1,i=>i==0?"*":areas[i-1],0);
     if(area is not null)Picker("Parameter",["All parameters",..members.Select(Label)],single?Array.IndexOf(members,outputParameter)+1:0,i=>i==0?area:members[i-1],1);
-    var path=Path.Combine(session.Root,"output-settings.json");var config=Session.Read(path);
+    var path=Path.Combine(session.Root,"output-settings.json");
+    JsonObject? Load(string file){try{return Session.Read(file);}catch(InvalidDataException error){Error(error.Message);return null;}}
+    if(Load(path) is not {} config)return;
     var inherited=config["*"] as JsonObject??new();var group=single?config[area!] as JsonObject??new():new JsonObject();
     var values=(config[outputParameter] as JsonObject??new()).DeepClone().AsObject();
-    double Value(string key,double fallback,bool inherit=true)=>Number(values,key,Number(group,key,inherit?Number(inherited,key,fallback):fallback));
+    double Value(string key,double fallback,bool inherit=true)=>OutputAdjustments.Number(values,key,OutputAdjustments.Number(group,key,inherit?OutputAdjustments.Number(inherited,key,fallback):fallback));
     bool Defined(string key)=>values.ContainsKey(key)||group.ContainsKey(key)||inherited.ContainsKey(key);
     var gaze=area=="Gaze";var minimum=gaze?-1.2:0;var maximum=gaze?1.2:1;var scale=gaze?1:100;var format=gaze?"0.###":"0.##'%'";
     var live=new StackPanel();var status=Text("",13,true);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);live.Children.Add(status);
@@ -108,14 +110,16 @@ public partial class StudioWindow
     if(area is null||single)live.Children.Add(readout);Page.Children.Add(Card(live));
     if(area is not null&&!single)Page.Children.Add(new Expander{Header="Live values",Content=readout,Margin=new(0,-8,0,16)});
     var problem=Text("",13);problem.Visibility=Visibility.Collapsed;AutomationProperties.SetLiveSetting(problem,AutomationLiveSetting.Polite);Page.Children.Add(problem);
+    var selected=outputParameter;JsonNode? edited=null;
+    void Write(){if(Load(path) is {} saved){saved[selected]=edited;CalibrationSettings.WriteJson(path,saved);Refresh();}}
     void Save(string key,double value)
     {
         values[key]=value;
         var valid=Value("inputMax",maximum,false)-Value("inputMin",minimum,false)>=.0001&&Value("outputMin",minimum,false)<=Value("outputMax",maximum,false);
         problem.Text=valid?"":"Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.";
         problem.Visibility=valid?Visibility.Collapsed:Visibility.Visible;
-        if(!valid||preview)return;
-        var saved=Session.Read(path);saved[outputParameter]=values.DeepClone();CalibrationSettings.WriteJson(path,saved);Refresh();
+        if(!valid)return;
+        edited=values.DeepClone();SaveLater(Write);
     }
     var modeled=names.Any(OutputAdjustments.Modeled);
     var scope=area is null?"These settings apply to every parameter unless an area or parameter changes them.":single?$"Only settings you change here override {area} and All areas.":$"These settings apply to every parameter in {area}. Only settings you change here override All areas.";
@@ -175,20 +179,20 @@ public partial class StudioWindow
     if(own.Length>0)Page.Children.Add(Text((own.Length==1?$"{Label(own[0])} has its own settings, which take precedence here.":$"{own.Length} parameters have their own settings, which take precedence here.")+" Select one and choose Use inherited settings to remove them.",13,true));
     void Refresh()
     {
-        var data=Session.Read(Path.Combine(session.Root,"output-status.json"));
-        var age=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0-Number(data,"updated",0);
-        if(preview){status.Text="Live values appear when the QFT+ module is running in VRCFaceTracking.";readout.Text="Input → Output";return;}
+        try{File.WriteAllBytes(Path.Combine(session.Root,"output-status.lease"),[]);}catch(IOException){}
+        JsonObject data;try{data=Session.Read(Path.Combine(session.Root,"output-status.json"));}catch(InvalidDataException){data=new();}
+        var age=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0-OutputAdjustments.Number(data,"updated",0);
         if(age<0||age>2){status.Text="No live response from the QFT+ module. Open VRCFaceTracking; if it is already running, update the module in Setup and restart VRCFaceTracking.";readout.Text="Waiting for live values";return;}
-        status.Text=JsonNode.DeepEquals(data["settings"],Session.Read(path))?"Changes applied by the QFT+ module.":"Changes saved. Waiting for the module to apply them…";
+        status.Text=JsonNode.DeepEquals(data["settings"],Load(path))?"Changes applied by the QFT+ module.":"Changes saved. Waiting for the module to apply them…";
         if(area is null){readout.Text="Select an area to see its live values.";return;}
         var inputs=data["inputs"] as JsonObject??new();var outputs=data["outputs"] as JsonObject??new();
         var missing=names.Where(name=>!inputs.ContainsKey(name)||!outputs.ContainsKey(name)).ToArray();
-        readout.Text=string.Join("\n",names.Except(missing).Select(name=>$"{Label(name)}: {(Number(inputs,name,0)*scale).ToString(format)} → {(Number(outputs,name,0)*scale).ToString(format)}")
+        readout.Text=string.Join("\n",names.Except(missing).Select(name=>$"{Label(name)}: {(OutputAdjustments.Number(inputs,name,0)*scale).ToString(format)} → {(OutputAdjustments.Number(outputs,name,0)*scale).ToString(format)}")
             .Concat(missing.Length==0?[]:[$"Not provided by the QFT+ module: {string.Join(", ",missing.Select(Label))}. Check its eye and face modules in VRCFaceTracking."]));
         if(area=="Pupils")status.Text+=data["pupilTracking"]?.GetValue<bool>()==true?" Pupil tracking is live. Dilation combines both eyes.":" Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes.";
     }
     adjustmentRefresh=Refresh;Refresh();
-    var reset=Button(outputParameter=="*"?"Reset defaults":"Use inherited settings",()=>{if(!preview){var data=Session.Read(path);data.Remove(outputParameter);CalibrationSettings.WriteJson(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
+    var reset=Button(outputParameter=="*"?"Reset defaults":"Use inherited settings",()=>{SaveNow();if(Load(path) is {} data){data.Remove(outputParameter);CalibrationSettings.WriteJson(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
  }
  void Manual()
  {
@@ -197,7 +201,7 @@ public partial class StudioWindow
     select.SelectionChanged+=(_,_)=>{var focus=select.IsKeyboardFocusWithin;StopManual();manualGroup=(string)select.SelectedItem;Navigate("Manual");if(focus)Page.Children.OfType<ComboBox>().First().Focus();};Field(Page,"Area",select);
     manualValues=new();var stack=new StackPanel{IsEnabled=false};
     var enabled=new CheckBox{Content="Override live tracking",IsChecked=false};AutomationProperties.SetName(enabled,"Override live tracking");
-    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!preview){if(!Processes.Running("VRCFaceTracking")){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");}}stack.IsEnabled=manualTesting;PublishManual();};Page.Children.Add(enabled);
+    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!Processes.Running("VRCFaceTracking")){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");}stack.IsEnabled=manualTesting;PublishManual();};Page.Children.Add(enabled);
     var about=Text("While it’s on, VRCFaceTracking gets these values instead of your face.",13,true);about.Margin=new(0,0,0,16);Page.Children.Add(about);
     var names=Parameters().Where(name=>OutputAdjustments.Area(name)==manualGroup).ToArray();
     foreach(var name in names)
@@ -210,7 +214,6 @@ public partial class StudioWindow
  }
  void PublishManual()
  {
-    if(preview)return;
     var data=new JsonObject{["expires"]=manualTesting?DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0+1.5:0,["values"]=manualTesting?manualValues.DeepClone():new JsonObject()};
     CalibrationSettings.WriteJson(Path.Combine(session.Root,"manual-output.json"),data);
  }
@@ -244,7 +247,7 @@ public partial class StudioWindow
     {
         var radio=Choice("use",title,steamLink&&id=="hands"?"Requires Virtual Desktop. Steam Link uses its own hand tracking.":about,current==id,()=>
         {
-            if(!preview)session.Save("use",id);
+            session.Save("use",id);
             note.Visibility=id=="face"?Visibility.Collapsed:Visibility.Visible;changed(id);
         });
         radios.Add((id,radio));panel.Children.Add(radio);
@@ -275,7 +278,6 @@ public partial class StudioWindow
  void SetupOptions()
  {
     Subtitle.Text="Connect your Quest Pro with USB the first time. After that, QFT+ connects over Wi-Fi.";Subtitle.Visibility=Visibility.Visible;
-    if(preview&&headsets.Count==0)headsets=[new("192.0.2.10:5555","PREVIEW0001",true,"device"),new("PREVIEW0001","PREVIEW0001",false,"device")];
     TextBlock Heading(string text){var heading=Text(text,16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);return heading;}
     TextBlock Symbol(string glyph,string brush){var symbol=new TextBlock{Text=glyph,FontFamily=new("Segoe UI Symbol"),Width=28,Margin=new(0,1,0,0)};symbol.SetResourceReference(TextBlock.ForegroundProperty,brush);return symbol;}
     UIElement Row(TextBlock symbol,params TextBlock[] lines){var row=new DockPanel{Margin=new(0,6,0,6)};DockPanel.SetDock(symbol,Dock.Left);row.Children.Add(symbol);var text=new StackPanel();foreach(var line in lines){line.Margin=new(0,0,0,2);text.Children.Add(line);}row.Children.Add(text);return row;}
@@ -291,11 +293,11 @@ public partial class StudioWindow
         found.Children.Clear();activity.Visibility=searching?Visibility.Visible:Visibility.Collapsed;search.IsEnabled=!searching;search.Content=searching?"Searching…":"Search again";
         caption.Text=searching?"Searching USB and Wi-Fi…":headsetsChecked is {} at?$"Last checked at {at:t}.":"Not checked yet.";
         var preferred=session.Config["headsetSerial"]?.GetValue<string>()??"";
-        found.Children.Add(Choice("headset","Any Quest Pro","Connects to the first Quest Pro it finds.",preferred.Length==0,()=>{if(!preview)session.Save("headsetSerial","");}));
+        found.Children.Add(Choice("headset","Any Quest Pro","Connects to the first Quest Pro it finds.",preferred.Length==0,()=>session.Save("headsetSerial","")));
         foreach(var group in headsets.Where(q=>q.State=="device").GroupBy(q=>q.Serial))
         {
             var ways=string.Join(" and ",group.OrderBy(q=>q.Wireless?0:1).Select(q=>q.Wireless?$"Wi-Fi ({q.Target})":"USB"));var serial=group.Key;
-            found.Children.Add(Choice("headset","Quest Pro · Ready",$"Connected by {ways}. Serial {serial}.",preferred==serial,()=>{if(!preview)session.Save("headsetSerial",serial);}));
+            found.Children.Add(Choice("headset","Quest Pro · Ready",$"Connected by {ways}. Serial {serial}.",preferred==serial,()=>session.Save("headsetSerial",serial)));
         }
         if(preferred.Length>0&&!headsets.Any(q=>q.State=="device"&&q.Serial==preferred))
             found.Children.Add(Choice("headset","Quest Pro · Not found right now",$"Serial {preferred}. Wake the headset, then search again.",true,()=>{}));
@@ -319,7 +321,7 @@ public partial class StudioWindow
     var modes=new[]{"auto","wifi","usb"};var current=session.Config["connectionMode"]?.GetValue<string>()??"auto";
     var connection=new StackPanel();connection.Children.Add(Heading("Connection"));
     foreach(var (id,name,about) in new[]{("auto","Automatic","Uses Wi-Fi when it’s available and USB otherwise."),("wifi","Wi-Fi","Unplug after setup. If the headset restarts, connect USB once to turn Wi-Fi back on."),("usb","USB","Keeps the cable connected. Most reliable.")})
-        connection.Children.Add(Choice("connection",name,about,current==id,()=>{if(!preview)session.Save("connectionMode",id);}));
+        connection.Children.Add(Choice("connection",name,about,current==id,()=>session.Save("connectionMode",id)));
     Page.Children.Add(Card(connection));
 
     var steps=new StackPanel();var status=Text("",14);AutomationProperties.SetLiveSetting(status,AutomationLiveSetting.Polite);
@@ -343,7 +345,7 @@ public partial class StudioWindow
             if(failed&&moduleMissing)
             {
                 var fixes=new WrapPanel{Margin=new(28,0,0,6)};
-                fixes.Children.Add(Button("Install module",()=>{if(!preview)session.Save("installModule",true);_=RunSetup();},true));
+                fixes.Children.Add(Button("Install module",()=>{session.Save("installModule",true);_=RunSetup();},true));
                 if(!SteamVr.IsSteamLink){var hands=Button("Use hand tracking only",()=>{selectUse("hands");_=RunSetup();});hands.Margin=new(8,0,0,0);fixes.Children.Add(hands);}
                 list.Children.Add(fixes);
             }
@@ -357,7 +359,7 @@ public partial class StudioWindow
     }
     async Task RunSetup()
     {
-        if(preview||busy)return;
+        if(busy)return;
         busy=true;setupDone=false;setupProblem="";moduleMissing=false;setupStep=0;StartButton.Content="Cancel";ClearNotice();ShowSteps();
         try{await session.Prepare();}
         catch(OperationCanceledException){}
@@ -380,7 +382,7 @@ public partial class StudioWindow
     var stack=new StackPanel();var heading=Text("Startup",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);stack.Children.Add(heading);
     foreach(var (key,label) in new[]{("setupOnStart","Set up the headset on Start"),("installModule","Install the VRCFaceTracking module"),("startWithVrcft","Start with VRCFaceTracking"),("openVrApps","Open VR apps on Start")})
     {
-        var check=new CheckBox{Content=new TextBlock{Text=label},IsChecked=session.Config[key]?.GetValue<bool>()??true};AutomationProperties.SetName(check,label);check.Click+=(_,_)=>{if(!preview)session.Save(key,check.IsChecked==true);};
+        var check=new CheckBox{Content=new TextBlock{Text=label},IsChecked=session.Config[key]?.GetValue<bool>()??true};AutomationProperties.SetName(check,label);check.Click+=(_,_)=>session.Save(key,check.IsChecked==true);
         if(key is "setupOnStart" or "openVrApps"){stack.Children.Add(check);continue;}
         var option=new StackPanel();option.Children.Add(check);
         if(key=="installModule"){const string about="Turn off only if you install the module yourself.";option.Children.Add(Text(about,13,true));AutomationProperties.SetHelpText(check,about);}
@@ -393,12 +395,12 @@ public partial class StudioWindow
     var hardware=new StackPanel{Margin=new(0,16,0,0)};
     var devices=new[]{"auto","directml","cpu"};var compute=new ComboBox{ItemsSource=new[]{"Automatic","Graphics card (DirectML)","Processor (CPU)"},SelectedIndex=Math.Max(0,Array.IndexOf(devices,session.Config["inferenceDevice"]?.GetValue<string>()??"auto")),Margin=new(0,0,0,20)};
     var graphics=new StackPanel{Visibility=compute.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible};
-    compute.SelectionChanged+=(_,_)=>{graphics.Visibility=compute.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible;if(!preview)session.Save("inferenceDevice",devices[compute.SelectedIndex]);};Field(hardware,"Tracking processor",compute);
+    compute.SelectionChanged+=(_,_)=>{graphics.Visibility=compute.SelectedIndex==2?Visibility.Collapsed:Visibility.Visible;session.Save("inferenceDevice",devices[compute.SelectedIndex]);};Field(hardware,"Tracking processor",compute);
     var adapters=GraphicsAdapters.List();
     if(adapters.Count>1)
     {
         var gpu=new ComboBox{ItemsSource=adapters.Select(a=>a.Name).ToArray(),SelectedIndex=Math.Max(0,adapters.FindIndex(a=>a.Index==(session.Config["gpuIndex"]?.GetValue<int>()??0))),Margin=new(0,0,0,8)};
-        gpu.SelectionChanged+=(_,_)=>{if(!preview)session.Save("gpuIndex",adapters[gpu.SelectedIndex].Index);};Field(graphics,"Graphics card",gpu);
+        gpu.SelectionChanged+=(_,_)=>session.Save("gpuIndex",adapters[gpu.SelectedIndex].Index);Field(graphics,"Graphics card",gpu);
     }
     hardware.Children.Add(graphics);hardware.Children.Add(Text("Takes effect the next time tracking starts. To leave more performance for VR, choose Graphics card, then a different card from the one running your game.",13,true));Page.Children.Add(new Expander{Header="Processing",Content=hardware});
  }

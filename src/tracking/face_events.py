@@ -1,4 +1,4 @@
-"""Runtime layer between model outputs and the VRCFT bridges. Pure numpy; the harness runs the same code offline.
+"""Runtime layer between model outputs and the VRCFT bridges. Pure numpy; private/dev/universal/harness.py runs it offline.
 
 Per frame, for each configured channel, in this order:
   1. neutral-anchored offset and bounded gain: clip((raw - neutral) * gain, 0, 1), gain = 1/(reach - neutral) in .7..1.5
@@ -19,7 +19,6 @@ import numpy as np
 
 from eye_signal_filter import OneEuroVectorFilter
 
-NATIVE_MAX_AGE_NS = 100_000_000
 DONNING_GAP_NS = 2_000_000_000
 NEUTRAL_SECONDS = 20.
 LOWER_FACE = ("Jaw", "Lip", "Mouth", "Cheek", "Chin", "Dimpler", "Tongue", "LowerLip", "UpperLip")
@@ -88,7 +87,7 @@ class FaceEvents:
         self.config = dict(EVENTS if events is None else events)
         self.anchor_neutral = dict(neutral or {})
         self.reach = dict(reach or {})
-        self.bias = float(np.clip(bias, -.1, .1))
+        self.bias = min(.1, max(-.1, float(bias)))
         self.speech = Speech()
         self.speaking = False
         self.last_native_ns = None
@@ -102,17 +101,11 @@ class FaceEvents:
         self.since = {n: None for n in self.config}
         self.filters = {n: smoother() for n in self.config}
 
-    def _native(self, sample, names, now_ns):
-        if (sample is None or not names or sample.get("values") is None
-                or abs(int(sample["arrivalMonotonicNs"]) - now_ns) > NATIVE_MAX_AGE_NS):
-            return None
-        return dict(zip(names, map(float, sample["values"])))
-
-    def step(self, values, sample=None, names=(), now_ns=0):
-        """values {name: raw}; sample = latest native label sample (or None); returns {name: output}."""
+    def step(self, values, sample=None, native=None, now_ns=0):
+        """values {name: raw}; sample = latest native label sample, native = its values when fresh
+        (label_capture.fresh_values), else None; returns {name: output}."""
         dt = 0. if self.last_ns is None else max(0., (now_ns - self.last_ns) / 1e9)
         self.last_ns = now_ns
-        native = self._native(sample, names, now_ns)
         if native is not None:
             arrival = int(sample["arrivalMonotonicNs"])
             if self.last_native_ns is not None and arrival - self.last_native_ns > DONNING_GAP_NS:
@@ -123,7 +116,7 @@ class FaceEvents:
         self.speaking = native is not None and self.speech.active(now_ns)
         def at_rest(prefixes):
             v = [v for k, v in (native or {}).items() if k.startswith(prefixes)]
-            return bool(v) and np.mean(np.array(v) < .15) >= .8
+            return bool(v) and sum(x < .15 for x in v) / len(v) >= .8
         quiet = {q: at_rest(q) for q in {e.quiet for e in self.config.values()}}
 
         post = {}
@@ -131,7 +124,7 @@ class FaceEvents:
             if name not in self.config:
                 continue
             n = self.neutral[name]
-            gain = float(np.clip(1. / max(self.reach.get(name, 1.) - n, 1e-3), .7, 1.5))
+            gain = min(1.5, max(.7, 1. / max(self.reach.get(name, 1.) - n, 1e-3)))
             v = min(1., max(0., (float(raw) - n) * gain))
             if self.config[name].gate == "sealed" and native is not None and {"JawDrop", "LipsToward", "TongueOut"} <= native.keys():
                 v *= 1. - max(ramp(native["JawDrop"] - native["LipsToward"], *LIPS_APART), ramp(native["TongueOut"], *TONGUE_OUT))
@@ -139,7 +132,7 @@ class FaceEvents:
             e = self.config[name]
             settled = v < .5 if e.continuous else not self.on[name] and v < e.on and not self.speaking
             if quiet[e.quiet] and settled and dt:
-                self.neutral[name] = float(np.clip(n + (float(raw) - n) * min(1., dt / NEUTRAL_SECONDS), 0., .5))
+                self.neutral[name] = min(.5, max(0., n + (float(raw) - n) * min(1., dt / NEUTRAL_SECONDS)))
 
         out = dict(values)
         for name, v in post.items():
@@ -183,24 +176,3 @@ class FaceEvents:
     def close(self):
         if self.log_file is not None:
             self.log_file.close(); self.log_file = None
-
-
-def process_offline(raw, t_ns, native_values=None, native_names=(), native_t_ns=None, **kwargs):
-    """raw {name: (T,)}, t_ns (T,); native_values (T,K) aligned to frames (NaN rows = stale) with their arrival times.
-
-    Returns ({name: (T,) output}, {name: (T,) bool event}). Identical to calling step() frame by frame.
-    """
-    events = FaceEvents(**kwargs)
-    names = list(raw)
-    outs = {n: np.zeros(len(t_ns)) for n in names}
-    on = {n: np.zeros(len(t_ns), bool) for n in names if n in events.config}
-    for i, t in enumerate(map(int, t_ns)):
-        sample = None
-        if native_values is not None and np.isfinite(native_values[i]).all():
-            sample = {"arrivalMonotonicNs": int(native_t_ns[i]), "values": native_values[i]}
-        o = events.step({n: float(raw[n][i]) for n in names}, sample, native_names, t)
-        for n in names:
-            outs[n][i] = o[n]
-        for n in on:
-            on[n][i] = events.on[n]
-    return outs, on

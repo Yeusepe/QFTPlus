@@ -12,17 +12,14 @@ internal static class CalibrationSettings
 
     internal static void RemoveLegacy(string root, string configPath)
     {
-        if (File.Exists(configPath))
+        var config = ReadJson(configPath);
+        var keys = config.Select(item => item.Key).Where(key => key is "faceEngine" or "gpuTraining" or "runtimePython" or "showPreviews"
+            || key.StartsWith("extraFaceModel") || key.StartsWith("tongueModelPath") || key.StartsWith("tongueDirectionModelPath")
+            || key.StartsWith(FaceOutputKey("")) && !FaceGroups.Any(group => key == FaceOutputKey(group.Kind))).ToList();
+        if (keys.Count > 0)
         {
-            var config = ReadJson(configPath);
-            var keys = config.Select(item => item.Key).Where(key => key is "faceEngine" or "gpuTraining" or "runtimePython" or "showPreviews"
-                || key.StartsWith("extraFaceModel") || key.StartsWith("tongueModelPath") || key.StartsWith("tongueDirectionModelPath")
-                || key.StartsWith(FaceOutputKey("")) && !FaceGroups.Any(group => key == FaceOutputKey(group.Kind))).ToList();
-            if (keys.Count > 0)
-            {
-                foreach (var key in keys) config.Remove(key);
-                WriteJson(configPath, config);
-            }
+            foreach (var key in keys) config.Remove(key);
+            WriteJson(configPath, config);
         }
         var models = Path.Combine(root, "models");
         var files = (Directory.Exists(models) ? Directory.GetFiles(models).Where(file => !Path.GetFileName(file).StartsWith("universal-face")) : [])
@@ -37,7 +34,7 @@ internal static class CalibrationSettings
 
     internal static void SaveCalibration(string root, string kind, string result, string configPath)
     {
-        var config = File.Exists(configPath) ? JsonNode.Parse(File.ReadAllText(configPath))!.AsObject() : new JsonObject();
+        var config = ReadJson(configPath);
         var pupilPath = Path.Combine(root, "calibration/qpro-pupil-dilation.json");
         byte[]? previousPupil = null;
         if (kind == "enroll")
@@ -75,8 +72,12 @@ internal static class CalibrationSettings
 
     internal static JsonObject ReadJson(string path)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return JsonNode.Parse(stream)!.AsObject();
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonNode.Parse(stream) as JsonObject ?? throw new JsonException("The file doesn't hold settings.");
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return new(); }
     }
 
     internal static void WriteJson(string path, JsonObject data)

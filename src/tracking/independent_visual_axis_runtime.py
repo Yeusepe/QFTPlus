@@ -11,7 +11,6 @@ import socket
 import struct
 import threading
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -22,35 +21,37 @@ from headset import stop_event
 
 PACKET_MAGIC = b"QPGE"
 PACKET_VERSION = 1
-PACKET_FORMAT = "<4sBBHffff"
+PACKET = struct.Struct("<4sBBHffff")
 GAZE_PORT = 27275
 CONTROL_PORT = 27277
 
 
-def load_calibration(path: str | Path) -> dict[str, Any]:
+def load_calibration(path: str | Path) -> list[tuple[int, np.ndarray]]:
+    """The physical left and right eye's (trace tag, coefficients (3, 2)), checked once here instead of per sample."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if payload.get("format") != "qpro-independent-personalized-visual-axis-v2":
         raise ValueError("This is not an independent visual-axis calibration")
     if not payload.get("quality_gate", {}).get("gaze_pass", False):
         raise ValueError("The saved calibration did not pass its absolute-gaze gate")
-    for eye in ("left", "right"):
+    tag_mapping = payload.get("detector_tag_mapping", {})
+    eyes = []
+    for tag, eye in enumerate(("left", "right")):
+        source = tag_mapping.get(f"physical_{eye}", f"trace_tag_{tag}")
+        if source not in ("trace_tag_0", "trace_tag_1"):
+            raise ValueError("The calibration has an unsupported detector-tag mapping")
         coefficients = np.asarray(payload[eye]["coefficients"], dtype=np.float64)
         if coefficients.shape != (3, 2) or not np.all(np.isfinite(coefficients)):
             raise ValueError(f"The {eye} calibration coefficients are invalid")
-    return payload
+        eyes.append((int(source[-1]), coefficients))
+    return eyes
 
 
 def calibrated_angles(
-    calibration: dict[str, Any], sample: RawEyeSample
+    calibration: list[tuple[int, np.ndarray]], sample: RawEyeSample
 ) -> tuple[np.ndarray, np.ndarray]:
     """Each eye's affine fit [1, yaw, pitch] @ coefficients, on the trace tag the calibration assigned to it."""
-    tag_mapping = calibration.get("detector_tag_mapping", {})
-    sources = {"trace_tag_0": sample.left_angles, "trace_tag_1": sample.right_angles}
-    physical = (tag_mapping.get("physical_left", "trace_tag_0"), tag_mapping.get("physical_right", "trace_tag_1"))
-    if not set(physical) <= set(sources):
-        raise ValueError("The calibration has an unsupported detector-tag mapping")
-    return tuple(np.r_[1.0, sources[source]] @ np.asarray(calibration[eye]["coefficients"], dtype=np.float64)
-                 for eye, source in zip(("left", "right"), physical))
+    sources = (sample.left_angles, sample.right_angles)
+    return tuple(np.r_[1.0, sources[tag]] @ coefficients for tag, coefficients in calibration)
 
 
 def amplify_vergence(
@@ -69,7 +70,7 @@ def encode_packet(left_deg: np.ndarray, right_deg: np.ndarray) -> bytes:
     camera convention, so yaw keeps its calibrated sign; VRCFT's left eye is the calibration's right and vice versa."""
     left_x, left_y = map(math.radians, map(float, right_deg))
     right_x, right_y = map(math.radians, map(float, left_deg))
-    return struct.pack(PACKET_FORMAT, PACKET_MAGIC, PACKET_VERSION, 3, 0, left_x, left_y, right_x, right_y)
+    return PACKET.pack(PACKET_MAGIC, PACKET_VERSION, 3, 0, left_x, left_y, right_x, right_y)
 
 
 class VergenceControl:
@@ -128,7 +129,8 @@ def main() -> int:
         reader.start()
         while not stopped.is_set():
             if not reader.errors.empty():
-                raise RuntimeError(reader.errors.get_nowait())
+                print("QFT_ERROR: " + reader.errors.get_nowait(), flush=True)
+                return 1
             try:
                 sample = reader.samples.get(timeout=0.1)
             except queue.Empty:

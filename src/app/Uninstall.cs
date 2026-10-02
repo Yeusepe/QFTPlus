@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
 
 namespace QFTPlus;
 
@@ -11,7 +10,9 @@ internal static class Uninstall
     {
         void Try(Action action) { try { action(); } catch (Exception error) { Trace.WriteLine("Uninstall: " + error.Message); } }
         Try(() => SteamVrDriver.Unregister());
-        Try(() => RemoveModule(root));
+        Try(SteamVr.RemoveSettings);
+        Try(SteamVr.RestoreSteamLink);
+        Try(() => RemoveModule(root, SetupService.InstalledModule));
         Try(Adb.Stop);
         if (File.Exists(Path.Combine(root, "SHA256SUMS.txt"))) Try(() => RemoveProgram(root));
         if (File.Exists(EverythingMarker)) Try(() => RemoveData(WorkingCopy.Home, SetupService.AutoPath));
@@ -37,11 +38,10 @@ internal static class Uninstall
 
     static void DeleteAfterExit(string folder)
     {
-        var path = folder.Replace("'", "''");
         var script = $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue; foreach ($attempt in 1..10) {{ try {{ " +
-            $"[IO.Directory]::Delete('{path}', $true); break }} catch {{ Start-Sleep 2 }} }}";
+            "[IO.Directory]::Delete($env:QFT_REMOVE, $true); break } catch { Start-Sleep 2 } }";
         var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell/v1.0/powershell.exe"))
-        { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath() };
+        { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath(), Environment = { ["QFT_REMOVE"] = folder } };
         foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", script }) info.ArgumentList.Add(argument);
         using var process = Process.Start(info) ?? throw new IOException("Windows PowerShell didn’t start.");
     }
@@ -54,10 +54,10 @@ internal static class Uninstall
 
     static void Delete(string file) { if (File.Exists(file)) File.Delete(file); }
 
-    static void RemoveModule(string root)
+    internal static void RemoveModule(string root, string module)
     {
-        var customLibs = Path.Combine(Path.GetDirectoryName(SetupService.AutoPath)!, "CustomLibs");
-        Delete(Path.Combine(customLibs, "000-Qpro.IndependentGaze.dll"));
+        var customLibs = Path.GetDirectoryName(module)!;
+        Delete(module);
         var backups = Path.Combine(root, "backups");
         if (!Directory.Exists(backups)) return;
         foreach (var backup in Directory.GetDirectories(backups, "vrcft-*").OrderByDescending(Directory.GetLastWriteTimeUtc))
@@ -73,19 +73,8 @@ internal static class Uninstall
     {
         void Gone(Action delete) { try { delete(); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { } }
         var sums = Path.Combine(root, "SHA256SUMS.txt");
-        foreach (var line in File.ReadAllLines(sums))
-        {
-            var parts = line.Split("  ", 2);
-            if (parts.Length != 2) continue;
-            var file = Path.GetFullPath(Path.Combine(root, parts[1]));
-            if (!file.StartsWith(root + Path.DirectorySeparatorChar, Ignore) || !File.Exists(file)) continue;
-            Gone(() =>
-            {
-                using (var stream = File.OpenRead(file))
-                    if (!Convert.ToHexString(SHA256.HashData(stream)).Equals(parts[0], Ignore)) return;
-                File.Delete(file);
-            });
-        }
+        foreach (var (relative, hash) in WorkingCopy.Read(sums))
+            Gone(() => { var file = WorkingCopy.Inside(root, relative); if (WorkingCopy.Hash(file) == hash) File.Delete(file); });
         File.Delete(sums);
         var links = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var runtime = Path.Combine(root, "runtime");

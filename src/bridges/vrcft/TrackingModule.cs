@@ -24,14 +24,11 @@ public sealed class TrackingModule : ExtTrackingModule
     private const int StateBytes = 360;
     private const int ExpressionOffset = 4;
     private const int ExpressionCount = 70;
-    private const int GazePort = 27275;
-    private const int GazePacketBytes = 24;
+    private const int RuntimePort = 27275;
     private const long GazeTimeoutMs = 250;
     private const long GazeHoldMs = 1000;
     private const float BlinkClosed = 0.5f;
     private const long BlinkSettleMs = 100;
-    private const int TonguePort = 27276;
-    private const int TonguePacketBytes = 72;
     private const long TongueTimeoutMs = 300;
     private static readonly (int Source, int[] Targets)[] ExpressionMap =
     [
@@ -50,8 +47,10 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private readonly byte[] _first = new byte[StateBytes];
     private readonly byte[] _second = new byte[StateBytes];
+    private readonly byte[] _packet = new byte[65536];
     private MemoryMappedFile? _map;
     private MemoryMappedViewAccessor? _view;
+    private long _mapTick;
     private UdpClient? _steamLinkSocket;
     private readonly SteamLinkState _steamLink = new();
     private readonly byte[] _steamLinkBytes = new byte[StateBytes];
@@ -59,17 +58,13 @@ public sealed class TrackingModule : ExtTrackingModule
     private static readonly JsonSerializerOptions LabelJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private UdpClient? _labelSocket;
     private readonly byte[] _lastLabelState = new byte[StateBytes];
-    private long _labelSequence, _labelChanges, _labelChangeQpc, _labelSchemaQpc;
+    private long _labelSequence, _labelChanges, _labelChangeQpc, _labelSchemaQpc, _labelSampleQpc;
     private readonly byte[] _lastVdState = new byte[StateBytes];
     private long _lastVdChange;
     private string? _source;
-    private UdpClient? _gazeSocket;
-    private UdpClient? _tongueSocket;
-    private UdpClient? _extraFaceSocket;
-    private UdpClient? _pupilSocket;
+    private UdpClient? _runtimeSocket;
     private readonly PupilDilationState _pupil = new();
     private readonly ExtraFaceState _extraFace = new();
-    private readonly Dictionary<int, float> _extraBaseline = new();
     private bool _needsEye;
     private bool _needsExpression;
     private long _lastGazeTick;
@@ -84,7 +79,6 @@ public sealed class TrackingModule : ExtTrackingModule
     private byte _gazeFlags;
     private readonly float[] _tongueValues = new float[12];
     private ushort _tongueMask = 0xFFF;
-    private long _lastTongueTimingTick;
     private static readonly int[] TongueExpressions = {
         (int)UnifiedExpressions.TongueOut, (int)UnifiedExpressions.TongueUp,
         (int)UnifiedExpressions.TongueDown, (int)UnifiedExpressions.TongueLeft,
@@ -101,27 +95,28 @@ public sealed class TrackingModule : ExtTrackingModule
         .Select(e => (Shape: (int)e, Partner: OutputAdjustments.Partner(e.ToString())))
         .Where(p => p.Partner is not null && Enum.IsDefined(typeof(UnifiedExpressions), p.Partner))
         .ToDictionary(p => p.Shape, p => (int)Enum.Parse<UnifiedExpressions>(p.Partner!));
-    private float[] _shapeInputs = [];
     private const int ShapeCount = (int)UnifiedExpressions.Max + 1;
-    private readonly float[] _shapes = new float[ShapeCount];
+    private readonly float[] _shapes = new float[ShapeCount], _input = new float[ShapeCount], _output = new float[ShapeCount];
     private readonly bool[] _owned = new bool[ShapeCount];
-    private readonly float[] _eyes = new float[8], _rawEyes = new float[8], _eyeBaselineStore = new float[8];
+    private readonly float[] _eyes = new float[8], _eyeOutput = new float[8];
     private bool _eyesOwned;
     private static readonly (int Index, string Name)[] Shapes = Enum.GetValues<UnifiedExpressions>()
         .Where(e => e.ToString() != "Max" && (int)e >= 0 && (int)e < ShapeCount).Select(e => ((int)e, e.ToString())).ToArray();
+    private static readonly Dictionary<string, int> ShapeIndices = Shapes.ToDictionary(s => s.Name, s => s.Index);
     private static readonly (string Left, string Right, int LeftIndex, int RightIndex)[] SharePairs = ExtraFaceState.SharePairs
         .Select(p => (p + "Left", p + "Right", (int)Enum.Parse<UnifiedExpressions>(p + "Left"), (int)Enum.Parse<UnifiedExpressions>(p + "Right"))).ToArray();
     private readonly OutputAdjustments _adjustments = new();
-    private readonly Dictionary<int, float> _outputBaseline = new();
-    private float[]? _eyeBaseline;
     private string? _settingsRoot;
     private long _outputTick;
     private string? _settingsConfigPath;
+    private DateTime _settingsConfigTime;
     private long _settingsConfigTick, _outputStatusTick;
     private bool _outputStatusFailed;
     private readonly ManualResetEvent _packetSignal = new(false);
     private EventWaitHandle? _frameSignal;
     private WaitHandle[] _wakeSignals = [];
+    private readonly Lock _gate = new();
+    private bool _closed;
     [DllImport("ws2_32.dll", SetLastError = true)]
     private static extern int WSAEventSelect(IntPtr socket, IntPtr eventHandle, int networkEvents);
     private const int FdRead = 1;
@@ -139,24 +134,11 @@ public sealed class TrackingModule : ExtTrackingModule
             Name = "QFT+"
         };
 
-        _gazeSocket = Bind(GazePort, "gaze");
-        _tongueSocket = Bind(TonguePort, "tongue");
-
-        try
-        {
-            _steamLinkSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, SteamLinkState.Port));
-            _steamLinkSocket.Client.Blocking = false;
-            WakeOnPackets(_steamLinkSocket);
-            _steamLinkSocket.Client.ReceiveBufferSize = 1024 * 1024;
-        }
-        catch (Exception error) when (error is SocketException or IOException or UnauthorizedAccessException)
-        {
-            Logger.LogError(error, "Steam Link port 9015 unavailable. Disable the standalone SteamLink module and restart VRCFaceTracking");
-        }
-        TryOpenMap();
-        _labelSocket = new UdpClient(AddressFamily.InterNetwork);
-        _extraFaceSocket = Bind(27278, "extra expressions", LogLevel.Warning);
-        _pupilSocket = Bind(27279, "pupil dilation", LogLevel.Warning);
+        _runtimeSocket = Bind(RuntimePort, "Could not bind QFT+ port {Port}; factory tracking remains available");
+        _steamLinkSocket = Bind(SteamLinkState.Port, "Steam Link port {Port} unavailable. Disable the standalone SteamLink module and restart VRCFaceTracking");
+        if (_steamLinkSocket is not null) _steamLinkSocket.Client.ReceiveBufferSize = 1024 * 1024;
+        TryOpenMap(Environment.TickCount64);
+        _labelSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         StartLocalRuntime();
         Logger.LogInformation(
             "Quest Pro Virtual Desktop / Steam Link bridge initialized (eye={Eye}, face={Face}); " +
@@ -165,7 +147,7 @@ public sealed class TrackingModule : ExtTrackingModule
         return (_needsEye, _needsExpression);
     }
 
-    private UdpClient? Bind(int port, string feature, LogLevel level = LogLevel.Error)
+    private UdpClient? Bind(int port, string failure)
     {
         try
         {
@@ -176,7 +158,7 @@ public sealed class TrackingModule : ExtTrackingModule
         }
         catch (SocketException error)
         {
-            Logger.Log(level, error, "Could not bind QFT+ {Feature} port {Port}; factory tracking remains available", feature, port);
+            Logger.LogError(error, failure, port);
             return null;
         }
     }
@@ -188,15 +170,17 @@ public sealed class TrackingModule : ExtTrackingModule
         _wakeSignals = _frameSignal is null ? [_packetSignal] : [_frameSignal, _packetSignal];
     }
 
-    private static void Receive(UdpClient? socket, Action<byte[]> accept, int limit = 16)
+    private void Receive(UdpClient? socket, int limit, long now)
     {
         if (socket is null) return;
         try
         {
             for (int i = 0; i < limit && socket.Available > 0; i++)
             {
-                IPEndPoint sender = new(IPAddress.Loopback, 0);
-                accept(socket.Receive(ref sender));
+                var packet = _packet.AsSpan(0, socket.Client.Receive(_packet));
+                if (socket == _steamLinkSocket) _steamLink.Accept(packet, now);
+                else if (packet.StartsWith("{"u8)) _extraFace.Accept(packet, now);
+                else if (!AcceptGaze(packet, now) && !AcceptTongue(packet, now)) _pupil.Accept(packet, now);
             }
         }
         catch (SocketException error) when (error.SocketErrorCode is SocketError.WouldBlock or SocketError.IOPending) { }
@@ -204,69 +188,57 @@ public sealed class TrackingModule : ExtTrackingModule
 
     public override void Update()
     {
-        if (_wakeSignals.Length > 0) WaitHandle.WaitAny(_wakeSignals, WaitMs);
-        else Thread.Sleep(WaitMs);
-        _packetSignal.Reset();
-        ReceiveGaze();
-        ReceiveTongue();
-        Receive(_extraFaceSocket, packet => _extraFace.Accept(packet, Environment.TickCount64));
-        Receive(_pupilSocket, packet => _pupil.Accept(packet, Environment.TickCount64));
-        RestoreAdjustedOutput();
-        RestoreExtraFaceBaseline();
-        if (!TryReadState()) Array.Clear(_second);
-
-        var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));
-
-        if (_needsEye)
-            UpdateEyes(expressions);
-        if (_needsExpression)
-            UpdateMouth(expressions, _second[0]);
-        var shares = _extraFace.CurrentShares(Environment.TickCount64);
-        foreach (var (leftName, rightName, left, right) in SharePairs)
+        lock (_gate)
         {
-            if (!shares.TryGetValue(leftName, out float shareLeft) || !shares.TryGetValue(rightName, out float shareRight)) continue;
-            if (left <= 11 ? !_needsEye : !_needsExpression) continue;
-            float nativeLeft = _shapes[left], nativeRight = _shapes[right];
-            _extraBaseline.TryAdd(left, nativeLeft); _extraBaseline.TryAdd(right, nativeRight);
-            var (fusedLeft, fusedRight) = ExtraFaceState.Split(nativeLeft, nativeRight, shareLeft, shareRight);
-            if (!_adjustments.Passthrough(leftName)) Set(left, fusedLeft);
-            if (!_adjustments.Passthrough(rightName)) Set(right, fusedRight);
+            if (_closed) return;
+            if (_wakeSignals.Length > 0) WaitHandle.WaitAny(_wakeSignals, WaitMs);
+            else Thread.Sleep(WaitMs);
+            _packetSignal.Reset();
+            long now = Environment.TickCount64;
+            Receive(_runtimeSocket, 64, now);
+            if (!TryReadState(now)) Array.Clear(_second);
+
+            var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));
+
+            if (_needsEye)
+                UpdateEyes(expressions);
+            if (_needsExpression)
+                UpdateMouth(expressions, _second[0]);
+            _shapes.CopyTo(_input, 0);
+            var shares = _extraFace.CurrentShares(now);
+            foreach (var (leftName, rightName, left, right) in SharePairs)
+            {
+                if (!shares.TryGetValue(leftName, out float shareLeft) || !shares.TryGetValue(rightName, out float shareRight)) continue;
+                if (left <= 11 ? !_needsEye : !_needsExpression) continue;
+                var (fusedLeft, fusedRight) = ExtraFaceState.Split(_shapes[left], _shapes[right], shareLeft, shareRight);
+                if (!_adjustments.Passthrough(leftName)) Set(_input, left, fusedLeft);
+                if (!_adjustments.Passthrough(rightName)) Set(_input, right, fusedRight);
+            }
+            foreach (var entry in _extraFace.Current(now))
+            {
+                if (_adjustments.Passthrough(entry.Key) || !ShapeIndices.TryGetValue(entry.Key, out int index)) continue;
+                if (index <= 11 ? !_needsEye : !_needsExpression) continue;
+                Set(_input, index, entry.Value);
+            }
+            AdjustOutput(now);
+            Publish(_output, _eyeOutput);
         }
-        foreach (var entry in _extraFace.Current(Environment.TickCount64))
-        {
-            if (_adjustments.Passthrough(entry.Key) || !Enum.TryParse<UnifiedExpressions>(entry.Key, out var expression)) continue;
-            int index = (int)expression;
-            if (index <= 11 ? !_needsEye : !_needsExpression) continue;
-            _extraBaseline.TryAdd(index, _shapes[index]);
-            Set(index, entry.Value);
-        }
-        AdjustOutput();
-        Publish();
     }
 
     public override void Teardown()
     {
-        _steamLinkSocket?.Dispose(); _steamLinkSocket = null;
-        _labelSocket?.Dispose(); _labelSocket = null;
-        RestoreAdjustedOutput();
-        if (_needsEye) ResetPupilDilation();
-        _pupilSocket?.Dispose();
-        _pupilSocket = null;
-        _gazeSocket?.Dispose();
-        _gazeSocket = null;
-        _tongueSocket?.Dispose();
-        _tongueSocket = null;
-        _extraFaceSocket?.Dispose();
-        _extraFaceSocket = null;
-        RestoreExtraFaceBaseline();
-        Publish();
-        _wakeSignals = [];
-        _frameSignal?.Dispose();
-        _frameSignal = null;
-        _view?.Dispose();
-        _view = null;
-        _map?.Dispose();
-        _map = null;
+        lock (_gate)
+        {
+            _closed = true;
+            _runtimeSocket?.Dispose();
+            _steamLinkSocket?.Dispose();
+            _labelSocket?.Dispose();
+            if (_needsEye) ResetPupilDilation();
+            Publish(_shapes, _eyes);
+            _frameSignal?.Dispose();
+            _view?.Dispose();
+            _map?.Dispose();
+        }
     }
 
     private void StartLocalRuntime()
@@ -274,15 +246,13 @@ public sealed class TrackingModule : ExtTrackingModule
         string configPath = Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData), "VRCFaceTracking", "QproAutoStart.json");
         _settingsConfigPath = configPath;
-        if (!File.Exists(configPath)) return;
         try
         {
-            using var config = JsonDocument.Parse(File.ReadAllText(configPath));
-            string root = Path.GetFullPath(config.RootElement.GetProperty("root").GetString()!);
-            _settingsRoot = root;
-            if (config.RootElement.TryGetProperty("startWithVrcft", out var enabled) && enabled.ValueKind == JsonValueKind.False) return;
-            string app = config.RootElement.TryGetProperty("studioApp", out var configured)
-                ? configured.GetString()! : Path.Combine(root, "QproFaceTracking.exe");
+            var config = ReadAutoStart() ?? throw new InvalidDataException("QproAutoStart.json is unreadable");
+            if (config.Count == 0) return;
+            string root = _settingsRoot ?? throw new InvalidDataException("QproAutoStart.json has no root");
+            if (config["startWithVrcft"]?.GetValueKind() == JsonValueKind.False) return;
+            string app = config["studioApp"]?.GetValue<string>() ?? Path.Combine(root, "QproFaceTracking.exe");
             if (!File.Exists(app)) throw new FileNotFoundException("QFT+ is missing", app);
             var start = new ProcessStartInfo(app)
             { WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true };
@@ -300,78 +270,70 @@ public sealed class TrackingModule : ExtTrackingModule
     }
 
     private static readonly string[] EyeKeys = ["GazeLeftX", "GazeLeftY", "GazeRightX", "GazeRightY", "PupilLeft", "PupilRight", "OpennessLeft", "OpennessRight"];
-    private void Publish()
+    private static readonly int[] EyePartners = Array.ConvertAll(EyeKeys, name => Array.IndexOf(EyeKeys, OutputAdjustments.Partner(name)));
+    private void Publish(float[] values, float[] eyes)
     {
         var shapes = UnifiedTracking.Data.Shapes;
         for (int i = 0; i < ShapeCount && i < shapes.Length; i++)
-            if (_owned[i]) shapes[i].Weight = _shapes[i];
+            if (_owned[i]) shapes[i].Weight = values[i];
         if (!_eyesOwned) return;
         var eye = UnifiedTracking.Data.Eye;
-        eye.Left.Gaze.x = _eyes[0]; eye.Left.Gaze.y = _eyes[1]; eye.Right.Gaze.x = _eyes[2]; eye.Right.Gaze.y = _eyes[3];
-        eye.Left.PupilDiameter_MM = _eyes[4] * 10; eye.Right.PupilDiameter_MM = _eyes[5] * 10;
-        eye.Left.Openness = _eyes[6]; eye.Right.Openness = _eyes[7];
+        eye.Left.Gaze.x = eyes[0]; eye.Left.Gaze.y = eyes[1]; eye.Right.Gaze.x = eyes[2]; eye.Right.Gaze.y = eyes[3];
+        eye.Left.PupilDiameter_MM = eyes[4] * 10; eye.Right.PupilDiameter_MM = eyes[5] * 10;
+        eye.Left.Openness = eyes[6]; eye.Right.Openness = eyes[7];
         eye._minDilation = 0.0f; eye._maxDilation = 10.0f;
     }
-    private void RestoreAdjustedOutput()
+    private JsonObject? ReadAutoStart()
     {
-        foreach (var entry in _outputBaseline) Set(entry.Key, entry.Value);
-        _outputBaseline.Clear();
-        if (_eyeBaseline is not null) { Array.Copy(_eyeBaseline, _eyes, 8); _eyeBaseline=null; }
+        var config = OutputAdjustments.Read(_settingsConfigPath!, ref _settingsConfigTime);
+        if (config?["root"] is JsonValue folder && folder.TryGetValue(out string? root) && root.Length > 0) _settingsRoot = Path.GetFullPath(root);
+        return config;
     }
-    private void AdjustOutput()
+    private void AdjustOutput(long tick)
     {
-        var tick=Environment.TickCount64; var utc=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0;
-
+        var utc=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0;
+        _input.CopyTo(_output, 0); _eyes.CopyTo(_eyeOutput, 0);
         if (_settingsConfigPath is not null && tick - _settingsConfigTick >= 1000)
         {
             _settingsConfigTick = tick;
-            try
-            {
-                using var file = new FileStream(_settingsConfigPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using var config = JsonDocument.Parse(file);
-                if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("root", out var folder) && folder.ValueKind == JsonValueKind.String && folder.GetString() is { Length: > 0 } root)
-                    _settingsRoot = Path.GetFullPath(root);
-            }
-            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or ArgumentException) { }
+            try { ReadAutoStart(); }
+            catch (ArgumentException) { }
         }
         if (_settingsRoot is null) return;
         var dt=_outputTick==0?.005:(tick-_outputTick)/1000.0; _outputTick=tick;
         _adjustments.Poll(_settingsRoot,tick,utc);
         var report = tick - _outputStatusTick >= 250;
+        if (report)
+        {
+            _outputStatusTick = tick;
+            try { report = DateTime.UtcNow - File.GetLastWriteTimeUtc(Path.Combine(_settingsRoot, "output-status.lease")) <= TimeSpan.FromSeconds(3); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { report = false; }
+        }
         JsonObject? inputs = report ? new() : null, outputs = report ? new() : null;
-        if (_shapeInputs.Length != ShapeCount) _shapeInputs = new float[ShapeCount];
-        Array.Copy(_shapes, _shapeInputs, ShapeCount);
         foreach (var (index, name) in Shapes)
         {
             if (index<=11?!_needsEye:!_needsExpression) continue;
-            var value=_shapeInputs[index];
+            var value=_input[index];
             if (report) inputs![name] = float.IsFinite(value) ? value : 0;
             if (_adjustments.Enabled(name))
             {
-                _outputBaseline[index]=value;
-                float? partner = ShapePartners.TryGetValue(index, out var other) && other < _shapeInputs.Length ? _shapeInputs[other] : null;
-                Set(index,_adjustments.Apply(name,value,0,0,1,dt,utc,partner));
+                float? partner = ShapePartners.TryGetValue(index, out var other) ? _input[other] : null;
+                Set(_output,index,_adjustments.Apply(name,value,0,0,1,dt,utc,partner));
             }
-            if (report) outputs![name] = float.IsFinite(_shapes[index]) ? _shapes[index] : 0;
+            if (report) outputs![name] = float.IsFinite(_output[index]) ? _output[index] : 0;
         }
         if (_needsEye)
         {
-            var raw=_rawEyes; Array.Copy(_eyes, raw, 8); var eyes=_eyes;
             for(var i=0;i<EyeKeys.Length;i++)
             {
                 var name=EyeKeys[i];
-                if (report) inputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
+                if (report) inputs![name] = float.IsFinite(_eyes[i]) ? _eyes[i] : 0;
                 if (_adjustments.Enabled(name))
-                {
-                    if (_eyeBaseline is null) { _eyeBaseline = _eyeBaselineStore; Array.Copy(raw, _eyeBaseline, 8); }
-                    var other=Array.IndexOf(EyeKeys,OutputAdjustments.Partner(name)??"");
-                    eyes[i]=_adjustments.Apply(name,eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc,other<0?null:raw[other]);
-                }
-                if (report) outputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
+                    _eyeOutput[i]=_adjustments.Apply(name,_eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc,EyePartners[i]<0?null:_eyes[EyePartners[i]]);
+                if (report) outputs![name] = float.IsFinite(_eyeOutput[i]) ? _eyeOutput[i] : 0;
             }
         }
         if (!report) return;
-        _outputStatusTick = tick;
         try
         {
             var status = new JsonObject { ["updated"] = utc, ["settings"] = _adjustments.Settings.DeepClone(),
@@ -388,8 +350,10 @@ public sealed class TrackingModule : ExtTrackingModule
         }
     }
 
-    private void TryOpenMap()
+    private void TryOpenMap(long now)
     {
+        if (_view is not null && _frameSignal is not null || now - _mapTick < 1000) return;
+        _mapTick = now;
         if (_frameSignal is null && EventWaitHandle.TryOpenExisting(FrameEventName, out var frame))
         {
             _frameSignal = frame;
@@ -402,23 +366,16 @@ public sealed class TrackingModule : ExtTrackingModule
             _map = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.Read);
             _view = _map.CreateViewAccessor(0, StateBytes, MemoryMappedFileAccess.Read);
         }
-        catch (FileNotFoundException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             _map?.Dispose();
             _map = null;
         }
     }
 
-    private void RestoreExtraFaceBaseline()
+    private bool TryReadState(long now)
     {
-        foreach (var entry in _extraBaseline) Set(entry.Key, entry.Value);
-        _extraBaseline.Clear();
-    }
-
-    private bool TryReadState()
-    {
-        long now = Environment.TickCount64;
-        Receive(_steamLinkSocket, packet => _steamLink.Accept(packet, now), 512);
+        Receive(_steamLinkSocket, 512, now);
         bool steamLink = _steamLink.CopyTo(_steamLinkBytes, now);
         bool vd = TryReadVirtualDesktop(now);
         if (steamLink) _steamLinkBytes.CopyTo(_second, 0);
@@ -435,12 +392,14 @@ public sealed class TrackingModule : ExtTrackingModule
     private void SendLabels(string source)
     {
         long now = Stopwatch.GetTimestamp();
-        if (!_second.AsSpan().SequenceEqual(_lastLabelState)) { _second.CopyTo(_lastLabelState, 0); _labelChangeQpc = now; _labelChanges++; }
         if (now >= _labelSchemaQpc)
         {
             SendLabel(new { V = 1, Type = "schema", Names = SteamLinkState.ExpressionNames });
             _labelSchemaQpc = now + Stopwatch.Frequency * 2;
         }
+        if (!_second.AsSpan().SequenceEqual(_lastLabelState)) { _second.CopyTo(_lastLabelState, 0); _labelChangeQpc = now; _labelChanges++; }
+        else if (now - _labelSampleQpc < Stopwatch.Frequency / 20) return;
+        _labelSampleQpc = now;
         float[] Floats(int offset, int count) => MemoryMarshal.Cast<byte, float>(_second.AsSpan(offset, count * sizeof(float))).ToArray();
         SendLabel(new
         {
@@ -462,25 +421,25 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private bool TryReadVirtualDesktop(long now)
     {
-        TryOpenMap();
+        TryOpenMap(now);
         if (_view is null)
             return false;
         try
         {
             _view.ReadArray(0, _first, 0, StateBytes);
-            Thread.MemoryBarrier();
             _view.ReadArray(0, _second, 0, StateBytes);
-            if (!_first.AsSpan().SequenceEqual(_second)) return false;
-            if (!_second.AsSpan().SequenceEqual(_lastVdState))
+            if (!_first.AsSpan().SequenceEqual(_second)) _lastVdState.CopyTo(_second, 0);
+            else if (!_second.AsSpan().SequenceEqual(_lastVdState))
             {
                 _second.CopyTo(_lastVdState, 0);
                 _lastVdChange = now;
             }
-            return _lastVdChange != 0 && now - _lastVdChange <= 1000;
+            return Packets.Fresh(_lastVdChange, now, 1000);
         }
         catch (ObjectDisposedException)
         {
             _view = null;
+            _map?.Dispose();
             _map = null;
             return false;
         }
@@ -492,55 +451,41 @@ public sealed class TrackingModule : ExtTrackingModule
         _eyesOwned = true;
     }
 
-    private void ReceiveGaze() => Receive(_gazeSocket, packet =>
+    private bool AcceptGaze(ReadOnlySpan<byte> packet, long now)
     {
-        if (packet.Length != GazePacketBytes ||
-            !packet.AsSpan(0, 4).SequenceEqual("QPGE"u8) ||
-            packet[4] != 1)
-            return;
+        if (!Packets.Header(packet, "QPGE"u8, 1, 24)) return false;
+        var gaze = MemoryMarshal.Cast<byte, float>(packet[8..]);
+        foreach (float value in gaze) if (!float.IsFinite(value)) return false;
         _gazeFlags = packet[5];
-        _leftGazeX = ReadFloat(packet, 8);
-        _leftGazeY = ReadFloat(packet, 12);
-        _rightGazeX = ReadFloat(packet, 16);
-        _rightGazeY = ReadFloat(packet, 20);
-        _lastGazeTick = Environment.TickCount64;
-    });
+        (_leftGazeX, _leftGazeY, _rightGazeX, _rightGazeY) = (gaze[0], gaze[1], gaze[2], gaze[3]);
+        _lastGazeTick = now;
+        return true;
+    }
 
-    private void ReceiveTongue() => Receive(_tongueSocket, packet =>
+    private bool AcceptTongue(ReadOnlySpan<byte> packet, long now)
     {
-        if (packet.Length < 8 ||
-            !packet.AsSpan(0, 4).SequenceEqual("QPTO"u8) ||
-            packet[4] != 2 || packet.Length != TonguePacketBytes)
-            return;
-        bool valid = true;
-        for (int index = 0; index < _tongueValues.Length; index++)
-            valid &= float.IsFinite(ReadFloat(packet, 8 + index * 4));
-        if (!valid) return;
-        _tongueMask = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(6, 2)) & 0xFFF);
-        _tongueEnabled = (packet[5] & 1) != 0;
-        for (int index = 0; index < _tongueValues.Length; ++index)
-            _tongueValues[index] = Math.Clamp(ReadFloat(packet, 8 + index * 4), 0.0f, 1.0f);
-        if (Environment.TickCount64 - _lastTongueTimingTick >= 5000)
+        if (!Packets.Header(packet, "QPTO"u8, 3, 56)) return false;
+        Span<float> values = stackalloc float[12];
+        var raw = MemoryMarshal.Cast<byte, float>(packet[8..]);
+        for (int index = 0; index < values.Length; index++)
         {
-            double arrival = BitConverter.ToDouble(packet, 56), sent = BitConverter.ToDouble(packet, 64);
-            double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-            if (double.IsFinite(arrival) && double.IsFinite(sent) && arrival > 0 && arrival <= sent && sent <= now && now - arrival < 10)
-            {
-                Logger.LogInformation("Tongue PC arrival-to-bridge {AgeMs:F2} ms; publication-to-bridge {UdpMs:F2} ms", (now-arrival)*1000, (now-sent)*1000);
-                _lastTongueTimingTick = Environment.TickCount64;
-            }
+            if (!float.IsFinite(raw[index])) return false;
+            values[index] = Math.Clamp(raw[index], 0.0f, 1.0f);
         }
+        values.CopyTo(_tongueValues);
+        _tongueMask = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet[6..]) & 0xFFF);
+        _tongueEnabled = (packet[5] & 1) != 0;
         _tongueDirty = true;
-        _lastTongueTick = Environment.TickCount64;
-    });
+        _lastTongueTick = now;
+        return true;
+    }
 
     private void UpdateEyes(ReadOnlySpan<float> values)
     {
         bool leftValid = _second[292] != 0;
         bool rightValid = _second[293] != 0;
         long now = Environment.TickCount64;
-        bool customFresh = _lastGazeTick != 0 &&
-            now - _lastGazeTick <= GazeTimeoutMs;
+        bool customFresh = Packets.Fresh(_lastGazeTick, now, GazeTimeoutMs);
         if (values[12] > BlinkClosed) _leftBlinkTick = now;
         if (values[13] > BlinkClosed) _rightBlinkTick = now;
 
@@ -613,8 +558,7 @@ public sealed class TrackingModule : ExtTrackingModule
         Set(31, Math.Min(1.0f - MathF.Pow(values[61], 1.0f / 6.0f), values[45]));
         Set(30, Math.Min(1.0f - MathF.Pow(values[62], 1.0f / 6.0f), values[47]));
 
-        bool customFresh = _tongueEnabled && _lastTongueTick != 0 &&
-            Environment.TickCount64 - _lastTongueTick <= TongueTimeoutMs;
+        bool customFresh = _tongueEnabled && Packets.Fresh(_lastTongueTick, Environment.TickCount64, TongueTimeoutMs);
         int mask = customFresh ? _tongueMask : 0;
         for (int index = 0; index < TongueNames.Length; index++)
             if (_adjustments.Passthrough(TongueNames[index])) mask &= ~(1 << index);
@@ -647,14 +591,13 @@ public sealed class TrackingModule : ExtTrackingModule
         if (index < 0 || (mask & (1 << index)) == 0) Set(expression, value);
     }
 
-    private void Set(int expression, float value)
+    private void Set(int expression, float value) => Set(_shapes, expression, value);
+
+    private void Set(float[] shapes, int expression, float value)
     {
-        _shapes[expression] = value;
+        shapes[expression] = value;
         _owned[expression] = true;
     }
-
-    private static float ReadFloat(byte[] bytes, int offset) =>
-        BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(offset, 4));
 
     private static (float x, float y) QuaternionToCartesian(byte[] bytes, int offset)
     {

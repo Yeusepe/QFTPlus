@@ -69,7 +69,7 @@ public partial class StudioWindow
         Page.Children.Add(option);
     }
     var actions=Actions;actions.Children.Clear();
-    begin=AsyncButton("Start calibration",Begin,true);actions.Children.Add(begin);
+    begin=Button("Start calibration",Begin,true);actions.Children.Add(begin);
     pause=Button("Pause",()=>Send("pause"));pause.Visibility=Visibility.Collapsed;actions.Children.Add(pause);
     skip=Button("Skip pose",()=>Send("skip"));skip.Margin=new(8,0,0,0);skip.Visibility=Visibility.Collapsed;actions.Children.Add(skip);
     cancel=Button("Cancel",()=>{cancelPending=true;cancel!.IsEnabled=false;cue!.Text="Stopping calibration…";});cancel.Margin=new(12,0,0,0);cancel.Visibility=Visibility.Collapsed;actions.Children.Add(cancel);
@@ -80,21 +80,19 @@ public partial class StudioWindow
  string EnrollLength=>slow?"About 2 minutes":"About 1 minute";
  static string GroupTitle(string kind)=>kind=="pupils"?"Pupils":kind.StartsWith("benchmark")?"Benchmark":"Face";
  void CalibrationReset(){Page.Children.Clear();Calibration();}
- async Task Begin()
+ void Begin()
  {
     if(recording||training)return;
-    if(!session.Running&&!preview){Error("Start tracking, then start calibration.");return;}
-    if((string.IsNullOrEmpty(runtimeId)||session.State!="Connected"||!FreshState())&&!preview){Error("Waiting for the headset cameras. Make sure the headset is awake and connected.");return;}
+    if(!session.Running){Error("Start tracking, then start calibration.");return;}
+    if(string.IsNullOrEmpty(runtimeId)||session.State!="Connected"||!FreshState()){Error("Waiting for the headset cameras. Make sure the headset is awake and connected.");return;}
     ClearNotice();candidate="";prefix="";
     if(!Send("begin",new JsonObject{["kind"]=kind,["slow"]=slow}))return;
     recordingCommand=command;cancelPending=false;
     recording=true;calibrationResult=null;CalibrationReset();count!.Visibility=Visibility.Visible;RefreshCalibrationControls();
     if(kind=="pupils"&&WindowState!=WindowState.Maximized){restoreState=WindowState;WindowState=WindowState.Maximized;}
-    await Task.CompletedTask;
  }
  bool Send(string action,JsonObject? fields=null)
  {
-    if(preview)return true;
     if(string.IsNullOrEmpty(runtimeId))return false;
     if(state["ack"]?.GetValue<long>()<command){if(action=="reload")reloadPending=true;else if(action!="heartbeat")Error("Waiting for the previous action…");return false;}
     var data=fields??new JsonObject();data["id"]=++command;data["runtimeId"]=runtimeId;data["action"]=action;
@@ -140,7 +138,7 @@ public partial class StudioWindow
     if(passed&&trainingKind.StartsWith("benchmark")&&File.Exists(candidate))
     {
         var file=candidate;var show=new Button{Content="Show file",HorizontalAlignment=HorizontalAlignment.Left,Margin=new(0,12,0,0)};show.SetResourceReference(StyleProperty,"PrimaryButton");
-        show.Click+=(_,_)=>{try{System.Diagnostics.Process.Start("explorer.exe",$"/select,\"{file}\"");}catch(Exception){Error("Couldn’t open File Explorer. The file is in "+Path.GetDirectoryName(file)+".");}};
+        show.Click+=(_,_)=>{try{System.Diagnostics.Process.Start("explorer.exe",$"/select,\"{file}\"").Dispose();}catch(Exception){Error("Couldn’t open File Explorer. The file is in "+Path.GetDirectoryName(file)+".");}};
         var actions=new WrapPanel{Margin=new(0,12,0,0)};show.Margin=new(0,0,8,8);actions.Children.Add(show);
         if(DiscordProfile.Length>0){var discord=new Button{Content="Message on Discord",Margin=new(0,0,0,8)};discord.Click+=MessageOnDiscord;actions.Children.Add(discord);}
         calibrationContent.Children.Add(actions);
@@ -169,7 +167,7 @@ public partial class StudioWindow
     {
         if(manualTesting){if(page=="Manual"&&IsVisible)PublishManual();else StopManual();}
         if(!busy)session.Poll();
-        state=Session.Read(Path.Combine(session.Root,"studio.state.json"));
+        try{state=Session.Read(Path.Combine(session.Root,"studio.state.json"));}catch(InvalidDataException){state=new();}
         var id=state["runtimeId"]?.GetValue<string>()??"";
         if(id!=runtimeId){runtimeId=id;command=state["ack"]?.GetValue<long>()??0;}
         if(cancelPending&&FreshState()&&state["ack"]?.GetValue<long>()>=command&&Send("cancel"))

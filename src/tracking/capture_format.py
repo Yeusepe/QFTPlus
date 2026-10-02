@@ -74,3 +74,40 @@ class CaptureWriter:
         self._write_file_header(completed=completed)
         self._file.flush()
         self._file.close()
+
+
+def scan_frames(path: Path, camera_mask: int = 0x1F) -> list[tuple[int, int, int, int]]:
+    """(payload offset, PC monotonic ns, width, height) of every frame; all must be 400x400 cameras of camera_mask."""
+    entries: list[tuple[int, int, int, int]] = []
+    with path.open("rb") as capture:
+        raw_file_header = capture.read(FILE_HEADER.size)
+        if len(raw_file_header) != FILE_HEADER.size:
+            raise ValueError("Capture file header is missing")
+        fields = FILE_HEADER.unpack(raw_file_header)
+        if fields[0] != FILE_MAGIC:
+            raise ValueError("Unrecognized capture file")
+        while True:
+            raw_frame_header = capture.read(FRAME_HEADER.size)
+            if not raw_frame_header:
+                break
+            if len(raw_frame_header) != FRAME_HEADER.size:
+                raise ValueError("Truncated capture frame header")
+            magic, _record_size, _source_size, timestamp, _wall, raw_transport = (
+                FRAME_HEADER.unpack(raw_frame_header)
+            )
+            if magic != FRAME_MAGIC:
+                raise ValueError("Invalid frame record")
+            transport = TRANSPORT_HEADER.unpack(raw_transport)
+            width, height, stride, payload_size, mask = (
+                int(transport[5]), int(transport[6]), int(transport[7]),
+                int(transport[9]), int(transport[10]),
+            )
+            if mask != camera_mask or width != 400 * camera_mask.bit_count() or height != 400:
+                raise ValueError(f"Training requires 400x400 cameras with mask 0x{camera_mask:x}")
+            if stride != width or payload_size != width * height:
+                raise ValueError("Unsupported frame payload layout")
+            entries.append((capture.tell(), int(timestamp), width, height))
+            capture.seek(payload_size, 1)
+    if len(entries) != fields[5]:
+        raise ValueError(f"Capture declares {fields[5]} frames but scanned {len(entries)}")
+    return entries

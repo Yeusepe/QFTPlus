@@ -1,10 +1,8 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/tcp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,9 +18,7 @@
 #include "shared.h"
 
 #define CAPTURE_LEASE_NS UINT64_C(2000000000)
-#ifndef STREAM_PORT
-#define STREAM_PORT 27272
-#endif
+#define STREAM_PORT 27273
 
 static uint8_t *g_shared;
 
@@ -37,27 +33,16 @@ static void handle_termination(int signal_number) {
     _exit(0);
 }
 
-static int is_decimal_name(const char *text) {
-    return text && *text && text[strspn(text, "0123456789")] == '\0';
-}
-
 static int is_questpro_relay(pid_t pid) {
-    char command[512];
-    const char *name = program_name(pid, command, sizeof(command));
-    if (!name || strncmp(name, "questpro-camera-relay", 21) != 0) return 0;
-    return name[21] == '\0' || name[21] == '-';
+    return runs_program(pid, "questpro-camera-relay");
 }
 
 static void stop_previous_relays(void) {
     pid_t matches[32];
-    size_t count = 0;
-    DIR *directory = opendir("/proc");
-    if (!directory) return;
-    struct dirent *entry;
-    while ((entry = readdir(directory)) != NULL && count < 32) {
-        if (!is_decimal_name(entry->d_name)) continue;
-        pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
-        if (pid == getpid() || !is_questpro_relay(pid)) continue;
+    size_t found = find_pids("questpro-camera-relay", matches, 32), count = 0;
+    for (size_t i = 0; i < found; ++i) {
+        pid_t pid = matches[i];
+        if (pid == getpid()) continue;
         if (kill(pid, SIGTERM) == 0) {
             matches[count++] = pid;
             printf("STALE_RELAY_STOP_REQUESTED pid=%d\n", pid);
@@ -66,7 +51,6 @@ static void stop_previous_relays(void) {
                     pid, strerror(errno));
         }
     }
-    closedir(directory);
 
     for (unsigned attempt = 0; attempt < 20 && count; ++attempt) {
         size_t alive = 0;
@@ -99,39 +83,13 @@ static void put_u64(uint8_t *buffer, size_t offset, uint64_t value) {
     memcpy(buffer + offset, &value, sizeof(value));
 }
 
-static int send_all(int fd, const void *data, size_t size) {
-    const uint8_t *bytes = (const uint8_t *)data;
-    size_t sent = 0;
-    while (sent < size) {
-        ssize_t result = send(fd, bytes + sent, size - sent, MSG_NOSIGNAL);
-        if (result > 0) {
-            sent += (size_t)result;
-            continue;
-        }
-        if (result < 0 && errno == EINTR) continue;
-        return 0;
-    }
-    return 1;
-}
-
 static uid_t provider_uid(void) {
-    DIR *directory = opendir("/proc");
-    if (!directory) return (uid_t)-1;
-    uid_t uid = (uid_t)-1;
-    struct dirent *entry;
-    while ((entry = readdir(directory))) {
-        if (!is_decimal_name(entry->d_name)) continue;
-        char path[320], command[512];
-        const char *name = program_name((pid_t)strtol(entry->d_name, NULL, 10),
-                                        command, sizeof(command));
-        if (!name || !strstr(name, "vendor.oculus.hardware.sensors@1.0-service")) continue;
-        snprintf(path, sizeof(path), "/proc/%s", entry->d_name);
-        struct stat status;
-        if (stat(path, &status) == 0) uid = status.st_uid;
-        break;
-    }
-    closedir(directory);
-    return uid;
+    pid_t pid;
+    char path[32];
+    struct stat status;
+    if (!find_pids("vendor.oculus.hardware.sensors@1.0-service", &pid, 1)) return (uid_t)-1;
+    snprintf(path, sizeof(path), "/proc/%d", (int)pid);
+    return stat(path, &status) == 0 ? status.st_uid : (uid_t)-1;
 }
 
 static int shared_memory_failure(int fd, const char *path, const char *operation,
@@ -242,11 +200,7 @@ static int accept_client(int server) {
     do {
         client = accept4(server, NULL, NULL, SOCK_CLOEXEC);
     } while (client < 0 && errno == EINTR);
-    if (client < 0) return -1;
-    int enabled = 1;
-    setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled));
-    struct timeval timeout = {.tv_sec = 2, .tv_usec = 0};
-    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    if (client >= 0) configure_client(client);
     return client;
 }
 
@@ -266,8 +220,16 @@ static int copy_stable_frame(const uint8_t *shared, uint32_t *last_generation,
     return 1;
 }
 
+static void wait_for_frame(const uint8_t *shared, uint32_t last_generation) {
+    static const struct timespec timeout = {.tv_sec = 0, .tv_nsec = 5000000};
+    uint32_t seen = __atomic_load_n(
+        (const uint32_t *)(const void *)(shared + SHARED_GENERATION_OFFSET), __ATOMIC_ACQUIRE);
+    if (seen == last_generation || (seen & 1u))
+        generation_futex(shared, FUTEX_WAIT, seen, &timeout);
+}
+
 static int send_frame(int client, uint64_t sequence, uint64_t timestamp,
-                      uint64_t rejected_torn, const uint8_t *frame) {
+                      const uint8_t *frame) {
     uint8_t header[64] = {0};
     memcpy(header, "QPLIVE3", 7);
     put_u32(header, 8, 3);
@@ -280,7 +242,6 @@ static int send_frame(int client, uint64_t sequence, uint64_t timestamp,
     put_u32(header, 44, 1);
     put_u32(header, 48, SENSOR_BYTES);
     put_u32(header, 52, 0x1fu);
-    put_u64(header, 56, rejected_torn);
     return send_all(client, header, sizeof(header)) &&
            send_all(client, frame, SENSOR_BYTES);
 }
@@ -366,21 +327,20 @@ int main(int argc, char **argv) {
         uint32_t last_generation = 0;
         uint64_t next_send_at = 0;
         while (1) {
-            set_capture_lease(shared, monotonic_nanoseconds() + CAPTURE_LEASE_NS);
+            uint64_t now = monotonic_nanoseconds();
+            set_capture_lease(shared, now + CAPTURE_LEASE_NS);
+            if (minimum_interval && next_send_at && now < next_send_at) {
+                usleep((useconds_t)((next_send_at - now) / 1000));
+                continue;
+            }
             uint64_t sequence = 0;
             uint64_t timestamp = 0;
             if (!copy_stable_frame(shared, &last_generation, &sequence,
                                    &timestamp, frame)) {
-                usleep(500);
+                wait_for_frame(shared, last_generation);
                 continue;
             }
-            uint64_t now = monotonic_nanoseconds();
-            if (minimum_interval && next_send_at && now < next_send_at)
-                continue;
-            const uint64_t rejected_torn = __atomic_load_n(
-                (const uint64_t *)(const void *)(shared + SHARED_TORN_COUNT_OFFSET),
-                __ATOMIC_ACQUIRE);
-            if (!send_frame(client, sequence, timestamp, rejected_torn, frame)) {
+            if (!send_frame(client, sequence, timestamp, frame)) {
                 fprintf(stderr, "CLIENT_SEND_FAILED error=%s\n", strerror(errno));
                 break;
             }

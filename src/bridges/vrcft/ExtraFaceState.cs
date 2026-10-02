@@ -18,7 +18,7 @@ internal sealed class ExtraFaceState
     internal static readonly string[] SharePairs = ["BrowInnerUp", "BrowOuterUp"];
     private static readonly HashSet<string> ShareAllowed = new(SharePairs.SelectMany(name => new[] { name + "Left", name + "Right" }));
     private Dictionary<string, float> _values = new(), _shares = new();
-    private long? _received;
+    private long _received;
     private sealed record Packet(int Version, bool Enabled, Dictionary<string, float> Values, Dictionary<string, float>? Shares = null);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,7 +26,7 @@ internal sealed class ExtraFaceState
         RespectRequiredConstructorParameters = true, RespectNullableAnnotations = true
     };
 
-    internal bool Accept(byte[] packet, long now)
+    internal bool Accept(ReadOnlySpan<byte> packet, long now)
     {
         if (packet.Length > 4096) return false;
         try
@@ -45,9 +45,8 @@ internal sealed class ExtraFaceState
         { return false; }
     }
 
-    internal IReadOnlyDictionary<string, float> Current(long now) => Fresh(now) ? _values : Empty;
-    internal IReadOnlyDictionary<string, float> CurrentShares(long now) => Fresh(now) ? _shares : Empty;
-    private bool Fresh(long now) => _received is long tick && now >= tick && now - tick <= TimeoutMs;
+    internal IReadOnlyDictionary<string, float> Current(long now) => Packets.Fresh(_received, now, TimeoutMs) ? _values : Empty;
+    internal IReadOnlyDictionary<string, float> CurrentShares(long now) => Packets.Fresh(_received, now, TimeoutMs) ? _shares : Empty;
 
     internal static (float Left, float Right) Split(float nativeLeft, float nativeRight, float shareLeft, float shareRight)
     {
@@ -55,4 +54,11 @@ internal sealed class ExtraFaceState
         return (Math.Min(1f, height * 2 * shareLeft), Math.Min(1f, height * 2 * shareRight));
     }
     private static readonly Dictionary<string, float> Empty = new();
+}
+
+internal static class Packets
+{
+    internal static bool Fresh(long tick, long now, long timeoutMs) => tick != 0 && now >= tick && now - tick <= timeoutMs;
+    internal static bool Header(ReadOnlySpan<byte> packet, ReadOnlySpan<byte> magic, byte version, int length) =>
+        packet.Length == length && packet.StartsWith(magic) && packet[4] == version;
 }

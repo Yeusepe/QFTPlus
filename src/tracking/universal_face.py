@@ -6,19 +6,18 @@ brows: missing neutral + 2-layer MLP) and metadata pinned to the graph's sha256.
 fallback); no PyTorch. One pass over all five cameras: a shared front, then three tails -- mouth (cams 2/3,
 anchor-conditioned outputs), tongue (cams 2/3, direction head) and brows (eye cams 0/1 + glabella cam 4, per side, against
 the wearer's neutral). The enrollment file's anchor frames are encoded once at load. Per frame: network -> heads (numpy) ->
-face_events -> the same bridges as before (extra expressions on UDP 27278, tongue on 27276). Tongue visibility stays on
-Meta's TongueOut.
+face_events -> the VRCFT module (extra expressions and tongue, both on UDP 27275). Tongue visibility stays on Meta's TongueOut.
 """
 import hashlib
 import json
+import math
 import os
 import socket
-import time
 from pathlib import Path
 import numpy as np
 from face_events import BROW, PUFF, SUCK, TONGUE, FaceEvents
 from gpu_lock import GPU_LOCK
-from tongue_output import TonguePrediction
+from label_capture import fresh_values
 
 SCHEMA = "universal-face-v2"
 META = {"schema", "names", "slots", "browNames", "imageSize", "approvedForOutput", "allowsNoEnrollment", "provenance", "graphSha256"}
@@ -31,7 +30,6 @@ CHEEKS = ["CheekPuffLeft", "CheekPuffRight", "CheekSuckLeft", "CheekSuckRight"]
 BROWS = [b + s for b in ("BrowInnerUp", "BrowOuterUp", "BrowLowerer", "BrowPinch") for s in ("Left", "Right")]
 FAMILIES = {"puff": CHEEKS, "brows": BROWS}
 NATIVE_RAISE = {"BrowInnerUp": ("InnerBrowRaiserL", "InnerBrowRaiserR"), "BrowOuterUp": ("OuterBrowRaiserL", "OuterBrowRaiserR")}
-NATIVE_MAX_AGE_NS = 250_000_000
 SHARE_SECONDS = .15
 RAISES = [b + s for b in NATIVE_RAISE for s in ("Left", "Right")]
 
@@ -76,7 +74,7 @@ def puff_depth(q, neutral, axis):
 def brow_forward(h, w, neutral, present):
     """w (480,), neutral (480,), present 0/1 -> per-side brows (8,)"""
     n = neutral if present else h["missing"]
-    return sigmoid(h["w2"] @ silu(h["w1"] @ np.concatenate([w, w - n, [present]]) + h["b1"]) + h["b2"])
+    return sigmoid(h["w2"] @ silu(h["w1"] @ np.concatenate([w, w - n, np.float32([present])]) + h["b1"]) + h["b2"])
 
 
 class UniversalFace:
@@ -128,7 +126,6 @@ class UniversalFace:
         self.send_shares = "brows" in families
         self.share, self.share_ns = {}, None
         self.enabled, self.tongue = enabled, tongue
-        self.inference_ms, self.last = 0., {}
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def run(self, strip):
@@ -167,14 +164,10 @@ class UniversalFace:
         return anchors, present, sides, (brow_neutral, brow_present), rest
 
     def update(self, strip, native=None, native_names=(), now_ns=0):
-        if strip.shape != (400, 2000):
-            raise ValueError(f"The universal face model needs the 400x2000 five-camera strip, got {strip.shape}")
-        started = time.perf_counter()
         q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
         horizontal, vertical = np.tanh(t[1:3])
-        self.inference_ms = (time.perf_counter() - started) * 1000
         if self.puff_axis is not None:
             n, axis, unmix = self.puff_axis
             d = puff_depth(q, n, axis)
@@ -185,13 +178,13 @@ class UniversalFace:
                 share = d / max(float(d.max()), 1e-6)
             amount = max(p["CheekPuffLeft"], p["CheekPuffRight"])
             p["CheekPuffLeft"], p["CheekPuffRight"] = amount * float(share[0]), amount * float(share[1])
-        fresh = native is not None and abs(int(native["arrivalMonotonicNs"]) - now_ns) <= NATIVE_MAX_AGE_NS
-        nv = dict(zip(native_names, map(float, native["values"]))) if fresh else {}
+        fresh = fresh_values(native, native_names, now_ns)
+        nv = fresh or {}
         dt = 0. if self.share_ns is None else max(0., (now_ns - self.share_ns) / 1e9)
         self.share_ns = now_ns
         for base, (left, right) in NATIVE_RAISE.items():
             a, b = p[base + "Left"] + .05, p[base + "Right"] + .05
-            k = 1. if base not in self.share else 1. - np.exp(-dt / SHARE_SECONDS)
+            k = 1. if base not in self.share else 1. - math.exp(-dt / SHARE_SECONDS)
             self.share[base] = share = self.share.get(base, 0.) + k * (a / (a + b) - self.share.get(base, 0.))
             if left in nv and right in nv:
                 amp = (nv[left] + nv[right]) / 2
@@ -199,16 +192,14 @@ class UniversalFace:
         tongue_native = nv.get("TongueOut", 0.)
         values = {n: float(p[n]) for n in CHEEKS + BROWS}
         values["TongueOut"] = tongue_native
-        out = self.events.step(values, native, native_names, now_ns)
-        self.last = {**p, "TongueHorizontal": float(horizontal), "TongueVertical": float(vertical), **{"out:" + k: v for k, v in out.items()}}
+        out = self.events.step(values, native, fresh, now_ns)
         if self.enabled:
             packet = {"version": 1, "enabled": True, "values": {n: out[n] for n in self.sent}}
             if self.send_shares:
                 packet["shares"] = {b + side: round(float(v), 4) for b, sh in self.share.items() for side, v in (("Left", sh), ("Right", 1 - sh))}
-            self.socket.sendto(json.dumps(packet).encode(), ("127.0.0.1", 27278))
+            self.socket.sendto(json.dumps(packet).encode(), ("127.0.0.1", 27275))
             if self.tongue is not None:
-                self.tongue.send_prediction(TonguePrediction(values=np.array([max(0.4, tongue_native), horizontal, vertical], np.float32),
-                    visible=self.events.on["TongueOut"]), ["extension", "horizontal", "vertical"])
+                self.tongue.send(max(0.4, tongue_native), horizontal, vertical, self.events.on["TongueOut"])
 
     def close(self):
         with GPU_LOCK:
@@ -217,5 +208,5 @@ class UniversalFace:
         if self.tongue is not None:
             self.tongue.close()
         if self.enabled:
-            self.socket.sendto(b'{"version":1,"enabled":false,"values":{}}', ("127.0.0.1", 27278))
+            self.socket.sendto(b'{"version":1,"enabled":false,"values":{}}', ("127.0.0.1", 27275))
         self.socket.close()

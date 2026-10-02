@@ -3,6 +3,7 @@
 *.cs text eol=lf
 *.c text eol=lf
 *.h text eol=lf
+*.cpp text eol=lf
 *.js text eol=lf
 *.cjs text eol=lf
 *.xaml text eol=lf

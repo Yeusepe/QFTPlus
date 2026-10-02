@@ -298,7 +298,7 @@ def main():
                 stop_frida_server(root, SERVER)
             except Exception as exc:
                 if 'Quest' in ended:
-                    print('Headset helper not stopped (headset unreachable); the next run reuses it.', flush=True)
+                    print('Headset helper not stopped yet (headset unreachable); the headset stops it once the connection closes.', flush=True)
                 else:
                     cleanup_errors.append('Server cleanup: ' + str(exc))
             try:

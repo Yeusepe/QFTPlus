@@ -23,6 +23,12 @@ TRACE_ROOT = "/sys/kernel/tracing"
 TRACE_INSTANCE = "qpro_raw_eye"
 TRACE_GROUP = "qpro_raw_eye"
 INSTANCE_PATH = f"{TRACE_ROOT}/instances/{TRACE_INSTANCE}"
+RELEASE = [f"echo 0 > {INSTANCE_PATH}/tracing_on",
+           *(command for name in ("detector_output", "detector_output_secondary") for command in (
+               f"echo 0 > {INSTANCE_PATH}/events/{TRACE_GROUP}/{name}/enable",
+               f"echo '-:{TRACE_GROUP}/{name}' >> {TRACE_ROOT}/uprobe_events")),
+           "for qpro_pid in $(pidof cat); do "
+           f"grep -q '{INSTANCE_PATH}/trace_pipe' /proc/$qpro_pid/cmdline && kill $qpro_pid; done"]
 
 DETECTOR_SAMPLE = re.compile(
     r"(?P<time>\d+\.\d+): detector_output(?:_secondary)?: .*?"
@@ -146,13 +152,10 @@ class RawTraceEyeReader:
 
     def _cleanup(self) -> None:
         shell = self._shell
-        shell.run(f"echo 0 > {INSTANCE_PATH}/tracing_on", check=False)
-        for name in ("detector_output", "detector_output_secondary", "eye_visual_axis"):
-            shell.run(f"echo 0 > {INSTANCE_PATH}/events/{TRACE_GROUP}/{name}/enable", check=False)
-            shell.run(f"echo '-:{TRACE_GROUP}/{name}' >> {TRACE_ROOT}/uprobe_events", check=False)
-        shell.run("for qpro_pid in $(pidof cat); do "
-                  f"grep -q '{INSTANCE_PATH}/trace_pipe' /proc/$qpro_pid/cmdline && kill $qpro_pid; done",
-                  check=False, timeout=2.0)
+        if not shell.alive:
+            return
+        for command in RELEASE:
+            shell.run(command, check=False)
         for _ in range(8):
             shell.run(f"echo 1 > {INSTANCE_PATH}/free_buffer", check=False, timeout=2.0)
             if shell.run(f"rmdir {INSTANCE_PATH}; test ! -d {INSTANCE_PATH}", check=False, timeout=2.0) is not None:
@@ -185,6 +188,8 @@ class RawTraceEyeReader:
     def start(self) -> None:
         self._shell = RootShell()
         try:
+            self._shell.undo_on_exit("; ".join(RELEASE) + "; for attempt in 1 2 3 4 5 6 7 8; do "
+                                     f"echo 1 > {INSTANCE_PATH}/free_buffer; rmdir {INSTANCE_PATH} && break; sleep 0.15; done")
             try:
                 engine_size = int(self._shell.run(f"stat -c %s {ENGINE_PATH}").splitlines()[-1])
             except (ValueError, IndexError) as error:
@@ -231,6 +236,8 @@ class RawTraceEyeReader:
                     except queue.Empty:
                         pass
                     self.samples.put_nowait(sample)
+            if not self._stopping:
+                raise RuntimeError("The headset's eye trace stopped. Make sure the headset is connected, then start tracking again.")
         except Exception as error:
             try:
                 self.errors.put_nowait(str(error))

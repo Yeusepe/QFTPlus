@@ -30,7 +30,7 @@ internal sealed class SteamLinkState
         "TongueTipInterdental", "TongueTipAlveolar", "TongueFrontDorsalPalate",
         "TongueMidDorsalPalate", "TongueBackDorsalVelar", "TongueOut", "TongueRetreat"
     ];
-    private static readonly Dictionary<string, int> Indices = BuildIndices();
+    private static readonly Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> Indices = BuildIndices().GetAlternateLookup<ReadOnlySpan<char>>();
     private readonly float[] _values = new float[70];
     private readonly long[] _ticks = new long[70];
     private long _gazeTick;
@@ -65,18 +65,17 @@ internal sealed class SteamLinkState
             return;
         }
         int position = 0;
-        string? address = ReadString(packet, ref position);
-        string? types = ReadString(packet, ref position);
-        if (address is null || types is null) return;
-        if (address == "/sl/eyeTrackedGazePoint" && types == ",fff" && packet.Length - position == 12)
+        var address = ReadString(packet, ref position);
+        var types = ReadString(packet, ref position);
+        if (address.SequenceEqual("/sl/eyeTrackedGazePoint"u8) && types.SequenceEqual(",fff"u8) && packet.Length - position == 12)
         {
             float x = ReadFloat(packet, position), y = ReadFloat(packet, position + 4), z = ReadFloat(packet, position + 8);
             if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z) || z >= -0.000001f) return;
             _gaze = Quaternion.CreateFromYawPitchRoll(-MathF.Atan2(x, -z), MathF.Atan2(y, -z), 0);
             _gazeTick = tick;
         }
-        else if (address.StartsWith("/sl/xrfb/facew/", StringComparison.Ordinal) && types == ",f" && packet.Length - position == 4
-            && Indices.TryGetValue(address[15..], out int index))
+        else if (address.StartsWith("/sl/xrfb/facew/"u8) && types.SequenceEqual(",f"u8) && packet.Length - position == 4
+            && Index(address[15..]) is >= 0 and var index)
         {
             float value = ReadFloat(packet, position);
             if (!float.IsFinite(value)) return;
@@ -85,18 +84,22 @@ internal sealed class SteamLinkState
         }
     }
 
-    private static string? ReadString(ReadOnlySpan<byte> packet, ref int position)
+    private static ReadOnlySpan<byte> ReadString(ReadOnlySpan<byte> packet, ref int position)
     {
-        if (position >= packet.Length) return null;
+        if (position >= packet.Length) return default;
         int end = packet[position..].IndexOf((byte)0);
-        if (end < 0) return null;
-        string value = Encoding.ASCII.GetString(packet.Slice(position, end));
+        if (end < 0) return default;
+        var value = packet.Slice(position, end);
         position = (position + end + 4) & ~3;
-        return position <= packet.Length ? value : null;
+        return position <= packet.Length ? value : default;
+    }
+    private static int Index(ReadOnlySpan<byte> name)
+    {
+        Span<char> chars = stackalloc char[32];
+        return name.Length <= chars.Length && Indices.TryGetValue(chars[..Encoding.ASCII.GetChars(name, chars)], out int index) ? index : -1;
     }
     private static float ReadFloat(ReadOnlySpan<byte> data, int offset) =>
         BinaryPrimitives.ReadSingleBigEndian(data.Slice(offset, 4));
-    private static bool Fresh(long now, long tick) => tick > 0 && now >= tick && now - tick <= TimeoutMs;
 
     internal bool CopyTo(byte[] state, long now)
     {
@@ -104,18 +107,18 @@ internal sealed class SteamLinkState
         bool face = true, any = false;
         for (int i = 0; i < _values.Length; i++)
         {
-            bool fresh = Fresh(now, _ticks[i]);
+            bool fresh = Packets.Fresh(_ticks[i], now, TimeoutMs);
             any |= fresh;
             if (i < 63) face &= fresh;
             if (fresh) BitConverter.TryWriteBytes(state.AsSpan(4 + i * 4, 4), _values[i]);
         }
         state[0] = face ? (byte)1 : (byte)0;
-        if (Fresh(now, _gazeTick))
+        if (Packets.Fresh(_gazeTick, now, TimeoutMs))
         {
             any = true;
             state[1] = state[292] = state[293] = 1;
-            foreach (int offset in new[] { 296, 324 })
-                MemoryMarshal.Write(state.AsSpan(offset, 16), in _gaze);
+            MemoryMarshal.Write(state.AsSpan(296, 16), in _gaze);
+            MemoryMarshal.Write(state.AsSpan(324, 16), in _gaze);
             BitConverter.TryWriteBytes(state.AsSpan(352, 4), 1f);
             BitConverter.TryWriteBytes(state.AsSpan(356, 4), 1f);
         }

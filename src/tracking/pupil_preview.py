@@ -55,15 +55,12 @@ def detect_pupil(gray: np.ndarray, *, diameter_range=None) -> Pupil | None:
             if contrast < 20:
                 continue
             candidates.append((contrast * fill, Pupil(ellipse, major)))
-    pupils = []
-    for score, pupil in candidates:
-        x, y = pupil.ellipse[0]
-        nested = any(other.diameter_px < pupil.diameter_px * .78
-                     and np.linalg.norm(np.asarray(other.ellipse[0])-(x, y)) < pupil.diameter_px * .18
-                     for _, other in candidates)
-        if nested:
-            continue
-        if diameter_range is not None and not diameter_range[0] <= pupil.diameter_px <= diameter_range[1]:
-            continue
-        pupils.append((score, pupil))
-    return max(pupils, key=lambda item: item[0])[1] if pupils else None
+    if not candidates:
+        return None
+    score = np.array([s for s, _ in candidates])
+    size = np.array([p.diameter_px for _, p in candidates])
+    center = np.array([p.ellipse[0] for _, p in candidates])
+    nested = ((size[None] < size[:, None] * .78)
+              & (np.linalg.norm(center[None] - center[:, None], axis=2) < size[:, None] * .18)).any(1)
+    keep = ~nested if diameter_range is None else ~nested & (diameter_range[0] <= size) & (size <= diameter_range[1])
+    return candidates[np.flatnonzero(keep)[np.argmax(score[keep])]][1] if keep.any() else None

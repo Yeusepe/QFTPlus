@@ -26,12 +26,12 @@ public partial class StudioWindow
         dismissedUpdate = session.Config["dismissedUpdate"]?.GetValue<string>();
         async Task CheckIfDue()
         {
-            if (!preview && session.Config["checkForUpdates"]?.GetValue<bool>() != false && DateTime.UtcNow - lastUpdateAttempt >= TimeSpan.FromDays(1))
+            if (session.Config["checkForUpdates"]?.GetValue<bool>() != false && DateTime.UtcNow - lastUpdateAttempt >= TimeSpan.FromDays(1))
                 await CheckUpdates();
         }
         Activated += async (_, _) => await CheckIfDue();
         updateTimer.Tick += async (_, _) => await CheckIfDue();
-        if (!preview) updateTimer.Start();
+        updateTimer.Start();
         Closed += (_, _) => { updateTimer.Stop(); updateLifetime.Cancel(); updateLifetime.Dispose(); };
     }
 
@@ -75,19 +75,15 @@ public partial class StudioWindow
 
     async Task InstallUpdate()
     {
-        if (installingUpdate || preview || updater is null || availableUpdate is not { } info) { if (availableUpdate is null) OpenUpdate(); return; }
+        if (installingUpdate || updater is null || availableUpdate is not { } info) { if (availableUpdate is null) OpenUpdate(); return; }
         if (busy || recording || training) { Error("Finish calibration or setup, then install the update."); return; }
         installingUpdate = true; updatePercent = 0; updateStatus = "Downloading the update…"; RefreshUpdates();
         using var stalled = CancellationTokenSource.CreateLinkedTokenSource(updateLifetime.Token);
-        var progressed = DateTime.UtcNow;
-        using var watchdog = new Timer(_ => { if (DateTime.UtcNow - progressed > TimeSpan.FromMinutes(2)) stalled.Cancel(); }, null, 10000, 10000);
+        var stall = TimeSpan.FromMinutes(2); stalled.CancelAfter(stall);
+        IProgress<int> shown = new Progress<int>(percent => { updatePercent = percent; updateStatus = $"Downloading the update… {percent}%"; RefreshUpdates(); });
         try
         {
-            await updater.DownloadUpdatesAsync(info, percent =>
-            {
-                progressed = DateTime.UtcNow;
-                Dispatcher.BeginInvoke(() => { updatePercent = percent; updateStatus = $"Downloading the update… {percent}%"; RefreshUpdates(); });
-            }, stalled.Token);
+            await updater.DownloadUpdatesAsync(info, percent => { stalled.CancelAfter(stall); shown.Report(percent); }, stalled.Token);
             updateStatus = "Installing the update…"; RefreshUpdates();
             updater.WaitExitThenApplyUpdates(info.TargetFullRelease, silent: false, restart: true);
             await Quit();
@@ -103,7 +99,7 @@ public partial class StudioWindow
     }
     void UninstallOptions()
     {
-        if (preview || WorkingCopy.Installed() is null) return;
+        if (WorkingCopy.Installed() is null) return;
         var panel = new StackPanel();
         var heading = Text("Uninstall", 16); heading.FontWeight = FontWeights.SemiBold;
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2); panel.Children.Add(heading);
@@ -153,22 +149,16 @@ public partial class StudioWindow
 
     void DismissFeedback(object sender, RoutedEventArgs e)
     {
-        if (!preview)
-        {
-            try { session.Save("feedbackDismissed", true); }
-            catch (Exception) { Error("The request is hidden for now. Your preference couldn’t be saved."); }
-        }
+        try { session.Save("feedbackDismissed", true); }
+        catch (Exception) { Error("The request is hidden for now. Your preference couldn’t be saved."); }
         FeedbackBanner.Visibility = Visibility.Collapsed;
     }
 
     void DismissUpdate(object sender, RoutedEventArgs e)
     {
         dismissedUpdate = AvailableVersion;
-        if (!preview)
-        {
-            try { session.Save("dismissedUpdate", dismissedUpdate); }
-            catch (Exception) { Error("The update is hidden for now. Your preference couldn’t be saved."); }
-        }
+        try { session.Save("dismissedUpdate", dismissedUpdate); }
+        catch (Exception) { Error("The update is hidden for now. Your preference couldn’t be saved."); }
         RefreshUpdates();
     }
 
@@ -187,9 +177,9 @@ public partial class StudioWindow
         var view = Button("View releases", OpenUpdate);
         foreach (var button in new[] { install, check, view }) { button.Margin = new(0, 0, 8, 8); actions.Children.Add(button); }
         var automatic = new CheckBox { Content = new TextBlock { Text = "Check for updates automatically" }, IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
-        automatic.Click += (_, _) => { if (!preview) session.Save("checkForUpdates", automatic.IsChecked == true); };
+        automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
         panel.Children.Add(automatic);
-        panel.Children.Add(Text(updater is null && !preview ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."
+        panel.Children.Add(Text(updater is null ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."
             : (installedVersion?.IsPrerelease == true ? "Includes release candidates. " : "") + "Updates install here and keep your settings, calibrations, and recordings.", 13, true));
         Page.Children.Add(Card(panel));
         updateRefresh = () =>

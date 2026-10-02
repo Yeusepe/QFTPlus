@@ -23,7 +23,7 @@ internal static class Processes
     internal static Task<(int Code, string Text)> RunAsync(string exe, IEnumerable<string> args, CancellationToken token = default, int seconds = 15, string? successPrefix = null) =>
         RunAsync(Info(exe, args), token, seconds, successPrefix);
 
-    internal static async Task<(int Code, string Text)> RunAsync(ProcessStartInfo info, CancellationToken token = default, int seconds = 15, string? successPrefix = null)
+    internal static async Task<(int Code, string Text)> RunAsync(ProcessStartInfo info, CancellationToken token = default, int seconds = 15, string? successPrefix = null, Stream? output = null)
     {
         info.RedirectStandardOutput = info.RedirectStandardError = true;
         using var process = Process.Start(info) ?? throw new IOException(Path.GetFileName(info.FileName) + " didn’t start.");
@@ -33,6 +33,7 @@ internal static class Processes
         try
         {
             var text = new StringBuilder();
+            if (output is not null) await process.StandardOutput.BaseStream.CopyToAsync(output, timeout.Token);
             while (await process.StandardOutput.ReadLineAsync(timeout.Token) is { } line)
             {
                 if (successPrefix is not null && line.StartsWith(successPrefix, StringComparison.Ordinal)) return (0, line);
@@ -46,6 +47,6 @@ internal static class Processes
             token.ThrowIfCancellationRequested();
             return (-1, "Timed out");
         }
-        finally { try { process.Kill(true); } catch (Exception failure) when (failure is Win32Exception or InvalidOperationException) { } }
+        finally { try { process.Kill(); } catch (Exception failure) when (failure is Win32Exception or InvalidOperationException) { } }
     }
 }

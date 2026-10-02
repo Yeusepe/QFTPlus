@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -20,7 +18,7 @@ internal static class PythonRuntime
         catch (Exception error) when (error is IOException or System.Text.Json.JsonException) { return false; }
     }
 
-    static string LockHash(string root) => Hash(Path.Combine(root, "requirements-runtime.lock.txt")).ToUpperInvariant();
+    static string LockHash(string root) => WorkingCopy.Hash(Path.Combine(root, "requirements-runtime.lock.txt")).ToUpperInvariant();
 
     internal static async Task EnsureAsync(string root, CancellationToken token)
     {
@@ -28,14 +26,17 @@ internal static class PythonRuntime
         var requirements = Path.Combine(root, "requirements-runtime.lock.txt");
         var archive = Path.Combine(root, "python-runtime", "python-3.13.15-embed-amd64.zip");
         var wheels = Path.Combine(root, "python-runtime", "wheels");
-        if (!File.Exists(archive) || !Directory.Exists(wheels)) throw new IOException("Bundled components are missing. Reinstall QFT+.");
-        if (Hash(archive) != ArchiveHash) throw new IOException("The Python archive failed verification. Reinstall QFT+.");
-        Directory.CreateDirectory(runtime);
-        ZipFile.ExtractToDirectory(archive, runtime, true);
-        WritePythonPath(runtime);
         var pip = Path.Combine(wheels, "pip-26.2.1-py3-none-any.whl");
-        var pipHash = Regex.Match(File.ReadAllText(requirements), @"(?m)^pip==\S+ --hash=sha256:([0-9a-f]{64})").Groups[1].Value;
-        if (!File.Exists(pip) || Hash(pip) != pipHash) throw new IOException("The package installer failed verification. Reinstall QFT+.");
+        await Task.Run(() =>
+        {
+            if (!File.Exists(archive) || !Directory.Exists(wheels)) throw new IOException("Bundled components are missing. Reinstall QFT+.");
+            if (WorkingCopy.Hash(archive) != ArchiveHash) throw new IOException("The Python archive failed verification. Reinstall QFT+.");
+            Directory.CreateDirectory(runtime);
+            ZipFile.ExtractToDirectory(archive, runtime, true);
+            WritePythonPath(runtime);
+            var pipHash = Regex.Match(File.ReadAllText(requirements), @"(?m)^pip==\S+ --hash=sha256:([0-9a-f]{64})").Groups[1].Value;
+            if (!File.Exists(pip) || WorkingCopy.Hash(pip) != pipHash) throw new IOException("The package installer failed verification. Reinstall QFT+.");
+        }, token);
         if (await RunAsync(Exe(root), ["-c", "import sys,runpy; sys.path.insert(0,sys.argv.pop(1)); runpy.run_module('pip',run_name='__main__')", pip,
                 "install", "--require-hashes", "--no-deps", "--no-index", "--no-compile", "--disable-pip-version-check", "--upgrade",
                 "--find-links", wheels, "--target", Path.Combine(runtime, "Lib", "site-packages"), "-r", requirements], token) != 0)
@@ -47,17 +48,10 @@ internal static class PythonRuntime
     static void WritePythonPath(string runtime) =>
         File.WriteAllLines(Path.Combine(runtime, "python313._pth"), ["python313.zip", ".", @"Lib\site-packages", "..", @"..\hybrid"]);
 
-    static string Hash(string path) { using var stream = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant(); }
-
     internal static async Task<int> RunAsync(string exe, string[] args, CancellationToken token)
     {
         var (code, text) = await Processes.RunAsync(exe, args, token, 1800);
-        Log(Path.GetDirectoryName(Path.GetDirectoryName(exe))!, text);
+        if (text.Trim().Length > 0) Session.Log(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(exe))!, "setup.log"), $"{DateTimeOffset.Now:O} {text.Trim()}");
         return code;
-    }
-
-    static void Log(string root, string text)
-    {
-        if (text.Trim().Length > 0) File.AppendAllText(Path.Combine(root, "setup.log"), $"{DateTimeOffset.Now:O} {text.Trim()}{Environment.NewLine}");
     }
 }

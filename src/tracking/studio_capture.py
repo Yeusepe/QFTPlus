@@ -7,6 +7,8 @@ import zlib
 import cv2
 from capture_format import CaptureWriter
 from guided_session import SLOW, EnrollmentSession, GuidedSession, benchmark_steps, enrollment_steps
+from label_capture import fresh_values
+from pupil_dilation import DURATION, STAGES, PupilDilation
 
 
 def publish(path, value):
@@ -70,7 +72,6 @@ class StudioCapture:
                 self.label_sequence = self.label_schema = None
                 self.open_video()
             else:
-                from pupil_dilation import PupilDilation
                 self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False)
                 self.pupil.calibrate()
         elif action == 'cancel':
@@ -90,7 +91,7 @@ class StudioCapture:
             self.last_poll = now
             try:
                 command = json.loads((self.root/'studio.command.json').read_text(encoding='utf-8-sig'))
-            except (OSError, ValueError, KeyError, TypeError) as error:
+            except (OSError, ValueError, KeyError, TypeError):
                 command = None
             if isinstance(command, dict):
                 try:
@@ -105,7 +106,6 @@ class StudioCapture:
                     self.state['error'] = 'Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.'
                 else:
                     self.pupil.update(strip)
-                    from pupil_dilation import DURATION, STAGES
                     phase = self.pupil.phase
                     elapsed = min(DURATION, max(0, now-self.pupil.started))
                     self.state.update(level=self.pupil.level, remaining=round(DURATION-elapsed), progress=elapsed/DURATION,
@@ -128,8 +128,6 @@ class StudioCapture:
             raise OSError('Couldn’t save the recording. Make sure this PC has free disk space, then try again.')
 
     def update_guided(self, strip, header, payload, monotonic_ns, labels, now):
-        if strip.shape != (400, 2000):
-            raise ValueError('This needs all five headset cameras. Restart tracking, then try again.')
         if now-self.last_ui > 3:
             self.paused = True
         guided = self.guided
@@ -149,9 +147,7 @@ class StudioCapture:
             label = labels.nearest_sample(monotonic_ns) if labels else None
             if isinstance(guided, EnrollmentSession):
                 fingerprint = zlib.crc32(payload)
-                fresh = label is not None and abs(int(label['arrivalMonotonicNs'])-monotonic_ns) <= 100_000_000
-                guided.observe(strip, dict(zip(labels.schema_names or [], label['values'])) if fresh else None,
-                               fingerprint == self.last_hash)
+                guided.observe(strip, fresh_values(label, labels.schema_names, monotonic_ns), fingerprint == self.last_hash)
                 self.last_hash = fingerprint
             if label is not None and label.get('sourceSequence') != self.label_sequence:
                 if labels.schema_names != self.label_schema:
@@ -169,10 +165,8 @@ class StudioCapture:
     def finish(self, complete):
         if self.guided:
             self.guided.finish(complete)
-        for obj in (self.writer, self.labels):
-            if obj is not None:
-                if isinstance(obj, CaptureWriter): obj.close(completed=complete)
-                else: obj.close()
+        if self.writer is not None: self.writer.close(completed=complete)
+        if self.labels is not None: self.labels.close()
         if self.video is not None: self.video.release()
         if self.pupil is not None: self.pupil.close()
         self.writer = self.labels = self.video = self.pupil = self.guided = None

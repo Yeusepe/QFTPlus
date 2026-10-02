@@ -1,12 +1,9 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
-#include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
@@ -56,25 +53,6 @@ static int read_text(const char *path, char *buffer, size_t size) {
     return (int)count;
 }
 
-static int is_service(pid_t pid) {
-    char command[128];
-    const char *name = program_name(pid, command, sizeof command);
-    return name != NULL && strcmp(name, SERVICE) == 0;
-}
-
-static pid_t find_service(void) {
-    DIR *proc = opendir("/proc");
-    if (proc == NULL) return -1;
-    pid_t found = -1;
-    struct dirent *entry;
-    while (found < 0 && (entry = readdir(proc)) != NULL) {
-        if (isdigit((unsigned char)entry->d_name[0]) && is_service((pid_t)atoi(entry->d_name)))
-            found = (pid_t)atoi(entry->d_name);
-    }
-    closedir(proc);
-    return found;
-}
-
 static int find_page(pid_t pid, const char *name, unsigned long *start, unsigned long *end, unsigned long *inode) {
     char path[64], needle[64], line[512];
     int found = 0;
@@ -118,8 +96,7 @@ static int current_pages(const Source *source) {
 static int ensure_source(Source *source) {
     if (source->pid > 0 && current_pages(source)) return 1;
     close_source(source);
-    source->pid = find_service();
-    if (source->pid < 0) return 0;
+    if (!find_pids(SERVICE, &source->pid, 1)) return 0;
     for (int side = 0; side < 2; side++) source->pages[side] = map_page(source->pid, PAGE_NAMES[side], &source->inodes[side]);
     if (source->pages[0] != NULL && source->pages[1] != NULL) return 1;
     close_source(source);
@@ -170,7 +147,7 @@ static void stream(int client, Source *source) {
                 uint32_t seq;
                 uint8_t packet[PACKET_BYTES];
                 if (!read_packet(source->pages[side], kind, side, &seq, packet) || (have[kind][side] && seq == sent[kind][side])) continue;
-                if (send(client, packet, sizeof packet, MSG_NOSIGNAL) != (ssize_t)sizeof packet) return;
+                if (!send_all(client, packet, sizeof packet)) return;
                 sent[kind][side] = seq;
                 have[kind][side] = 1;
             }
@@ -210,8 +187,7 @@ static void serve(int server) {
             if (errno == EINTR) continue;
             break;
         }
-        int on = 1;
-        setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
+        configure_client(client);
         ensure_source(&source);
         stream(client, &source);
         close(client);

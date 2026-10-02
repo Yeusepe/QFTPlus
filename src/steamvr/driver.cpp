@@ -5,9 +5,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "contact.h"
 #include "openvr_driver.h"
@@ -61,7 +63,7 @@ float Axis(uint16_t raw, float lo, float hi) {
 float Setting(const char *key, float fallback) {
     EVRSettingsError error = VRSettingsError_None;
     float value = VRSettings()->GetFloat(kSection, key, &error);
-    return error == VRSettingsError_None ? value : fallback;
+    return error == VRSettingsError_None && std::isfinite(value) ? value : fallback;
 }
 
 constexpr const char *kModes[] = {"native", "joystick", "swipe", "mouse"};
@@ -103,8 +105,8 @@ void ReadSettings() {
     k.mouseSpeed = Setting("mouseSpeed", d.mouseSpeed);
     k.slideTouchCurl = Setting("triggerTouchCurl", d.slideTouchCurl);
     k.slideReversed = Setting("triggerSlideReversed", d.slideReversed) != 0;
-    if (k.forceHigh <= k.forceLow || k.forceCurve <= 0 || k.joystickRange <= 0 || k.swipeDecayMs <= 0 ||
-        k.xMax <= k.xMin || k.yMax <= k.yMin)
+    if (k.forceHigh <= k.forceLow || k.forceCurve <= 0 || k.joystickRange <= 0 || k.swipeDecayMs < 1 ||
+        k.xMax <= k.xMin || k.yMax <= k.yMin || std::fabs(k.mouseSpeed) > 1e6f)
         k = d;
     Mode mode = ReadMode();
     std::lock_guard<std::mutex> hold(g_lock);
@@ -136,6 +138,7 @@ void Adopt(uint32_t id) {
     input->CreateScalarComponent(c, "/input/trackpad/force", &pad.force, VRScalarType_Absolute, VRScalarUnits_NormalizedOneSided);
     input->CreateBooleanComponent(c, "/input/trackpad/click", &pad.click);
     input->CreateScalarComponent(c, "/input/trigger_slide/x", &pad.slideX, VRScalarType_Absolute, VRScalarUnits_NormalizedTwoSided);
+    input->UpdateScalarComponent(pad.slideX, 0, 0);
     input->CreateScalarComponent(c, "/input/trigger_slide/y", &pad.slideY, VRScalarType_Absolute, VRScalarUnits_NormalizedTwoSided);
     input->CreateBooleanComponent(c, "/input/trigger_slide/touch", &pad.slideTouch);
     std::lock_guard<std::mutex> hold(g_lock);
@@ -163,22 +166,31 @@ private:
 
 using AddedFn = bool (*)(IVRServerDriverHost *, const char *, ETrackedDeviceClass, ITrackedDeviceServerDriver *);
 AddedFn g_added = nullptr;
+void **g_slot = nullptr;
+std::vector<std::unique_ptr<Shim>> g_shims;
 
 bool Added(IVRServerDriverHost *host, const char *serial, ETrackedDeviceClass kind, ITrackedDeviceServerDriver *driver) {
-    if (kind == TrackedDeviceClass_Controller && driver != nullptr) driver = new Shim(driver);
+    if (kind == TrackedDeviceClass_Controller && driver != nullptr) {
+        std::lock_guard<std::mutex> hold(g_lock);
+        driver = g_shims.emplace_back(std::make_unique<Shim>(driver)).get();
+    }
     return g_added(host, serial, kind, driver);
+}
+
+bool Patch(void *target) {
+    DWORD old;
+    if (!VirtualProtect(g_slot, sizeof(void *), PAGE_READWRITE, &old)) return false;
+    g_slot[0] = target;
+    VirtualProtect(g_slot, sizeof(void *), old, &old);
+    return true;
 }
 
 bool Hook() {
     auto *host = static_cast<IVRServerDriverHost *>(VRDriverContext()->GetGenericInterface(IVRServerDriverHost_Version));
     if (host == nullptr) return false;
-    void **slot = *reinterpret_cast<void ***>(host);
-    DWORD old;
-    if (!VirtualProtect(slot, sizeof(void *), PAGE_READWRITE, &old)) return false;
-    g_added = reinterpret_cast<AddedFn>(slot[0]);
-    slot[0] = reinterpret_cast<void *>(&Added);
-    VirtualProtect(slot, sizeof(void *), old, &old);
-    return true;
+    g_slot = *reinterpret_cast<void ***>(host);
+    g_added = reinterpret_cast<AddedFn>(g_slot[0]);
+    return Patch(reinterpret_cast<void *>(&Added));
 }
 
 void Store(const char *packet) {
@@ -186,6 +198,7 @@ void Store(const char *packet) {
         Slide slide;
         std::memcpy(&slide.position, packet + 6, 4);
         std::memcpy(&slide.curl, packet + 10, 4);
+        if (!std::isfinite(slide.position) || !std::isfinite(slide.curl)) return;
         slide.received = Now();
         std::lock_guard<std::mutex> hold(g_lock);
         g_slides[packet[0] - 2] = slide;
@@ -198,6 +211,7 @@ void Store(const char *packet) {
     std::memcpy(&y, packet + 4, 2);
     std::memcpy(&pad.force, packet + 6, 4);
     std::memcpy(&pad.size, packet + 10, 4);
+    if (!std::isfinite(pad.force) || !std::isfinite(pad.size)) return;
     pad.state = static_cast<uint8_t>(packet[1]);
     pad.received = Now();
     std::lock_guard<std::mutex> hold(g_lock);
@@ -293,39 +307,57 @@ public:
     void Cleanup() override {
         g_running = false;
         if (g_receiver.joinable()) g_receiver.join();
+        if (g_slot != nullptr && g_slot[0] == reinterpret_cast<void *>(&Added)) Patch(reinterpret_cast<void *>(g_added));
+        g_shims.clear();
         VR_CLEANUP_SERVER_DRIVER_CONTEXT();
     }
     const char *const *GetInterfaceVersions() override { return k_InterfaceVersions; }
     void RunFrame() override {
-        uint64_t now = Now();
-        if (g_running && now - g_settingsRead >= 1000000) {
-            g_settingsRead = now;
+        if (g_running && Now() - g_settingsRead >= 1000000) {
+            g_settingsRead = Now();
             ReadSettings();
         }
-        std::lock_guard<std::mutex> hold(g_lock);
+        struct Frame {
+            Trackpad t;
+            Report r;
+            Pad pad;
+            bool active = false, onTrigger = false;
+            float slide = 0;
+        } frames[2];
+        {
+            std::lock_guard<std::mutex> hold(g_lock);
+            uint64_t now = Now();
+            for (int side = 0; side < 2; side++) {
+                Frame &f = frames[side];
+                f.t = g_trackpads[side];
+                if (f.t.container == k_ulInvalidPropertyContainer) continue;
+                Pad &p = g_pads[side];
+                if ((p.state & 1) && now - p.received >= kStaleUs) {
+                    if (p.contact == Contact::Active) p.lifted = now;
+                    p.state = 0;
+                    p.contact = Contact::None;
+                }
+                f.r = Evaluate(p, now, g_mode, g_tuning);
+                f.pad = p;
+                f.active = (p.state & 1) && p.contact == Contact::Active;
+                const Slide &s = g_slides[side];
+                f.onTrigger = now - s.received < kStaleUs && s.curl >= g_tuning.slideTouchCurl;
+                float along = std::clamp(s.position, 0.0f, 1.0f) * 2 - 1;
+                f.slide = f.onTrigger ? (g_tuning.slideReversed ? -along : along) : 0;
+            }
+        }
         IVRDriverInput *input = VRDriverInput();
         for (int side = 0; side < 2; side++) {
-            const Trackpad &t = g_trackpads[side];
-            if (t.container == k_ulInvalidPropertyContainer) continue;
-            Pad &p = g_pads[side];
-            if ((p.state & 1) && now - p.received >= kStaleUs) {
-                if (p.contact == Contact::Active) p.lifted = now;
-                p.state = 0;
-                p.contact = Contact::None;
-            }
-            Report r = Evaluate(p, now, g_mode, g_tuning);
-            MoveCursor(g_cursors[side], p, (p.state & 1) && p.contact == Contact::Active);
-            input->UpdateBooleanComponent(t.touch, r.touch, 0);
-            input->UpdateScalarComponent(t.x, r.x, 0);
-            input->UpdateScalarComponent(t.y, r.y, 0);
-            input->UpdateScalarComponent(t.force, r.force, 0);
-            input->UpdateBooleanComponent(t.click, r.click, 0);
-            const Slide &s = g_slides[side];
-            bool onTrigger = now - s.received < kStaleUs && s.curl >= g_tuning.slideTouchCurl;
-            float along = std::clamp(s.position, 0.0f, 1.0f) * 2 - 1;
-            input->UpdateBooleanComponent(t.slideTouch, onTrigger, 0);
-            input->UpdateScalarComponent(t.slideX, 0, 0);
-            input->UpdateScalarComponent(t.slideY, onTrigger ? (g_tuning.slideReversed ? -along : along) : 0, 0);
+            const Frame &f = frames[side];
+            if (f.t.container == k_ulInvalidPropertyContainer) continue;
+            MoveCursor(g_cursors[side], f.pad, f.active);
+            input->UpdateBooleanComponent(f.t.touch, f.r.touch, 0);
+            input->UpdateScalarComponent(f.t.x, f.r.x, 0);
+            input->UpdateScalarComponent(f.t.y, f.r.y, 0);
+            input->UpdateScalarComponent(f.t.force, f.r.force, 0);
+            input->UpdateBooleanComponent(f.t.click, f.r.click, 0);
+            input->UpdateBooleanComponent(f.t.slideTouch, f.onTrigger, 0);
+            input->UpdateScalarComponent(f.t.slideY, f.slide, 0);
         }
     }
     bool ShouldBlockStandbyMode() override { return false; }

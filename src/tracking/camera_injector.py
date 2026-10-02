@@ -7,7 +7,7 @@ import frida
 from headset import RootShell, adb, start_frida_server, stop_frida_server
 
 SERVER = 'quest-camera-frida'
-LIBRARY = '/data/local/tmp/libquestpro-camera-streamer-v9.so'
+LIBRARY = '/data/local/tmp/libquestpro-camera-streamer-v10.so'
 
 
 def inject() -> None:

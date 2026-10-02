@@ -53,20 +53,20 @@ internal static class WorkingCopy
 
     static JsonObject? Settings()
     {
-        try { return File.Exists(SetupService.AutoPath) ? CalibrationSettings.ReadJson(SetupService.AutoPath) : null; }
+        try { return CalibrationSettings.ReadJson(SetupService.AutoPath); }
         catch (Exception error) when (error is IOException or System.Text.Json.JsonException) { return null; }
     }
 
-    static Dictionary<string, string> Read(string sums) => File.ReadAllLines(sums).Select(l => l.Split("  ", 2)).Where(p => p.Length == 2)
+    internal static Dictionary<string, string> Read(string sums) => File.ReadAllLines(sums).Select(l => l.Split("  ", 2)).Where(p => p.Length == 2)
         .ToDictionary(p => p[1].Replace('/', '\\'), p => p[0].ToLowerInvariant(), StringComparer.OrdinalIgnoreCase);
 
-    static string Inside(string folder, string relative)
+    internal static string Inside(string folder, string relative)
     {
         var path = Path.GetFullPath(Path.Combine(folder, relative));
         return path.StartsWith(folder + Path.DirectorySeparatorChar, Ignore) ? path : throw new IOException("Unsafe path in the file list: " + relative);
     }
 
-    static string Hash(string file) { using var stream = File.OpenRead(file); return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant(); }
+    internal static string Hash(string file) { using var stream = File.OpenRead(file); return Convert.ToHexStringLower(SHA256.HashData(stream)); }
 
     static void Link(string source, string target)
     {

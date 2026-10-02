@@ -20,7 +20,7 @@
 #define FRAME_COUNTER_OFFSET (SENSOR_BYTES + (size_t)24)
 #define FACE_X 800
 #define MAX_CAMERA_MAPS 16
-#define LOG_PATH "/data/local/tmp/questpro-live-v9.log"
+#define LOG_PATH "/data/local/tmp/questpro-live-v10.log"
 
 static uint8_t *g_maps[MAX_CAMERA_MAPS];
 static size_t g_map_count;
@@ -155,11 +155,7 @@ static void publish_frame(uint8_t *shared, uint64_t sequence,
     memcpy(shared + SHARED_TIMESTAMP_OFFSET, &timestamp, sizeof(timestamp));
     memcpy(shared + SHARED_HEADER_BYTES, frame, SENSOR_BYTES);
     __atomic_store_n(generation, value + 2u, __ATOMIC_RELEASE);
-}
-
-static void publish_torn_count(uint8_t *shared, uint64_t count) {
-    uint64_t *value = (uint64_t *)(void *)(shared + SHARED_TORN_COUNT_OFFSET);
-    __atomic_store_n(value, count, __ATOMIC_RELEASE);
+    generation_futex(shared, FUTEX_WAKE, INT32_MAX, NULL);
 }
 
 static int capture_is_requested(const uint8_t *shared) {
@@ -234,7 +230,6 @@ static void *stream_worker(void *unused) {
         return NULL;
     }
     uint8_t *shared = open_shared_output();
-    publish_torn_count(shared, 0);
     log_line("SHARED_OUTPUT_READY bytes=%zu", SHARED_BYTES);
 
     uint64_t sequence = 0;
@@ -258,7 +253,6 @@ static void *stream_worker(void *unused) {
                 munmap(shared, SHARED_BYTES);
                 shared = open_shared_output();
                 rejected_torn = 0;
-                publish_torn_count(shared, 0);
                 log_line("SHARED_OUTPUT_READY bytes=%zu", SHARED_BYTES);
             }
             usleep(20000);
@@ -284,7 +278,6 @@ static void *stream_worker(void *unused) {
         }
         if (!copy_stable_frame(map, selected_counter, first, second)) {
             ++rejected_torn;
-            publish_torn_count(shared, rejected_torn);
             if ((rejected_torn & 255u) == 1u)
                 log_line("TORN_FRAME_REJECTED total=%llu",
                          (unsigned long long)rejected_torn);
@@ -313,5 +306,5 @@ void qft_streamer_main(const char *data, int *unload_policy, void *state) {
         return;
     }
     pthread_detach(worker);
-    log_line("STREAMER_STARTED version=9.0 cameras=all stability=counter-guarded-double-copy provider-cap=relay-max-fps ring-order=hardware-counter lifecycle=client-lease diagnostics=torn-count");
+    log_line("STREAMER_STARTED version=10.0 cameras=all stability=counter-guarded-double-copy provider-cap=relay-max-fps ring-order=hardware-counter lifecycle=client-lease wake=futex");
 }

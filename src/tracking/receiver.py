@@ -29,7 +29,8 @@ class ReceiverStopped(Exception):
     pass
 
 
-def receive_exact(connection: socket.socket, size: int, should_stop) -> bytes:
+def receive_exact(connection: socket.socket, size: int, should_stop) -> bytearray:
+    """A new buffer per call: frames are shared with the preview and pupil threads, never reused or written."""
     output = bytearray(size)
     view = memoryview(output)
     received = 0
@@ -43,7 +44,7 @@ def receive_exact(connection: socket.socket, size: int, should_stop) -> bytes:
         if amount == 0:
             raise ConnectionError("The headset streamer disconnected")
         received += amount
-    return bytes(output)
+    return output
 
 
 class SharedPreview:
@@ -52,7 +53,6 @@ class SharedPreview:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.images: dict[str, np.ndarray] = {}
-        self.jpegs: dict[str, bytes] = {}
         self.pupils = [None, None]
         self.pupil_requested_at = -float("inf")
 
@@ -60,15 +60,13 @@ class SharedPreview:
         images = {f"camera{i}": strip[:, i * 400:(i + 1) * 400] for i in range(5)}
         images["pupil0"], images["pupil1"] = images["camera0"], images["camera1"]
         with self.lock:
-            self.images, self.jpegs, self.pupils = images, {}, list(pupils)
+            self.images, self.pupils = images, list(pupils)
 
     def get_jpeg(self, key: str) -> bytes | None:
         with self.lock:
             if key in ("pupil0", "pupil1"):
                 self.pupil_requested_at = time.monotonic()
-            if key in self.jpegs:
-                return self.jpegs[key]
-            image = source = self.images.get(key)
+            image = self.images.get(key)
             pupil = self.pupils[int(key[-1])] if key in ("pupil0", "pupil1") else None
         if image is None:
             return None
@@ -79,13 +77,7 @@ class SharedPreview:
             cv2.putText(image, f"{pupil.diameter_px:.1f} px" if pupil else "Uncertain", (12, 28),
                         cv2.FONT_HERSHEY_SIMPLEX, .65, (70, 220, 130) if pupil else (90, 190, 255), 1)
         ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        if not ok:
-            return None
-        jpeg = encoded.tobytes()
-        with self.lock:
-            if self.images.get(key) is source:
-                self.jpegs[key] = jpeg
-        return jpeg
+        return encoded.tobytes() if ok else None
 
 
 class PreviewHandler(http.server.BaseHTTPRequestHandler):
@@ -150,7 +142,7 @@ def load_models():
     from universal_face import FAMILIES, UniversalFace
     config = studio_config()
     face, error = None, ''
-    tongue = TongueBroadcaster(enabled=config.get('tongueOutput', True), supported=["extension", "horizontal", "vertical"])
+    tongue = TongueBroadcaster(enabled=config.get('tongueOutput', True))
     try:
         face = UniversalFace(config.get('universalModelPath') or ROOT / 'models' / 'universal-face-v2.npz', config.get('faceEnrollment'),
             config.get('extraFaceOutput', True) is not False,
@@ -178,6 +170,9 @@ def connect(should_stop) -> socket.socket | None:
         return None
     connection.settimeout(0.25)
     connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    for option, value in ((socket.TCP_KEEPIDLE, 5), (socket.TCP_KEEPINTVL, 2), (socket.TCP_KEEPCNT, 3)):
+        connection.setsockopt(socket.IPPROTO_TCP, option, value)
     connection.sendall(os.environ["QFT_STREAM_TOKEN"].encode("ascii"))
     return connection
 
@@ -203,7 +198,7 @@ def main() -> int:
         while True:
             raw_header = receive_exact(connection, HEADER.size, should_stop)
             (magic, version, header_size, _sequence, _timestamp_ns, width, height,
-             stride, pixel_format, payload_size, camera_mask, _rejected_torn) = HEADER.unpack(raw_header)
+             stride, pixel_format, payload_size, camera_mask, _reserved) = HEADER.unpack(raw_header)
             if magic != MAGIC or version != 3 or header_size != HEADER.size:
                 raise ValueError("Unexpected live-stream header")
             if camera_mask != 0x1F or (width, height, stride, pixel_format, payload_size) != (2000, 400, 2000, 1, 800_000):
@@ -243,12 +238,15 @@ def main() -> int:
         pass
     finally:
         studio.close()
-        loader.shutdown(wait=False, cancel_futures=True)
+        models = [face, pupils]
+        loader.shutdown(cancel_futures=True)
+        if loading is not None and not loading.cancelled() and loading.exception() is None:
+            models += loading.result()[:2]
         if connection is not None:
             connection.close()
         server.shutdown()
         server.server_close()
-        for model in (face, pupils):
+        for model in models:
             if model is not None:
                 model.close()
         labels.close()

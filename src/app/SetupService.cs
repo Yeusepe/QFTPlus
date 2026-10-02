@@ -7,14 +7,14 @@ using Microsoft.Win32;
 
 namespace QFTPlus;
 
-internal sealed class SetupService(string root) : IDisposable
+internal sealed class SetupService(string root)
 {
-    private readonly string _root = root;
     private CancellationTokenSource? _operation;
     private string? _stage;
     internal static string AutoPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VRCFaceTracking", "QproAutoStart.json");
-    private readonly string _adb = Adb.Exe(root);
-    private string LogPath => Path.Combine(_root, "setup.log");
+    internal static string InstalledModule => Path.Combine(Path.GetDirectoryName(AutoPath)!, "CustomLibs", "000-Qpro.IndependentGaze.dll");
+    private string adb => Adb.Exe(root);
+    private string LogPath => Path.Combine(root, "setup.log");
     internal event Action<string, string>? StageChanged;
     internal void CancelOperation() => _operation?.Cancel();
     internal string? HelpTarget { get; private set; }
@@ -40,29 +40,29 @@ internal sealed class SetupService(string root) : IDisposable
         var face = use != "hands";
         try
         {
-            var source = ModuleSource(_root);
-            var installed = Path.Combine(Path.GetDirectoryName(AutoPath)!, "CustomLibs/000-Qpro.IndependentGaze.dll");
-            if (face) ValidateModuleFiles(_root, installModule);
-            foreach (var file in new[] { _adb, Path.Combine(_root, "receiver.py") })
+            var source = ModuleSource(root);
+            var installed = InstalledModule;
+            if (face) ValidateModuleFiles(root, installModule);
+            foreach (var file in new[] { adb, Path.Combine(root, "receiver.py") })
                 if (!File.Exists(file)) throw new IOException("The app is missing a required file. Run the complete installer again.");
             Stage("Connecting", "Looking for your Quest Pro…", 5);
-            await Adb.EnsureAsync(_adb, token: token);
+            await Adb.EnsureAsync(adb, token: token);
             var connection = await ConnectQuestAsync(token, connectionMode, preferredSerial);
 
-            if (!PythonRuntime.Ready(_root))
+            if (!PythonRuntime.Ready(root))
             {
                 Stage("Preparing components", "One-time setup…", 35);
-                try { await PythonRuntime.EnsureAsync(_root, token); }
+                try { await PythonRuntime.EnsureAsync(root, token); }
                 catch (IOException error) when (!token.IsCancellationRequested)
                 { Log(error.ToString()); throw new IOException("The PC components didn’t finish installing. Make sure this PC has free disk space, then try again.", error); }
             }
 
-            var independentGaze = !File.Exists(AutoPath) || CalibrationSettings.ReadJson(AutoPath)["independentGaze"]?.GetValue<bool>() != false;
+            var independentGaze = CalibrationSettings.ReadJson(AutoPath)["independentGaze"]?.GetValue<bool>() != false;
             if (!face) Stage("Skipping face tracking", "Face tracking isn’t selected.", 55);
             else if (independentGaze)
             {
                 Stage("Preparing eye tracking", "Keep your headset awake.", 55);
-                if (!File.Exists(EyeModel(_root))) await PrepareEyeModelAsync(connection.Target, token);
+                if (!File.Exists(EyeModel(root))) await PrepareEyeModelAsync(connection.Target, token);
             }
             else Stage("Using standard eye tracking", "Independent eye gaze is off.", 55);
 
@@ -73,7 +73,7 @@ internal sealed class SetupService(string root) : IDisposable
             {
                 Stage("Updating tracking", "Installing the updated VRCFaceTracking bridge…", 70);
                 if (Processes.Running("VRCFaceTracking")) await CloseVrcftAsync(token);
-                InstallModule(source, installed);
+                await InstallModule(source, installed);
                 if (!SameFile(source, installed)) throw new IOException("The VRCFaceTracking module did not finish installing. Try again. Open the setup log for details.");
             }
             if (face && (!File.Exists(installed) || new FileInfo(installed).Length == 0))
@@ -83,7 +83,7 @@ internal sealed class SetupService(string root) : IDisposable
                     ? "Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it to continue."
                     : "Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it, or use hand tracking only.");
             }
-            SaveAutomaticSetup(_root, connection.Target, AutoPath);
+            SaveAutomaticSetup(root, connection.Target, AutoPath);
             SteamVr.ConfigureSteamLink();
             Stage("Ready", "", 100);
         }
@@ -125,7 +125,7 @@ internal sealed class SetupService(string root) : IDisposable
 
     static readonly string[] ConflictingModules = ["7f9be083-a4f1-4e30-b28a-8e6ec878d583", "91a90618-b020-4064-8832-809b2ca2b3bc", "2a8c8080-2a76-46af-bf76-1da7c0127ef8"];
 
-    private void InstallModule(string source, string destination)
+    internal async Task InstallModule(string source, string destination)
     {
         var folder = Path.GetDirectoryName(destination)!;
         var staged = destination + ".tmp";
@@ -136,12 +136,12 @@ internal sealed class SetupService(string root) : IDisposable
             if (!SameFile(source, staged)) throw new IOException("The module copy could not be verified. Try again.");
             for (var attempt = 0; ; attempt++)
                 try { if (File.Exists(destination)) File.Replace(staged, destination, null); else File.Move(staged, destination); break; }
-                catch (IOException error) when (attempt < 8 && (error.HResult & 0xFFFF) is 32 or 33) { Thread.Sleep(250); }
+                catch (IOException error) when (attempt < 8 && (error.HResult & 0xFFFF) is 32 or 33) { await Task.Delay(250); }
             foreach (var id in ConflictingModules)
                 if (Directory.Exists(Path.Combine(folder, id)))
                 {
-                    Directory.CreateDirectory(Path.Combine(_root, "backups"));
-                    Directory.Move(Path.Combine(folder, id), Path.Combine(_root, "backups", $"vrcft-{id}-{DateTime.UtcNow:yyyyMMddHHmmss}"));
+                    Directory.CreateDirectory(Path.Combine(root, "backups"));
+                    Directory.Move(Path.Combine(folder, id), Path.Combine(root, "backups", $"vrcft-{id}-{Guid.NewGuid():N}"));
                 }
         }
         catch (IOException error) when ((error.HResult & 0xFFFF) is 32 or 33)
@@ -153,21 +153,15 @@ internal sealed class SetupService(string root) : IDisposable
 
     private async Task PrepareEyeModelAsync(string target, CancellationToken token)
     {
-        const string stock = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl";
         var temporary = Path.Combine(Path.GetTempPath(), $"qpro-stock-eye-{Guid.NewGuid():N}.ptl");
         try
         {
-            var info = new ProcessStartInfo(_adb) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (var arg in new[] { "-s", target, "exec-out", "su -c " + Adb.Quote("cat " + stock) }) info.ArgumentList.Add(arg);
-            using (var process = Process.Start(info)!)
-            {
-                var errors = process.StandardError.ReadToEndAsync(token);
-                await using (var file = File.Create(temporary)) await process.StandardOutput.BaseStream.CopyToAsync(file, token);
-                await process.WaitForExitAsync(token);
-                if (process.ExitCode != 0 || new FileInfo(temporary).Length < 100_000) throw new IOException("Reading the headset eye model failed: " + await errors);
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(EyeModel(_root))!);
-            if (await PythonRuntime.RunAsync(PythonRuntime.Exe(_root), [Path.Combine(_root, "eye_model_patch.py"), temporary, EyeModel(_root)], token) != 0 || !File.Exists(EyeModel(_root)))
+            (int Code, string Text) read;
+            await using (var file = File.Create(temporary))
+                read = await Processes.RunAsync(Processes.Info(adb, ["-s", target, "exec-out", "su -c " + Adb.Quote("cat " + Tracking.EyeTarget)]), token, 300, output: file);
+            if (read.Code != 0 || new FileInfo(temporary).Length < 100_000) throw new IOException("Reading the headset eye model failed: " + read.Text);
+            Directory.CreateDirectory(Path.GetDirectoryName(EyeModel(root))!);
+            if (await PythonRuntime.RunAsync(PythonRuntime.Exe(root), [Path.Combine(root, "eye_model_patch.py"), temporary, EyeModel(root)], token) != 0 || !File.Exists(EyeModel(root)))
                 throw new IOException("Creating the local independent-eye patch failed.");
         }
         catch (IOException error) when (!token.IsCancellationRequested)
@@ -190,17 +184,18 @@ internal sealed class SetupService(string root) : IDisposable
         await ProbeAsync(["connect", target], token, 10);
         var check = await ProbeAsync(["-s", target, "shell", "getprop", "ro.serialno"], token, 10);
         if (check.Code != 0 || check.Text.Trim() != serial) throw new IOException(problem);
-        var root = await ProbeAsync(["-s", target, "shell", "su", "-c", "id"], token, 10, "uid=0(root)");
-        if (!root.Text.Contains("uid=0(root)")) throw new IOException("Root access is unavailable over Wi-Fi. In Magisk → Superuser, allow Shell, then try again.");
-        SaveWireless(_root, target, serial);
+        var su = await ProbeAsync(["-s", target, "shell", "su", "-c", "id"], token, 10, "uid=0(root)");
+        if (!su.Text.Contains("uid=0(root)")) throw new IOException("Root access is unavailable over Wi-Fi. In Magisk → Superuser, allow Shell, then try again.");
+        SaveWireless(root, target, serial);
         return (target, serial);
     }
 
-    internal static string VirtualDesktopStreamer => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Virtual Desktop Streamer/VirtualDesktop.Streamer.exe");
+    internal static string VirtualDesktopStreamer => Path.Combine(Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Virtual Desktop, Inc.\Virtual Desktop Streamer", "Path", null) as string
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Virtual Desktop Streamer"), "VirtualDesktop.Streamer.exe");
 
     private async Task WaitForVirtualDesktopAsync(CancellationToken token)
     {
-        while (!File.Exists(VirtualDesktopStreamer))
+        while (!File.Exists(VirtualDesktopStreamer) && !Processes.Running("VirtualDesktop.Streamer"))
         {
             Stage("Install Virtual Desktop", "Hand tracking uses Virtual Desktop. Install the Virtual Desktop Streamer on this PC to continue.", 60,
                 "https://www.vrdesktop.net/", "Get Virtual Desktop");
@@ -210,7 +205,7 @@ internal sealed class SetupService(string root) : IDisposable
 
     internal async Task<string?> HandSettingsProblemAsync(string target, CancellationToken token)
     {
-        var read = await ProbeAsync(["-s", target, "shell", "su -c 'oculuspreferences --get hand_tracking_enabled; oculuspreferences --get multimodal_hands_and_controllers_enabled; oculuspreferences --getc simultaneous_hands_and_controllers_mode; pidof frida-server >/dev/null && echo SINGULARITY_FRIDA'"], token, 10);
+        var read = await ProbeAsync(Adb.Su(target, "oculuspreferences --get hand_tracking_enabled; oculuspreferences --get multimodal_hands_and_controllers_enabled; oculuspreferences --getc simultaneous_hands_and_controllers_mode; pidof frida-server >/dev/null && echo SINGULARITY_FRIDA"), token, 10);
         return HandSettingsProblem(read.Text);
     }
 
@@ -234,25 +229,20 @@ internal sealed class SetupService(string root) : IDisposable
         }
     }
 
-    internal static bool SameFile(string first, string second)
-    {
-        if (!File.Exists(first) || !File.Exists(second)) return false;
-        using var a = File.OpenRead(first); using var b = File.OpenRead(second);
-        return System.Security.Cryptography.SHA256.HashData(a).AsSpan().SequenceEqual(System.Security.Cryptography.SHA256.HashData(b));
-    }
+    internal static bool SameFile(string first, string second) => File.Exists(first) && File.Exists(second) && WorkingCopy.Hash(first) == WorkingCopy.Hash(second);
 
     internal async Task<(string Target, string Serial)> ConnectQuestAsync(CancellationToken token, string mode = "auto", string preferredSerial = "")
     {
         if (mode is not ("auto" or "usb" or "wifi")) throw new ArgumentException("Unknown connection preference");
-        var saved = ReadWireless(_root);
+        var saved = ReadWireless(root);
         if (mode != "usb" && saved is {} wifi && (preferredSerial.Length == 0 || preferredSerial == wifi.Serial))
         {
             await ProbeAsync(["connect", wifi.Target], token);
             var serial = await ProbeAsync(["-s", wifi.Target, "shell", "getprop", "ro.serialno"], token);
             if (serial.Code == 0 && serial.Text.Trim() == wifi.Serial && await IsQuest(wifi.Target, token))
             {
-                var root = await ProbeAsync(["-s", wifi.Target, "shell", "su", "-c", "id"], token, successPrefix: "uid=0(root)");
-                if (root.Code == 0 && root.Text.Contains("uid=0(root)")) { SaveWireless(_root, wifi.Target, wifi.Serial); return wifi; }
+                var su = await ProbeAsync(["-s", wifi.Target, "shell", "su", "-c", "id"], token, successPrefix: "uid=0(root)");
+                if (su.Code == 0 && su.Text.Contains("uid=0(root)")) { SaveWireless(root, wifi.Target, wifi.Serial); return wifi; }
             }
         }
         while (true)
@@ -265,10 +255,10 @@ internal sealed class SetupService(string root) : IDisposable
             {
                 var selected = candidates.OrderBy(q => q.Wireless ? 0 : 1).First();
                 Stage("Allow the connection", "In Magisk → Superuser, allow Shell access.", 15, "https://github.com/Lumince/singularity", "Rooting information");
-                var root = await ProbeAsync(["-s", selected.Target, "shell", "su", "-c", "id"], token, 10, "uid=0(root)");
-                if (root.Code == 0 && root.Text.Contains("uid=0(root)"))
+                var su = await ProbeAsync(["-s", selected.Target, "shell", "su", "-c", "id"], token, 10, "uid=0(root)");
+                if (su.Code == 0 && su.Text.Contains("uid=0(root)"))
                 {
-                    if (selected.Wireless) { SaveWireless(_root, selected.Target, selected.Serial); return (selected.Target, selected.Serial); }
+                    if (selected.Wireless) { SaveWireless(root, selected.Target, selected.Serial); return (selected.Target, selected.Serial); }
                     if (mode == "usb") return (selected.Target, selected.Serial);
                     Stage("Connecting over Wi-Fi", "Keep USB connected for this step.", 25);
                     try { return await EnableWirelessAsync(selected.Target, token); }
@@ -279,7 +269,7 @@ internal sealed class SetupService(string root) : IDisposable
                         throw;
                     }
                 }
-                if (root.Text.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                if (su.Text.Contains("not found", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Root your Quest Pro before setup. Open Rooting information to check compatibility.");
             }
             else if (serials.Length > 1) throw new InvalidOperationException("Choose a headset in Setup.");
@@ -302,7 +292,7 @@ internal sealed class SetupService(string root) : IDisposable
 
     internal async Task<List<Headset>> DiscoverAsync(CancellationToken token)
     {
-        if(ReadWireless(_root) is {} known) await ProbeAsync(["connect",known.Target],token);
+        if(ReadWireless(root) is {} known) await ProbeAsync(["connect",known.Target],token);
         var mdns = await ProbeAsync(["mdns", "services"], token);
         foreach (Match match in Regex.Matches(mdns.Text, @"_adb(?:-tls-connect)?\._tcp\.?\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{1,5})"))
             await ProbeAsync(["connect", match.Groups[1].Value], token);
@@ -329,14 +319,14 @@ internal sealed class SetupService(string root) : IDisposable
 
     internal static void SaveAutomaticSetup(string root, string target, string path)
     {
-        var config = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))!.AsObject() : new JsonObject();
+        var config = CalibrationSettings.ReadJson(path);
         config["root"] = root;
         config["adbTarget"] = target;
         CalibrationSettings.WriteJson(path, config);
     }
 
     private Task<(int Code, string Text)> ProbeAsync(string[] args, CancellationToken token, int seconds = 4, string? successPrefix = null) =>
-        Processes.RunAsync(_adb, args, token, seconds, successPrefix);
+        Processes.RunAsync(adb, args, token, seconds, successPrefix);
 
     internal static string? SteamApp(string id)
     {
@@ -376,18 +366,19 @@ internal sealed class SetupService(string root) : IDisposable
 
     private async Task CloseVrcftAsync(CancellationToken token)
     {
-        foreach (var process in Process.GetProcessesByName("VRCFaceTracking"))
-            using (process) { try { process.CloseMainWindow(); } catch (InvalidOperationException) { } }
-        var attempts = 0;
-        while (Processes.Running("VRCFaceTracking"))
+        var processes = Process.GetProcessesByName("VRCFaceTracking");
+        try
         {
-            if (++attempts > 10) Stage("Quit VRCFaceTracking", "Choose Quit from its system tray menu. It will reopen automatically.", 70);
-            await Task.Delay(1000, token);
+            foreach (var process in processes) try { process.CloseMainWindow(); } catch (InvalidOperationException) { }
+            var exited = Task.WhenAll(processes.Select(process => process.WaitForExitAsync(token)));
+            if (await Task.WhenAny(exited, Task.Delay(10000, token)) != exited)
+                Stage("Quit VRCFaceTracking", "Choose Quit from its system tray menu. It will reopen automatically.", 70);
+            await exited;
         }
+        finally { foreach (var process in processes) process.Dispose(); }
     }
 
-    private void Log(string text) => File.AppendAllText(LogPath, $"{DateTimeOffset.Now:O} {text}{Environment.NewLine}");
-    public void Dispose() => CancelOperation();
+    private void Log(string text) => Session.Log(LogPath, $"{DateTimeOffset.Now:O} {text}");
 }
 
 internal sealed class ModuleNotInstalledException(string message) : IOException(message);

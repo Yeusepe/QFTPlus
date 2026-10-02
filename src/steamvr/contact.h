@@ -37,7 +37,7 @@ struct Report {
     float x = 0, y = 0, force = 0;
 };
 
-inline uint64_t Us(float ms) { return static_cast<uint64_t>(ms * 1000); }
+inline uint64_t Us(float ms) { return ms > 0 ? static_cast<uint64_t>(std::min(ms, 1e12f) * 1000) : 0; }
 
 inline void Rotate(float degrees, float &x, float &y) {
     float r = degrees * 3.14159265f / 180, c = std::cos(r), s = std::sin(r);

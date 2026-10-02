@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-import collections
 import json
 import math
 import socket
 import threading
 import time
 
+FRESH_NS = 100_000_000
+
+
+def fresh_values(sample: dict[str, object] | None, names: list[str], now_ns: int) -> dict[str, float] | None:
+    """{name: value} of a native sample at most FRESH_NS from now_ns, else None."""
+    if sample is None or not names or abs(int(sample["arrivalMonotonicNs"]) - now_ns) > FRESH_NS:
+        return None
+    return dict(zip(names, map(float, sample["values"])))
+
 
 class LabelSidecarRecorder:
     def __init__(self, port: int = 27274) -> None:
-        self.sample_count = 0
-        self.invalid_count = 0
         self.schema_names: list[str] = []
-        self._recent_lock = threading.Lock()
-        self._recent_samples: collections.deque[dict[str, object]] = (
-            collections.deque(maxlen=512)
-        )
+        self._latest: dict[str, object] | None = None
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("127.0.0.1", port))
         self._socket.settimeout(0.2)
@@ -33,14 +36,11 @@ class LabelSidecarRecorder:
     def _receive_loop(self) -> None:
         while self._running:
             try:
-                data, address = self._socket.recvfrom(65507)
+                data = self._socket.recv(65507)
             except socket.timeout:
                 continue
             except OSError:
                 break
-            if address[0] != "127.0.0.1":
-                self.invalid_count += 1
-                continue
             arrival_monotonic_ns = time.monotonic_ns()
             arrival_wall_ns = time.time_ns()
             try:
@@ -124,25 +124,16 @@ class LabelSidecarRecorder:
                     )
                     if any(not math.isfinite(value) for value in numeric_metadata):
                         raise ValueError("non-finite eye confidence")
-                    self.sample_count += 1
-                    with self._recent_lock:
-                        self._recent_samples.append(sample_record)
+                    self._latest = sample_record
                 else:
                     raise ValueError("unknown message type")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                self.invalid_count += 1
+                pass
 
     def nearest_sample(self, monotonic_ns: int) -> dict[str, object] | None:
-        with self._recent_lock:
-            if not self._recent_samples:
-                return None
-            sample = min(
-                self._recent_samples,
-                key=lambda value: abs(
-                    int(value["arrivalMonotonicNs"]) - monotonic_ns
-                ),
-            )
-            return dict(sample)
+        """ponytail: every caller asks for "now", and nothing is newer than the latest sample, so it is the nearest.
+        Records are never changed once stored."""
+        return self._latest
 
     def close(self) -> None:
         if not self._running:

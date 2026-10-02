@@ -6,12 +6,10 @@ namespace QFTPlus;
 
 internal sealed class Tracking
 {
-    const string Relay = "/data/local/tmp/questpro-camera-relay-v9", Streamer = "/data/local/tmp/libquestpro-camera-streamer-v9.so";
-    const string CameraLog = "/data/local/tmp/questpro-live-v9.log";
-    const string Legacy = "questpro-camera-relay-v8 libquestpro-camera-streamer-v8.so questpro-live-v8.log questpro-live-v8-shared.bin "
-        + "questpro-relay-v8.log questpro-relay-v8.pid questpro-live-v3.log questpro-camera-injector libquestpro-camera-streamer.so "
-        + "model_patcher.log model_patcher.zip bolt_patched.ptl qft-thumbrest.log qpro-eye-module-*.zip qft-permission-check-*";
-    const string EyeTarget = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl";
+    const string Relay = "/data/local/tmp/questpro-camera-relay-v10", Streamer = "/data/local/tmp/libquestpro-camera-streamer-v10.so";
+    const string CameraLog = "/data/local/tmp/questpro-live-v10.log";
+    const string Leftovers = "questpro-* libquestpro-* qft-thumbrest.log qft-permission-check-* qpro-eye-module-*.zip";
+    internal const string EyeTarget = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl";
     const string EyeCopy = "/data/local/tmp/qpro-seacliff-independent-axes.ptl";
     const string EyeProperty = "persist.device_config.oculus_shared_vision.oculus_eyetracking_enable_experimental_model";
     const int StreamPort = 27273, MaxFps = 24;
@@ -24,6 +22,7 @@ internal sealed class Tracking
     readonly CancellationTokenSource stop = new();
     Process? relay;
     bool mounted;
+    string eyeBefore = "false";
     internal string State = "waiting", Error = "", ErrorLog = Log;
     internal Task Run { get; }
 
@@ -31,7 +30,7 @@ internal sealed class Tracking
     {
         this.session = session; this.target = target; this.eyes = eyes; this.vergence = vergence;
         adb = Adb.Exe(session.Root);
-        File.WriteAllText(Path.Combine(session.Root, Log), "");
+        Session.Rotate(Path.Combine(session.Root, Log), clear: true);
         Run = Task.Run(RunAsync);
     }
 
@@ -41,17 +40,24 @@ internal sealed class Tracking
 
     internal async Task StopAsync() { stop.Cancel(); await Run; }
 
+    string Restore => $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}" + (eyes ? "; " + EyeRestore : "");
+
+    string EyeRestore => $"if grep -qF '{EyeTarget}' /proc/mounts; then stop trackingservice; setprop {EyeProperty} {eyeBefore}; umount '{EyeTarget}'; start trackingservice; "
+        + $"else setprop {EyeProperty} {eyeBefore}; fi; rm -f '{EyeCopy}'";
+
     async Task RunAsync()
     {
         Process? gaze = null, receiver = null;
-        var prepared = false;
+        HeadsetCleanup? cleanup = null;
         try
         {
             Write("Waiting for the rooted Quest, SteamVR and VRCFaceTracking");
             while (!await Ready()) await Task.Delay(2000, stop.Token);
             State = "starting";
-            prepared = true;
-            await Root($"{Relay} --stop; cd /data/local/tmp && rm -f {Legacy}", allowFailure: true);
+            if (eyes && (await Root($"if [ -e '{EyeCopy}' ] || grep -qF '{EyeTarget}' /proc/mounts; then echo false; else getprop {EyeProperty}; fi", allowFailure: true)).Text.Trim() == "true")
+                eyeBefore = "true";
+            cleanup = await HeadsetCleanup.StartAsync(session, target, Restore, "headset-cleanup.log");
+            await Root($"cd /data/local/tmp && rm -f {Leftovers}", allowFailure: true);
             if (eyes)
             {
                 await MountEyeModel();
@@ -80,13 +86,14 @@ internal sealed class Tracking
         {
             State = "stopping";
             await Task.WhenAll(new[] { receiver, gaze }.OfType<Process>().Select(Session.StopChild));
-            if (prepared)
+            receiver?.Dispose(); gaze?.Dispose();
+            if (cleanup is not null)
             {
-                await Root($"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}", allowFailure: true);
+                if (!await cleanup.StopAsync()) Write("The headset didn't confirm its cleanup. It finishes on the headset once the connection closes.");
+                else if (mounted) try { await WaitForTrackingService(); } catch (IOException error) { Write(error.Message); }
                 Kill(relay);
                 await Processes.RunAsync(adb, ["-s", target, "forward", "--remove", $"tcp:{StreamPort}"]);
             }
-            if (mounted) await RestoreEyeModel();
             Write("Tracking stopped");
         }
     }
@@ -102,7 +109,7 @@ internal sealed class Tracking
     async Task StartCamera(string token)
     {
         Write("Starting the headset cameras");
-        foreach (var (local, remote) in new[] { ("libquestpro-camera-streamer-v9.so", Streamer), ("questpro-camera-relay-v9", Relay) })
+        foreach (var (local, remote) in new[] { ("libquestpro-camera-streamer-v10.so", Streamer), ("questpro-camera-relay-v10", Relay) })
         {
             var file = Path.Combine(session.Root, local);
             if (!File.Exists(file)) throw new IOException($"A packaged headset component is missing: {local}. Reinstall QFT+.");
@@ -114,7 +121,7 @@ internal sealed class Tracking
         Write(inject.Output);
         if (inject.Code != 0) throw new IOException("Starting the headset camera stream failed. The Tracking log shows why.");
         var bind = Direct is { } address ? $" --bind {address}" : "";
-        relay = session.Launch(adb, ["-s", target, "shell", "su -c " + Adb.Quote($"{Relay} --max-fps {MaxFps} --token {token}{bind}")], "questpro-live-relay.txt");
+        relay = session.Launch(adb, Adb.Su(target, $"{Relay} --max-fps {MaxFps} --token {token}{bind}"), "questpro-live-relay.txt");
         await Task.Delay(800, stop.Token);
         if (relay.HasExited)
         {
@@ -139,19 +146,17 @@ internal sealed class Tracking
         mounted = true;
         if ((await Processes.RunAsync(adb, ["-s", target, "push", local, EyeCopy], stop.Token, 60)).Code != 0) throw new IOException("Couldn't copy the eye model to the headset. Check the connection, then try again.");
         await Root($"chown root:root '{EyeCopy}' && chmod 0644 '{EyeCopy}' && chcon u:object_r:vendor_configs_file:s0 '{EyeCopy}' && mount --bind '{EyeCopy}' '{EyeTarget}'");
-        using (var stream = File.OpenRead(local))
-            if (!(await Root($"sha256sum '{EyeTarget}'")).Text.StartsWith(Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant(), StringComparison.Ordinal))
-                throw new IOException("The eye model on the headset didn't match the one on this PC. Try again.");
+        if (!(await Root($"sha256sum '{EyeTarget}'")).Text.StartsWith(WorkingCopy.Hash(local), StringComparison.Ordinal))
+            throw new IOException("The eye model on the headset didn't match the one on this PC. Try again.");
         await Root($"setprop {EyeProperty} true && stop trackingservice && start trackingservice");
         await WaitForTrackingService();
     }
 
     async Task RestoreEyeModel()
     {
-        await Root($"stop trackingservice; setprop {EyeProperty} false; umount '{EyeTarget}'; start trackingservice", allowFailure: true);
+        await Root(EyeRestore, allowFailure: true);
         try { await WaitForTrackingService(); }
         catch (IOException error) { Write(error.Message); }
-        await Root($"rm -f '{EyeCopy}'", allowFailure: true);
     }
 
     async Task WaitForTrackingService()
@@ -166,7 +171,7 @@ internal sealed class Tracking
 
     async Task<(int Code, string Text)> Root(string command, bool allowFailure = false)
     {
-        var result = await Processes.RunAsync(adb, ["-s", target, "shell", "su -c " + Adb.Quote(command)], default, 30);
+        var result = await Processes.RunAsync(adb, Adb.Su(target, command), default, 30);
         if (result.Code != 0 && !allowFailure)
             throw new IOException($"The headset didn't accept a command. Make sure it's awake and connected, then try again. ({command}: {result.Text.Trim()})");
         return result;
@@ -176,7 +181,8 @@ internal sealed class Tracking
     {
         if (!child.HasExited || stop.IsCancellationRequested) return;
         var lines = Read(log).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var reason = lines.LastOrDefault(l => l.StartsWith("QFT_ERROR:"))?["QFT_ERROR:".Length..].Trim() ?? lines.LastOrDefault() ?? "";
+        var reason = lines.LastOrDefault(l => l.StartsWith("QFT_ERROR:"))?["QFT_ERROR:".Length..].Trim()
+            ?? (child == relay ? "The connection to the headset ended. Make sure it’s awake and connected, then start tracking again." : lines.LastOrDefault()) ?? "";
         ErrorLog = log;
         throw new IOException(Regex.Replace(reason, @"^\w+(Error|Exception): ", "") is { Length: > 0 } text ? text : $"{log} stopped unexpectedly.");
     }
@@ -184,14 +190,15 @@ internal sealed class Tracking
     static void Kill(Process? process)
     {
         if (process is null) return;
-        try { process.Kill(true); process.WaitForExit(2000); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        try { process.Kill(); process.WaitForExit(2000); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
         process.Dispose();
     }
 
-    string Read(string log) { try { return File.ReadAllText(Path.Combine(session.Root, log)); } catch (IOException) { return ""; } }
-
-    void Write(string text)
+    string Read(string log)
     {
-        try { File.AppendAllText(Path.Combine(session.Root, Log), $"{DateTime.Now:HH:mm:ss} {text.Trim()}{Environment.NewLine}"); } catch (IOException) { }
+        try { using var reader = new StreamReader(new FileStream(Path.Combine(session.Root, log), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)); return reader.ReadToEnd(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return ""; }
     }
+
+    void Write(string text) => Session.Log(Path.Combine(session.Root, Log), $"{DateTime.Now:HH:mm:ss} {text.Trim()}");
 }

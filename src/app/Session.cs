@@ -15,9 +15,9 @@ internal sealed class Session
     Tracking? tracking;
     bool attempted;
     SetupService? setup;
-    CancellationTokenSource? discoveryCancel;
+    CancellationTokenSource cancelStart = new();
     Task? hybridRestart;
-    (Task Started, string Target)? thumbrest;
+    (Task<HeadsetCleanup?> Started, string Target)? thumbrest;
     DateTime hybridRetry;
     bool handsSession, hybridReady, hybridPending, stopping;
     const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
@@ -29,10 +29,35 @@ internal sealed class Session
     internal string HelpCaption = "Help";
     internal string ErrorLog = "tracking.log";
     internal Session(string root, string? configPath = null) { Root = root; ConfigPath = configPath ?? SetupService.AutoPath; }
-    internal static JsonObject Read(string path) { try { return CalibrationSettings.ReadJson(path); } catch { return new(); } }
-    internal JsonObject Config => File.Exists(ConfigPath) ? CalibrationSettings.ReadJson(ConfigPath) : new();
-    internal bool Calibrated(string option) => option != "pupilDilation"
-        || Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() == "qpro-relative-pupil-v1";
+    internal static JsonObject Read(string path)
+    {
+        try { return CalibrationSettings.ReadJson(path); }
+        catch (JsonException error)
+        { throw new InvalidDataException($"{Path.GetFileName(path)} is damaged; QFT+ left it as it is. Delete it to go back to the defaults. ({error.Message})", error); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { throw new InvalidDataException($"QFT+ couldn’t read {Path.GetFileName(path)}. Try again in a moment. ({error.Message})", error); }
+    }
+    readonly Lock configLock = new();
+    (DateTime, long) configStamp;
+    JsonObject? configCache;
+    internal JsonObject Config
+    {
+        get
+        {
+            var file = new FileInfo(ConfigPath);
+            var stamp = file.Exists ? (file.LastWriteTimeUtc, file.Length) : default;
+            lock (configLock)
+            {
+                if (configCache is null || stamp != configStamp) (configCache, configStamp) = (Read(ConfigPath), stamp);
+                return (JsonObject)configCache.DeepClone();
+            }
+        }
+    }
+    internal bool Calibrated(string option)
+    {
+        try { return option != "pupilDilation" || Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() == "qpro-relative-pupil-v1"; }
+        catch (InvalidDataException) { return false; }
+    }
     internal bool FaceOn(string kind) => (Config["extraFaceOutput"]?.GetValue<bool>() ?? true) && Config[CalibrationSettings.FaceOutputKey(kind)]?.GetValue<bool>() != false;
     internal void DisableUncalibratedOutputs()
     {
@@ -44,13 +69,20 @@ internal sealed class Session
     internal bool IndependentGaze => Config["independentGaze"]?.GetValue<bool>() ?? true;
     internal double VergenceGain => Config["vergenceGain"] is JsonValue v && v.TryGetValue<double>(out var n) && double.IsFinite(n) ? Math.Clamp(n, 0, 3) : 1;
     internal string Python => PythonRuntime.Exe(Root);
-    internal void CancelSetup() { setup?.CancelOperation(); discoveryCancel?.Cancel(); }
-    internal void Notify(string state, string detail = "") { State = state; Detail = detail; Changed?.Invoke(state); }
+    internal void CancelSetup() { setup?.CancelOperation(); cancelStart.Cancel(); }
+    int notifiedProgress;
+    internal void Notify(string state, string detail = "")
+    {
+        if (state == State && detail == Detail && Progress == notifiedProgress) return;
+        State = state; Detail = detail; notifiedProgress = Progress; Changed?.Invoke(state);
+    }
     internal void Save(string key, JsonNode? value)
     {
         var config = Config; config[key] = value;
         CalibrationSettings.WriteJson(ConfigPath, config);
+        Saved();
     }
+    void Saved() { lock (configLock) configCache = null; }
     internal void SetVergenceGain(double value)
     {
         if (!double.IsFinite(value) || value < 0 || value > 3) throw new ArgumentOutOfRangeException(nameof(value));
@@ -71,14 +103,13 @@ internal sealed class Session
         setup.StageChanged += (title, detail) => { HelpTarget=setup.HelpTarget; HelpCaption=setup.HelpCaption; Progress=setup.StageProgress; Notify(title,detail); };
         try { await setup.SetupAsync(Config["connectionMode"]?.GetValue<string>()??"auto",
             Config["headsetSerial"]?.GetValue<string>()??"", Config["installModule"]?.GetValue<bool>()??true, Use); }
-        finally { setup.Dispose(); setup=null; }
+        finally { setup=null; }
         Save("studioApp",Environment.ProcessPath);
     }
     internal async Task<System.Collections.Generic.List<SetupService.Headset>> Discover()
     {
-        using var wizard=new SetupService(Root);
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        return await wizard.DiscoverAsync(timeout.Token);
+        return await new SetupService(Root).DiscoverAsync(timeout.Token);
     }
     internal async Task Start(bool fromModule = false)
     {
@@ -86,6 +117,8 @@ internal sealed class Session
         var use = Use;
         if (fromModule && use == "hands") return;
         attempted = true;
+        var token = (cancelStart = new()).Token;
+        await StopThumbrest();
         if (use == "hands" && SteamVr.IsSteamLink)
             throw new IOException("Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.");
         if (!fromModule && (Config["setupOnStart"]?.GetValue<bool>()??true))
@@ -97,11 +130,11 @@ internal sealed class Session
             setup=new SetupService(Root);
             try
             {
-                discoveryCancel=new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var found=await setup.ConnectQuestAsync(discoveryCancel.Token,Config["connectionMode"]?.GetValue<string>()??"auto",Config["headsetSerial"]?.GetValue<string>()??"");
+                using var discovery=CancellationTokenSource.CreateLinkedTokenSource(token);discovery.CancelAfter(TimeSpan.FromSeconds(30));
+                var found=await setup.ConnectQuestAsync(discovery.Token,Config["connectionMode"]?.GetValue<string>()??"auto",Config["headsetSerial"]?.GetValue<string>()??"");
                 Save("adbTarget",found.Target);
             }
-            finally {setup.Dispose();setup=null;discoveryCancel?.Dispose();discoveryCancel=null;}
+            finally {setup=null;}
         }
         DisableUncalibratedOutputs();
         SteamVr.ConfigureSteamLink();
@@ -109,8 +142,8 @@ internal sealed class Session
         if (!string.Equals(config["root"]?.GetValue<string>(), Root, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Complete setup in this app before enabling auto-start.");
         HybridProblem = "";
-        if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, default); }
-        await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>());
+        if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, token); }
+        await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>(), token);
         if (config["steamvrDriver"]?.GetValue<bool>() == true && config["adbTarget"]?.GetValue<string>() is { Length: >0 } target) thumbrest = (Thumbrest.StartAsync(this, target), target);
         if (use == "hands")
         {
@@ -128,7 +161,7 @@ internal sealed class Session
     }
     static void OpenVrApps(bool face)
     {
-        if(!SteamVr.IsSteamLink&&!Processes.Running("VirtualDesktop.Streamer")&&File.Exists(SetupService.VirtualDesktopStreamer))Process.Start(new ProcessStartInfo(SetupService.VirtualDesktopStreamer){UseShellExecute=true});
+        if(!SteamVr.IsSteamLink&&!Processes.Running("VirtualDesktop.Streamer")&&File.Exists(SetupService.VirtualDesktopStreamer))Process.Start(new ProcessStartInfo(SetupService.VirtualDesktopStreamer){UseShellExecute=true})?.Dispose();
         OpenSteam("250820", "vrserver");
         if (face) OpenSteam("3329480", "VRCFaceTracking");
     }
@@ -193,9 +226,9 @@ internal sealed class Session
     }
     internal async Task StopThumbrest()
     {
-        if (thumbrest is not (Task started, string target)) return;
+        if (thumbrest is not (Task<HeadsetCleanup?> started, string target)) return;
         thumbrest = null;
-        await started; await Thumbrest.StopAsync(this, target);
+        await Thumbrest.StopAsync(this, target, await started);
     }
     internal async Task StartHybrid()
     {
@@ -203,9 +236,8 @@ internal sealed class Session
         if (SteamVr.IsSteamLink) return;
         if (Alive(Hybrid)) return;
         var target = Config["adbTarget"]?.GetValue<string>() ?? "";
-        using (var headset = new SetupService(Root))
         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-            if (await headset.HandSettingsProblemAsync(target, timeout.Token) is {} problem) throw new IOException(problem);
+            if (await new SetupService(Root).HandSettingsProblemAsync(target, timeout.Token) is {} problem) throw new IOException(problem);
         if (stopping) return;
         hybridReady = false; HybridProblem = ""; hybridIncompatible = null;
         Hybrid?.Dispose(); Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
@@ -217,7 +249,7 @@ internal sealed class Session
     async Task TryStartHybrid()
     {
         try { await StartHybrid(); }
-        catch (Exception error) { HybridProblem = error.Message; try { File.AppendAllText(Path.Combine(Root,"hybrid.log"), "Couldn’t start hybrid hands: "+error.Message+Environment.NewLine); } catch (IOException) {} }
+        catch (Exception error) { HybridProblem = error.Message; Log(Path.Combine(Root,"hybrid.log"), "Couldn’t start hybrid hands: "+error.Message); }
         finally { hybridRestart = null; }
     }
     internal Process Launch(string exe, string[] args, string log, Action<string>? line = null, params (string Key, string Value)[] variables)
@@ -225,10 +257,10 @@ internal sealed class Session
         var info = Info(exe,args);
         info.RedirectStandardInput = info.RedirectStandardOutput = info.RedirectStandardError = true;
         foreach (var (key, value) in variables) info.Environment[key] = value;
-        Rotate(Path.Combine(Root,log)); File.WriteAllText(Path.Combine(Root,log), "");
+        Rotate(Path.Combine(Root,log), clear: true);
         var process = Process.Start(info) ?? throw new IOException("Could not start "+Path.GetFileName(exe));
         _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
-        async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); try { File.AppendAllText(Path.Combine(Root,log),text+Environment.NewLine); } catch (IOException) {} } }
+        async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(Path.Combine(Root,log),text); } }
         return process;
     }
     internal static async Task StopChild(Process process)
@@ -238,7 +270,17 @@ internal sealed class Session
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
     }
-    static void Rotate(string path) { try { if (new FileInfo(path) is { Exists: true, Length: > 4 << 20 }) File.Move(path, path + ".old", true); } catch (IOException) {} }
+    static readonly Lock logLock = new();
+    internal static void Log(string path, string text)
+    {
+        lock (logLock) try { File.AppendAllText(path, text + Environment.NewLine); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+    internal static void Rotate(string path, bool clear = false)
+    {
+        lock (logLock)
+            try { if (new FileInfo(path) is { Exists: true, Length: > 4 << 20 }) File.Move(path, path + ".old", true); if (clear) File.WriteAllText(path, ""); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
     internal ProcessStartInfo Info(string exe, string[] args)
     {
         var info = Processes.Info(exe,args); info.WorkingDirectory=Root;
@@ -252,7 +294,7 @@ internal sealed class Session
     internal async Task<(int Code,string Output)> Run(string exe,string[] args,bool allowFailure=false,int seconds=600)
     {
         var (code,text)=await Processes.RunAsync(Info(exe,args),default,seconds);
-        Rotate(Path.Combine(Root,"studio.log")); File.AppendAllText(Path.Combine(Root,"studio.log"),text+Environment.NewLine);
+        Rotate(Path.Combine(Root,"studio.log")); Log(Path.Combine(Root,"studio.log"),text);
         if(code!=0&&!allowFailure) throw new IOException("Couldn’t finish this step. The Components log in Settings has the details.");
         return (code,text);
     }
@@ -283,9 +325,9 @@ internal sealed class Session
         if(run.Code!=0||!match.Success)throw new IOException("Couldn’t prepare the recording to share. "+run.Output.Trim().Split('\n').LastOrDefault());
         return match.Groups[1].Value.Trim();
     }
-    internal void Apply(string kind,string result) => CalibrationSettings.SaveCalibration(Root,kind,result,ConfigPath);
+    internal void Apply(string kind,string result) { CalibrationSettings.SaveCalibration(Root,kind,result,ConfigPath); Saved(); }
     static void OpenSteam(string id,string process)
     {
-        if(!Processes.Running(process)) Process.Start(new ProcessStartInfo("steam://rungameid/"+id){UseShellExecute=true});
+        if(!Processes.Running(process)) Process.Start(new ProcessStartInfo("steam://rungameid/"+id){UseShellExecute=true})?.Dispose();
     }
 }

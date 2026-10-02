@@ -6,40 +6,79 @@ namespace QFTPlus;
 
 internal static class SteamVr
 {
+    static readonly Lock steamLinkLock = new();
+    static (long Until, bool Value) steamLink;
     internal static bool IsSteamLink
     {
         get
         {
-            try
+            lock (steamLinkLock)
             {
-                return Running() && SettingsFile() is { } file && JsonNode.Parse(File.ReadAllText(file))?
-                    ["LastKnown"]?["ActualHMDDriver"]?.GetValue<string>() == "vrlink";
+                if (Environment.TickCount64 < steamLink.Until) return steamLink.Value;
+                bool value;
+                try { value = Running() && Settings()?["LastKnown"]?["ActualHMDDriver"]?.GetValue<string>() == "vrlink"; }
+                catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException) { value = false; }
+                steamLink = (Environment.TickCount64 + 3000, value);
+                return value;
             }
-            catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException) { return false; }
         }
     }
 
-    internal static JsonNode? OpenVrPaths()
-    {
-        var file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "openvr", "openvrpaths.vrpath");
-        return File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) : null;
-    }
+    internal static JsonNode? OpenVrPaths() =>
+        CalibrationSettings.ReadJson(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "openvr", "openvrpaths.vrpath"));
+
+    static readonly string SteamLinkBefore = Path.Combine(WorkingCopy.Home, "steamlink-before.json");
+    static readonly (string Key, JsonValue Value)[] SteamLink =
+        [("useOSC", JsonValue.Create(true)), ("useOSCFace", JsonValue.Create(true)), ("shareEyeTrackingData", JsonValue.Create(true)), ("OSCOutPort", JsonValue.Create(9015))];
 
     internal static void ConfigureSteamLink()
     {
         if (!IsSteamLink) return;
-        WithSettings("Steam Link settings", table =>
+        if (!File.Exists(SteamLinkBefore))
         {
-            int error = 0;
-            foreach (var key in new[] { "useOSC", "useOSCFace", "shareEyeTrackingData" })
-            {
-                Function<SetBool>(table, 1)("driver_vrlink", key, true, ref error);
-                if (error != 0) throw new IOException($"Steam Link could not enable {key} ({error}).");
-            }
-            Function<SetInt>(table, 2)("driver_vrlink", "OSCOutPort", 9015, ref error);
-            if (error != 0) throw new IOException($"Steam Link could not select OSC port 9015 ({error}).");
-        });
+            var link = Settings()?["driver_vrlink"];
+            var before = new JsonObject();
+            foreach (var (key, _) in SteamLink) before[key] = link?[key]?.DeepClone();
+            CalibrationSettings.WriteJson(SteamLinkBefore, before);
+        }
+        WithSettings("Steam Link settings", table => { foreach (var (key, value) in SteamLink) SetSteamLink(table, key, value); });
     }
+
+    internal static void RestoreSteamLink()
+    {
+        if (!File.Exists(SteamLinkBefore)) return;
+        var before = CalibrationSettings.ReadJson(SteamLinkBefore);
+        if (Settings() is { } settings && settings["driver_vrlink"] is JsonObject link && RevertSteamLink(link, before) is { Count: > 0 } changed)
+        {
+            if (Running()) WithSettings("Restoring Steam Link settings", table => { foreach (var key in changed) SetSteamLink(table, key, link[key]); });
+            else CalibrationSettings.WriteJson(SettingsFile()!, settings);
+        }
+        File.Delete(SteamLinkBefore);
+    }
+
+    internal static List<string> RevertSteamLink(JsonObject link, JsonObject before)
+    {
+        var changed = new List<string>();
+        foreach (var (key, ours) in SteamLink)
+        {
+            if (!JsonNode.DeepEquals(link[key], ours)) continue;
+            changed.Add(key);
+            if (before[key] is { } value) link[key] = value.DeepClone();
+            else link.Remove(key);
+        }
+        return changed;
+    }
+
+    static void SetSteamLink(nint table, string key, JsonNode? value)
+    {
+        int error = 0;
+        if (value is null) Function<RemoveKey>(table, 10)("driver_vrlink", key, ref error);
+        else if (value.GetValueKind() is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False) Function<SetBool>(table, 1)("driver_vrlink", key, value.GetValue<bool>(), ref error);
+        else Function<SetInt>(table, 2)("driver_vrlink", key, value.GetValue<int>(), ref error);
+        if (error != 0) throw new IOException($"Steam Link didn’t accept {key} ({error}).");
+    }
+
+    static JsonObject? Settings() => SettingsFile() is { } file ? CalibrationSettings.ReadJson(file) : null;
 
     internal static bool SetThumbrest(IReadOnlyDictionary<string, JsonValue> values)
     {
@@ -58,7 +97,7 @@ internal static class SteamVr
             return true;
         }
         var file = SettingsFile() ?? throw new IOException("SteamVR isn’t set up yet. Start SteamVR once, then try again.");
-        var settings = File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file))!.AsObject() : new JsonObject();
+        var settings = CalibrationSettings.ReadJson(file);
         if (settings["driver_qftplus"] is not JsonObject driver) settings["driver_qftplus"] = driver = new JsonObject();
         foreach (var (key, value) in values) driver[key] = value.DeepClone();
         CalibrationSettings.WriteJson(file, settings);
@@ -70,7 +109,7 @@ internal static class SteamVr
         try
         {
             var file = SettingsFile();
-            var settings = file is not null && File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) as JsonObject : null;
+            var settings = file is null ? null : CalibrationSettings.ReadJson(file);
             if (settings?["driver_qftplus"] is not JsonObject driver || driver["blocked_by_safe_mode"] is not JsonValue blocked
                 || blocked.GetValueKind() != System.Text.Json.JsonValueKind.True) return false;
             if (Running())
@@ -85,6 +124,21 @@ internal static class SteamVr
         }
         catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or ArgumentOutOfRangeException)
         { throw new IOException("SteamVR’s settings can’t be read: " + error.Message, error); }
+    }
+
+    internal static void RemoveSettings()
+    {
+        if (Running())
+        {
+            WithSettings("Removing the QFT+ settings", table =>
+            {
+                int error = 0;
+                Function<RemoveSection>(table, 9)("driver_qftplus", ref error);
+                if (error != 0) throw new IOException($"SteamVR kept the QFT+ settings ({error}).");
+            });
+            return;
+        }
+        if (SettingsFile() is { } file && CalibrationSettings.ReadJson(file) is var settings && settings.Remove("driver_qftplus")) CalibrationSettings.WriteJson(file, settings);
     }
 
     internal static bool Running() => Processes.Running("vrserver");
@@ -127,6 +181,7 @@ internal static class SteamVr
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetBool([MarshalAs(UnmanagedType.LPStr)] string section, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.I1)] bool value, ref int error);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetInt([MarshalAs(UnmanagedType.LPStr)] string section, [MarshalAs(UnmanagedType.LPStr)] string key, int value, ref int error);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetFloat([MarshalAs(UnmanagedType.LPStr)] string section, [MarshalAs(UnmanagedType.LPStr)] string key, float value, ref int error);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RemoveSection([MarshalAs(UnmanagedType.LPStr)] string section, ref int error);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RemoveKey([MarshalAs(UnmanagedType.LPStr)] string section, [MarshalAs(UnmanagedType.LPStr)] string key, ref int error);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetString([MarshalAs(UnmanagedType.LPStr)] string section, [MarshalAs(UnmanagedType.LPStr)] string key, [MarshalAs(UnmanagedType.LPStr)] string value, ref int error);
 }

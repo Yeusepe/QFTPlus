@@ -253,7 +253,8 @@ class EnrollmentSession(GuidedSession):
         """native: {name: value} from a fresh native sample, or None."""
         s = self.current
         if s.slot and self.elapsed >= s.ramp and not self.completed:
-            self.observed.append((mouth_roi(strip), native, frozen, float(strip[:, 800:1600].mean())))
+            roi = mouth_roi(strip)
+            self.observed.append((roi, native, frozen, float(roi.mean(dtype=np.float64))))
 
     def evaluate(self, step):
         obs, result = self.observed, {"frames": len(self.observed)}
@@ -311,12 +312,12 @@ class EnrollmentSession(GuidedSession):
 
 def check(prefix):
     """Build PREFIX.anchors.npz from an enrollment capture. Neutral is the only required anchor."""
-    from prepare_training import scan_frames
+    from capture_format import scan_frames
     prefix = Path(prefix)
     session = json.loads(prefix.with_suffix(".qpsession.json").read_text(encoding="utf-8"))
     if session.get("sessionType") != "face-enrollment-v1":
         raise ValueError("This isn't a face setup recording.")
-    entries, _ = scan_frames(prefix.with_suffix(".qpcap"), 0x1F)
+    entries = scan_frames(prefix.with_suffix(".qpcap"), 0x1F)
     with prefix.with_suffix(".qpcap").open("rb") as capture:
         def frames(indices):
             out = []

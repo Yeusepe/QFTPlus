@@ -15,6 +15,8 @@ internal static class Adb
 
     internal static string Quote(string command) => "'" + command.Replace("'", "'\\''") + "'";
 
+    internal static string[] Su(string target, string command) => ["-s", target, "shell", "su -c " + Quote(command)];
+
     internal static async Task EnsureAsync(string adb, string? target = null, CancellationToken token = default)
     {
         if ((await Processes.RunAsync(adb, ["start-server"], token, 10)).Code != 0)

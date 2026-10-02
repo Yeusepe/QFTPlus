@@ -40,7 +40,7 @@ internal static class Program
         window.Show();
         if(args.Contains("--start")||args.Contains("--from-vrcft")) await window.Start(args.Contains("--from-vrcft"));
     };
-    app.DispatcherUnhandledException+=(_,e)=>{window.Error(e.Exception.Message);e.Handled=true;};
+    app.DispatcherUnhandledException+=(_,e)=>{Session.Log(Path.Combine(root,"studio.log"),$"{DateTimeOffset.Now:O} Unhandled: {e.Exception}");window.Error(e.Exception.Message);e.Handled=true;};
     app.Run();registration.Unregister(null);
     Adb.Stop();
  }
