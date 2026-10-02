@@ -28,6 +28,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private const int GazePacketBytes = 24;
     private const long GazeTimeoutMs = 250;
     private const long GazeHoldMs = 1000;
+    private const float BlinkClosed = 0.5f;
+    private const long BlinkSettleMs = 100;
     private const int TonguePort = 27276;
     private const int TonguePacketBytes = 56;
     private const long TongueTimeoutMs = 300;
@@ -71,6 +73,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private long _lastGazeTick;
     private long _leftGazeHeldTick;
     private long _rightGazeHeldTick;
+    private long _leftBlinkTick;
+    private long _rightBlinkTick;
     private float _leftGazeX;
     private float _leftGazeY;
     private float _rightGazeX;
@@ -520,10 +524,13 @@ public sealed class TrackingModule : ExtTrackingModule
         long now = Environment.TickCount64;
         bool customFresh = _lastGazeTick != 0 &&
             now - _lastGazeTick <= GazeTimeoutMs;
+        if (values[12] > BlinkClosed) _leftBlinkTick = now;
+        if (values[13] > BlinkClosed) _rightBlinkTick = now;
 
         bool leftX = _adjustments.Passthrough("GazeLeftX"), leftY = _adjustments.Passthrough("GazeLeftY");
         bool rightX = _adjustments.Passthrough("GazeRightX"), rightY = _adjustments.Passthrough("GazeRightY");
-        if (customFresh && (_gazeFlags & 1) != 0 && !(leftX && leftY))
+        if (now - _leftBlinkTick <= BlinkSettleMs) _leftGazeHeldTick = now;
+        else if (customFresh && (_gazeFlags & 1) != 0 && !(leftX && leftY))
         {
             (float x, float y) = leftValid ? QuaternionToCartesian(_second, 296) : (_eyes[0], _eyes[1]);
             _eyes[0] = leftX ? x : _leftGazeX;
@@ -539,7 +546,8 @@ public sealed class TrackingModule : ExtTrackingModule
         }
         else if (now - _leftGazeHeldTick > GazeHoldMs) { _eyes[0] = 0; _eyes[1] = 0; }
 
-        if (customFresh && (_gazeFlags & 2) != 0 && !(rightX && rightY))
+        if (now - _rightBlinkTick <= BlinkSettleMs) _rightGazeHeldTick = now;
+        else if (customFresh && (_gazeFlags & 2) != 0 && !(rightX && rightY))
         {
             (float x, float y) = rightValid ? QuaternionToCartesian(_second, 324) : (_eyes[2], _eyes[3]);
             _eyes[2] = rightX ? x : _rightGazeX;
