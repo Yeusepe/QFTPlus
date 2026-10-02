@@ -3,13 +3,62 @@
 
 from __future__ import annotations
 
+import bisect
+import codecs
+import collections
 import json
+import socket
+import subprocess
+import threading
+from dataclasses import dataclass
+from pathlib import Path
 import time
 from typing import Any
 
 import numpy as np
 
-from stereo_eye_calibration import StereoEyeCalibrationController, _error_metrics as error_metrics
+def error_metrics(predicted: np.ndarray, expected: np.ndarray) -> dict[str, float]:
+    delta = np.asarray(predicted) - np.asarray(expected)
+    errors = np.abs(delta)
+    angular = np.linalg.norm(delta, axis=1)
+    return {
+        "yaw_mae_deg": float(np.mean(errors[:, 0])),
+        "pitch_mae_deg": float(np.mean(errors[:, 1])),
+        "angular_mae_deg": float(np.mean(angular)),
+        "angular_p95_deg": float(np.percentile(angular, 95)),
+    }
+
+
+class _JsonObjectStream:
+    def __init__(self) -> None:
+        self.buffer = ""
+        self.decoder = json.JSONDecoder()
+
+    def feed(self, chunk: str) -> list[dict[str, Any]]:
+        self.buffer = (self.buffer + chunk).lstrip()
+        if len(self.buffer) > 1_048_576:
+            raise ValueError("VR overlay sent an oversized packet")
+        objects: list[dict[str, Any]] = []
+        while self.buffer:
+            if not self.buffer.startswith("{"):
+                raise ValueError("VR overlay packets must be JSON objects")
+            try:
+                packet, end = self.decoder.raw_decode(self.buffer)
+            except json.JSONDecodeError:
+                break
+            objects.append(packet)
+            self.buffer = self.buffer[end:].lstrip()
+        return objects
+
+
+@dataclass(frozen=True)
+class TargetState:
+    received_ns: int
+    left_pitch: float
+    left_yaw: float
+    right_pitch: float
+    right_yaw: float
+    distance: float
 
 
 def affine_features(values: np.ndarray) -> np.ndarray:
@@ -153,8 +202,269 @@ def evaluate_independent_convergence(
     return result
 
 
-class VisualAxisCalibrationController(StereoEyeCalibrationController):
+class VisualAxisCalibrationController:
     """Collect and fit the patched model's post-personalization eye axes."""
+
+    def __init__(
+        self,
+        overlay_executable: str | Path,
+        output_path: str | Path,
+        gaze_seconds: int = 60,
+        convergence_seconds: int = 80,
+        port: int = 2425,
+        openvr: bool = True,
+    ) -> None:
+        self.overlay_executable = Path(overlay_executable).resolve()
+        if not self.overlay_executable.is_file():
+            raise FileNotFoundError(
+                f"BabbleCalibration executable not found: {self.overlay_executable}"
+            )
+        self.output_path = Path(output_path).resolve()
+        self.gaze_seconds = gaze_seconds
+        self.convergence_seconds = convergence_seconds
+        self.port = port
+        self.openvr = openvr
+        self.phase = "starting"
+        self.message = "Starting the in-VR calibrator..."
+        self.samples: list[dict[str, Any]] = []
+        self.latest_target: TargetState | None = None
+        self.target_history: collections.deque[TargetState] = collections.deque(
+            maxlen=4096
+        )
+        self.result: dict[str, Any] | None = None
+        self._server: socket.socket | None = None
+        self._client: socket.socket | None = None
+        self._process: subprocess.Popen[bytes] | None = None
+        self._process_output = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.RLock()
+        self._stopping = False
+
+    def start(self) -> None:
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server.bind(("127.0.0.1", self.port))
+        self._server.listen(1)
+        self._server.settimeout(20.0)
+        arguments = [str(self.overlay_executable)]
+        arguments.append("--use-openvr" if self.openvr else "--use-debug")
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        overlay_log = self.output_path.parent / "babble-calibration-overlay.log"
+        self._process_output = overlay_log.open("w", encoding="utf-8")
+        self._process = subprocess.Popen(
+            arguments,
+            cwd=str(self.overlay_executable.parent),
+            creationflags=creation_flags,
+            stdout=self._process_output,
+            stderr=subprocess.STDOUT,
+        )
+        print(
+            f"BABBLE_OVERLAY_STARTED mode={'openvr' if self.openvr else 'debug'} "
+            f"log={overlay_log}"
+        )
+        self._thread = threading.Thread(
+            target=self._connection_worker,
+            name="babble-calibration-bridge",
+            daemon=True,
+        )
+        self._thread.start()
+
+    @staticmethod
+    def _duration(seconds: int) -> str:
+        hours, remainder = divmod(seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _send(self, packet_name: str, packet_data: dict[str, Any]) -> None:
+        payload = json.dumps(
+            {"PacketName": packet_name, "PacketData": packet_data},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        with self._lock:
+            if self._client is None:
+                raise ConnectionError("BabbleCalibration is not connected")
+            self._client.sendall(payload)
+
+    def _send_routine(self, name: str, seconds: int) -> None:
+        self._send(
+            "RunVariableLenghtRoutinePacket",
+            {"RoutineName": name, "Time": self._duration(seconds)},
+        )
+
+    def _connection_worker(self) -> None:
+        try:
+            assert self._server is not None
+            client, _address = self._server.accept()
+            client.settimeout(1.0)
+            with self._lock:
+                self._client = client
+                self.phase = "initializing_overlay"
+                self.message = "VR calibrator connected; waiting for its routine handler..."
+            print("BABBLE_OVERLAY_CONNECTED")
+            time.sleep(1.25)
+            self._send_routine("gazetutorialshort", 3600)
+            with self._lock:
+                self.phase = "ready_gaze"
+                self.message = "In VR: read the gaze tutorial. Press Space when ready."
+            print("BABBLE_ROUTINE_READY name=gazetutorialshort key=Space")
+            decoder = _JsonObjectStream()
+            utf8 = codecs.getincrementaldecoder("utf-8")()
+            while not self._stopping:
+                try:
+                    chunk = client.recv(65536)
+                except socket.timeout:
+                    continue
+                except (ConnectionResetError, ConnectionAbortedError):
+                    with self._lock:
+                        completed = self.phase == "done"
+                    if self._stopping or completed:
+                        break
+                    raise
+                if not chunk:
+                    if not self._stopping and self.phase != "done":
+                        raise ConnectionError("BabbleCalibration disconnected")
+                    break
+                for packet in decoder.feed(utf8.decode(chunk)):
+                    self._handle_packet(packet)
+        except Exception as error:
+            with self._lock:
+                if not self._stopping and self.phase != "done":
+                    self.phase = "error"
+                    self.message = f"VR calibration error: {error}"
+
+    def _handle_packet(self, packet: dict[str, Any]) -> None:
+        name = packet.get("PacketName")
+        data = packet.get("PacketData") or {}
+        if name == "HmdPositionalDataPacket":
+            target = TargetState(
+                received_ns=time.monotonic_ns(),
+                left_pitch=float(data.get("LeftEyePitch", 0.0)),
+                left_yaw=float(data.get("LeftEyeYaw", 0.0)),
+                right_pitch=float(data.get("RightEyePitch", 0.0)),
+                right_yaw=float(data.get("RightEyeYaw", 0.0)),
+                distance=float(data.get("RoutineDistance", 0.0)),
+            )
+            with self._lock:
+                self.latest_target = target
+                self.target_history.append(target)
+        elif name == "RoutineFinishedPacket":
+            routine = str(data.get("RoutineName", "")).lower()
+            if routine == "gaze" and self.phase == "gaze":
+                with self._lock:
+                    self.phase = "ready_convergence"
+                    self.message = (
+                        "Gaze capture complete. Read the convergence tutorial; "
+                        "press Space when ready."
+                    )
+                self._send_routine("convergencetutorial", 3600)
+            elif routine == "convergence" and self.phase == "convergence":
+                self._fit_and_save()
+
+    def handle_key(self, key: str, factory_ready: bool = True) -> None:
+        normalized = key.lower()
+        with self._lock:
+            phase = self.phase
+        if normalized == "r" and phase == "ready_gaze":
+            self._send_routine("gazetutorialshort", 3600)
+            print("BABBLE_ROUTINE_RESENT name=gazetutorialshort")
+            return
+        if normalized == "r" and phase == "ready_convergence":
+            self._send_routine("convergencetutorial", 3600)
+            print("BABBLE_ROUTINE_RESENT name=convergencetutorial")
+            return
+        if normalized not in (" ", "\r", "\n"):
+            return
+        if phase in ("ready_gaze", "ready_convergence") and not factory_ready:
+            with self._lock:
+                self.message = (
+                    "Waiting for valid changing Meta eye poses. Move your eyes, "
+                    "then press Space again."
+                )
+            print("FACTORY_EYE_PREFLIGHT_WAITING")
+            return
+        if phase == "ready_gaze":
+            with self._lock:
+                self.phase = "gaze"
+                self.latest_target = None
+                self.target_history.clear()
+                self.message = "Follow the target naturally while moving your head slowly."
+            self._send_routine("gaze", self.gaze_seconds)
+            print(f"BABBLE_ROUTINE_STARTED name=gaze seconds={self.gaze_seconds}")
+        elif phase == "ready_convergence":
+            with self._lock:
+                self.phase = "convergence"
+                self.latest_target = None
+                self.target_history.clear()
+                self.message = (
+                    "Keep both eyes on the target. Slowly turn/nod your head in a wide figure-eight "
+                    "while it moves near and far; let your eyes counter-rotate to hold fixation."
+                )
+            self._send_routine("convergence", self.convergence_seconds)
+            print(
+                "BABBLE_ROUTINE_STARTED name=convergence "
+                f"seconds={self.convergence_seconds} instruction=slow_head_figure_eight"
+            )
+
+    def target_at(
+        self, timestamp_ns: int, max_distance_ns: int = 100_000_000
+    ) -> TargetState | None:
+        """Return/interpolate the VR target at a capture-time timestamp."""
+        with self._lock:
+            history = list(self.target_history)
+        if not history:
+            return None
+        timestamp_ns = int(timestamp_ns)
+        after_index = bisect.bisect_left(history, timestamp_ns, key=lambda target: target.received_ns)
+        before = history[after_index - 1] if after_index > 0 else None
+        after = history[after_index] if after_index < len(history) else None
+        if before is not None and after is not None:
+            before_delta = timestamp_ns - before.received_ns
+            after_delta = after.received_ns - timestamp_ns
+            if before_delta <= max_distance_ns and after_delta <= max_distance_ns:
+                span = after.received_ns - before.received_ns
+                fraction = 0.0 if span <= 0 else before_delta / span
+
+                def blend(first: float, second: float) -> float:
+                    return first + (second - first) * fraction
+
+                return TargetState(
+                    received_ns=timestamp_ns,
+                    left_pitch=blend(before.left_pitch, after.left_pitch),
+                    left_yaw=blend(before.left_yaw, after.left_yaw),
+                    right_pitch=blend(before.right_pitch, after.right_pitch),
+                    right_yaw=blend(before.right_yaw, after.right_yaw),
+                    distance=blend(before.distance, after.distance),
+                )
+        nearest = min(history, key=lambda target: abs(target.received_ns - timestamp_ns))
+        if abs(nearest.received_ns - timestamp_ns) <= max_distance_ns:
+            return nearest
+        return None
+
+    def close(self) -> None:
+        self._stopping = True
+        with self._lock:
+            client = self._client
+            self._client = None
+        if client is not None:
+            try:
+                client.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            client.close()
+        if self._server is not None:
+            self._server.close()
+            self._server = None
+        if self._process is not None and self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+        self._process = None
+        if self._process_output is not None:
+            self._process_output.close()
+            self._process_output = None
 
     def add_axis_sample(
         self,

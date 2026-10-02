@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace Qpro.GazeBridge;
@@ -12,9 +15,11 @@ internal sealed class ExtraFaceState
         .SelectMany(name => new[] { name + "Left", name + "Right" })
         .Concat(new[] { "JawBackward", "JawClench", "JawMandibleRaise", "MouthUpperLeft",
             "MouthUpperRight", "MouthLowerLeft", "MouthLowerRight" }));
-    private Dictionary<string, float> _values = new();
+    internal static readonly string[] SharePairs = ["BrowInnerUp", "BrowOuterUp"];
+    private static readonly HashSet<string> ShareAllowed = new(SharePairs.SelectMany(name => new[] { name + "Left", name + "Right" }));
+    private Dictionary<string, float> _values = new(), _shares = new();
     private long? _received;
-    private sealed record Packet(int Version, bool Enabled, Dictionary<string, float> Values);
+    private sealed record Packet(int Version, bool Enabled, Dictionary<string, float> Values, Dictionary<string, float>? Shares = null);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase, AllowDuplicateProperties = false,
@@ -27,9 +32,12 @@ internal sealed class ExtraFaceState
         try
         {
             var data = JsonSerializer.Deserialize<Packet>(packet, JsonOptions);
-            if (data is not { Version: 1 } || data.Values.Any(entry => !Allowed.Contains(entry.Key) ||
-                !float.IsFinite(entry.Value) || entry.Value < 0 || entry.Value > 1)) return false;
+            static bool Valid(KeyValuePair<string, float> entry, HashSet<string> allowed) =>
+                allowed.Contains(entry.Key) && float.IsFinite(entry.Value) && entry.Value >= 0 && entry.Value <= 1;
+            if (data is not { Version: 1 } || !data.Values.All(entry => Valid(entry, Allowed))
+                || data.Shares is { } shares && !shares.All(entry => Valid(entry, ShareAllowed))) return false;
             _values = data.Enabled ? data.Values : new();
+            _shares = data.Enabled ? data.Shares ?? new() : new();
             _received = now;
             return true;
         }
@@ -37,7 +45,14 @@ internal sealed class ExtraFaceState
         { return false; }
     }
 
-    internal IReadOnlyDictionary<string, float> Current(long now) =>
-        _received is long tick && now >= tick && now - tick <= TimeoutMs ? _values : Empty;
+    internal IReadOnlyDictionary<string, float> Current(long now) => Fresh(now) ? _values : Empty;
+    internal IReadOnlyDictionary<string, float> CurrentShares(long now) => Fresh(now) ? _shares : Empty;
+    private bool Fresh(long now) => _received is long tick && now >= tick && now - tick <= TimeoutMs;
+
+    internal static (float Left, float Right) Split(float nativeLeft, float nativeRight, float shareLeft, float shareRight)
+    {
+        float height = (nativeLeft + nativeRight) / 2;
+        return (Math.Min(1f, height * 2 * shareLeft), Math.Min(1f, height * 2 * shareRight));
+    }
     private static readonly Dictionary<string, float> Empty = new();
 }

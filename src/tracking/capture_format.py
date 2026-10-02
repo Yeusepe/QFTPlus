@@ -134,7 +134,7 @@ def inspect_capture(path: str | Path) -> dict[str, object]:
             payload_fingerprint = zlib.crc32(payload)
             if (len(recent_payloads) >= 2
                     and payload_fingerprint != recent_payloads[-1]
-                    and payload_fingerprint in list(recent_payloads)[:-1]):
+                    and payload_fingerprint in recent_payloads):
                 exact_nonconsecutive_replays += 1
             recent_payloads.append(payload_fingerprint)
             masks[source_fields[10]] += 1

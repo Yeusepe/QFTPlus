@@ -1,12 +1,13 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Velopack;
+using Velopack.Sources;
 
 namespace QFTPlus;
 
@@ -42,7 +43,7 @@ internal sealed record ReleaseVersion(string Text, Version Core, string[] Previe
     }
 }
 
-internal sealed record AppRelease(ReleaseVersion Version, string Tag)
+internal sealed record AppRelease(ReleaseVersion Version, string Tag, UpdateInfo? Info = null)
 {
     internal string Url => Updates.ReleasesUrl + "/tag/" + Uri.EscapeDataString(Tag);
 }
@@ -56,31 +57,15 @@ internal static class Updates
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) { return null; }
     }
 
-    internal static async Task<AppRelease?> Check(HttpClient client, ReleaseVersion current, CancellationToken cancel)
+    internal static UpdateManager? Manager(ReleaseVersion current)
     {
-        AppRelease? newest = null;
-        for (var page = 1; ; page++)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/Yeusepe/QFTPlus/releases?per_page=100&page={page}");
-            request.Headers.UserAgent.ParseAdd("QFTPlus/" + current.Text);
-            request.Headers.Accept.ParseAdd("application/vnd.github+json");
-            request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
-            using var response = await client.SendAsync(request, cancel);
-            response.EnsureSuccessStatusCode();
-            var releases = JsonNode.Parse(await response.Content.ReadAsStringAsync(cancel))?.AsArray()
-                ?? throw new JsonException("Missing release list.");
-            foreach (var release in releases)
-            {
-                if (release is not JsonObject item || item["draft"]?.GetValue<bool>() != false) continue;
-                var tag = item["tag_name"]?.GetValue<string>();
-                var version = ReleaseVersion.Parse(tag);
-                if (version is null || version.CompareTo(current) <= 0 || newest is not null && version.CompareTo(newest.Version) <= 0) continue;
-                if (current.Preview.Length == 0 && (item["prerelease"]?.GetValue<bool>() != false || version.Preview.Length > 0)) continue;
-                if (item["assets"] is not JsonArray assets || !assets.Any(a =>
-                    a?["name"]?.GetValue<string>() == $"QFT-Plus-{version.Text}-Setup.exe" && a?["state"]?.GetValue<string>() == "uploaded")) continue;
-                newest = new(version, tag!);
-            }
-            if (releases.Count < 100) return newest;
-        }
+        var manager = new UpdateManager(new GithubSource("https://github.com/Yeusepe/QFTPlus", null, current.Preview.Length > 0));
+        return manager.IsInstalled ? manager : null;
+    }
+
+    internal static async Task<AppRelease?> Check(UpdateManager manager, CancellationToken cancel)
+    {
+        var info = await manager.CheckForUpdatesAsync().WaitAsync(TimeSpan.FromSeconds(30), cancel);
+        return info is not null && ReleaseVersion.Parse(info.TargetFullRelease.Version.ToString()) is { } version ? new(version, "v" + version.Text, info) : null;
     }
 }

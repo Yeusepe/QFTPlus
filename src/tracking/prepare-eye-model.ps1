@@ -9,9 +9,7 @@ $adb = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_ADB) -and (Test-Path -Lit
 } else {
     Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
 }
-$python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $root ".venv\Scripts\python.exe" }
-$fallbackPython = Join-Path $root ".venv\Scripts\qpro-python-console.exe"
-if (-not (Test-Path -LiteralPath $python) -and (Test-Path -LiteralPath $fallbackPython)) { $python = $fallbackPython }
+$python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $root "runtime\python.exe" }
 $patcher = Join-Path $root "eye_model_patch.py"
 $destination = Join-Path $root "models\eye\bolt-independent-axes.ptl"
 $stockModel = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl"

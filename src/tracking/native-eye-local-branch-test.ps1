@@ -47,11 +47,7 @@ if ($Wireless -and [string]::IsNullOrWhiteSpace($AdbTarget)) {
     }
     $AdbTarget = (Get-Content -LiteralPath $wirelessConfig -Raw | ConvertFrom-Json).adbTarget
 }
-$python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $root ".venv\Scripts\python.exe" }
-$pythonFallback = Join-Path $root ".venv\Scripts\qpro-python-console.exe"
-if (-not (Test-Path -LiteralPath $python) -and (Test-Path -LiteralPath $pythonFallback)) {
-    $python = $pythonFallback
-}
+$python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $root "runtime\python.exe" }
 $localModel = Join-Path $root "models\eye\bolt-independent-axes.ptl"
 $remoteModel = "/data/local/tmp/qpro-seacliff-independent-axes.ptl"
 $targetModel = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl"
@@ -60,7 +56,7 @@ $overlay = Resolve-WorkspacePath $OverlayPath
 $calibrationOutputPath = Resolve-WorkspacePath $CalibrationOutput
 
 if (-not (Test-Path -LiteralPath $adb)) { throw "A required file is missing (platform-tools\adb.exe). Reinstall QFT+." }
-if (-not (Test-Path -LiteralPath $python)) { throw "Project Python environment not found under .venv\Scripts." }
+if (-not (Test-Path -LiteralPath $python)) { throw "Bundled Python not found. Run setup-runtime.ps1." }
 if ($Calibrate) {
     if (-not (Test-Path -LiteralPath $overlay)) { throw "BabbleCalibration not found: $overlay" }
     if (-not (Get-Process -Name "vrserver" -ErrorAction SilentlyContinue)) {

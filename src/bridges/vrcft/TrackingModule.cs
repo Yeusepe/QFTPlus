@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using VRCFaceTracking;
 using VRCFaceTracking.Core.Params.Expressions;
@@ -87,11 +88,20 @@ public sealed class TrackingModule : ExtTrackingModule
     private bool _tongueEnabled;
     private bool _tongueDirty;
     private long _lastTongueTick;
+    private static readonly string[] TongueNames = Array.ConvertAll(TongueExpressions, e => ((UnifiedExpressions)e).ToString());
+    private static readonly Dictionary<int, int> ShapePartners = Enum.GetValues<UnifiedExpressions>()
+        .Select(e => (Shape: (int)e, Partner: OutputAdjustments.Partner(e.ToString())))
+        .Where(p => p.Partner is not null && Enum.IsDefined(typeof(UnifiedExpressions), p.Partner))
+        .ToDictionary(p => p.Shape, p => (int)Enum.Parse<UnifiedExpressions>(p.Partner!));
+    private float[] _shapeInputs = [];
     private readonly OutputAdjustments _adjustments = new();
     private readonly Dictionary<int, float> _outputBaseline = new();
     private float[]? _eyeBaseline;
     private string? _settingsRoot;
     private long _outputTick;
+    private string? _settingsConfigPath;
+    private long _settingsConfigTick, _outputStatusTick;
+    private bool _outputStatusFailed;
 
     public override (bool SupportsEye, bool SupportsExpression) Supported => (true, true);
 
@@ -177,12 +187,24 @@ public sealed class TrackingModule : ExtTrackingModule
             UpdateEyes(expressions);
         if (_needsExpression)
             UpdateMouth(expressions, _second[0]);
+        var shares = _extraFace.CurrentShares(Environment.TickCount64);
+        foreach (var pair in ExtraFaceState.SharePairs)
+        {
+            if (!shares.TryGetValue(pair + "Left", out float shareLeft) || !shares.TryGetValue(pair + "Right", out float shareRight)) continue;
+            int left = (int)Enum.Parse<UnifiedExpressions>(pair + "Left"), right = (int)Enum.Parse<UnifiedExpressions>(pair + "Right");
+            if (left <= 11 ? !_needsEye : !_needsExpression) continue;
+            float nativeLeft = UnifiedTracking.Data.Shapes[left].Weight, nativeRight = UnifiedTracking.Data.Shapes[right].Weight;
+            _extraBaseline.TryAdd(left, nativeLeft); _extraBaseline.TryAdd(right, nativeRight);
+            var (fusedLeft, fusedRight) = ExtraFaceState.Split(nativeLeft, nativeRight, shareLeft, shareRight);
+            if (!_adjustments.Passthrough(pair + "Left")) Set(left, fusedLeft);
+            if (!_adjustments.Passthrough(pair + "Right")) Set(right, fusedRight);
+        }
         foreach (var entry in _extraFace.Current(Environment.TickCount64))
         {
-            if (!Enum.TryParse<UnifiedExpressions>(entry.Key, out var expression)) continue;
+            if (_adjustments.Passthrough(entry.Key) || !Enum.TryParse<UnifiedExpressions>(entry.Key, out var expression)) continue;
             int index = (int)expression;
             if (index <= 11 ? !_needsEye : !_needsExpression) continue;
-            _extraBaseline[index] = UnifiedTracking.Data.Shapes[index].Weight;
+            _extraBaseline.TryAdd(index, UnifiedTracking.Data.Shapes[index].Weight);
             Set(index, entry.Value);
         }
         AdjustOutput();
@@ -216,6 +238,7 @@ public sealed class TrackingModule : ExtTrackingModule
     {
         string configPath = Path.Combine(Environment.GetFolderPath(
             Environment.SpecialFolder.ApplicationData), "VRCFaceTracking", "QproAutoStart.json");
+        _settingsConfigPath = configPath;
         if (!File.Exists(configPath)) return;
         try
         {
@@ -261,28 +284,74 @@ public sealed class TrackingModule : ExtTrackingModule
     }
     private void AdjustOutput()
     {
-        if (_settingsRoot is null) return;
         var tick=Environment.TickCount64; var utc=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0;
+
+        if (_settingsConfigPath is not null && tick - _settingsConfigTick >= 1000)
+        {
+            _settingsConfigTick = tick;
+            try
+            {
+                using var file = new FileStream(_settingsConfigPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var config = JsonDocument.Parse(file);
+                if (config.RootElement.ValueKind == JsonValueKind.Object && config.RootElement.TryGetProperty("root", out var folder) && folder.ValueKind == JsonValueKind.String && folder.GetString() is { Length: > 0 } root)
+                    _settingsRoot = Path.GetFullPath(root);
+            }
+            catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or ArgumentException) { }
+        }
+        if (_settingsRoot is null) return;
         var dt=_outputTick==0?.005:(tick-_outputTick)/1000.0; _outputTick=tick;
         _adjustments.Poll(_settingsRoot,tick,utc);
+        var report = tick - _outputStatusTick >= 250;
+        JsonObject? inputs = report ? new() : null, outputs = report ? new() : null;
+        if (_shapeInputs.Length != UnifiedTracking.Data.Shapes.Length) _shapeInputs = new float[UnifiedTracking.Data.Shapes.Length];
+        for (var i = 0; i < _shapeInputs.Length; i++) _shapeInputs[i] = UnifiedTracking.Data.Shapes[i].Weight;
         foreach (var shape in Enum.GetValues<UnifiedExpressions>())
         {
             var index=(int)shape; var name=shape.ToString();
             if (name=="Max" || index<0 || index>=UnifiedTracking.Data.Shapes.Length || (index<=11?!_needsEye:!_needsExpression)) continue;
-            if (!_adjustments.Enabled(name)) continue;
-            var value=UnifiedTracking.Data.Shapes[index].Weight; _outputBaseline[index]=value;
-            Set(index,_adjustments.Apply(name,value,0,0,1,dt,utc));
+            var value=_shapeInputs[index];
+            if (report) inputs![name] = float.IsFinite(value) ? value : 0;
+            if (_adjustments.Enabled(name))
+            {
+                _outputBaseline[index]=value;
+                float? partner = ShapePartners.TryGetValue(index, out var other) && other < _shapeInputs.Length ? _shapeInputs[other] : null;
+                Set(index,_adjustments.Apply(name,value,0,0,1,dt,utc,partner));
+            }
+            if (report) outputs![name] = float.IsFinite(UnifiedTracking.Data.Shapes[index].Weight) ? UnifiedTracking.Data.Shapes[index].Weight : 0;
         }
-        if (!_needsEye) return;
-        var eyes=ReadEyes(); var changed=false;
-        for(var i=0;i<EyeKeys.Length;i++)
+        if (_needsEye)
         {
-            var name=EyeKeys[i];
-            if (!_adjustments.Enabled(name)) continue;
-            _eyeBaseline??=(float[])eyes.Clone(); changed=true;
-            eyes[i]=_adjustments.Apply(name,eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc);
+            var raw=ReadEyes(); var eyes=(float[])raw.Clone(); var changed=false;
+            for(var i=0;i<EyeKeys.Length;i++)
+            {
+                var name=EyeKeys[i];
+                if (report) inputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
+                if (_adjustments.Enabled(name))
+                {
+                    _eyeBaseline??=raw; changed=true;
+                    var other=Array.IndexOf(EyeKeys,OutputAdjustments.Partner(name)??"");
+                    eyes[i]=_adjustments.Apply(name,eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc,other<0?null:raw[other]);
+                }
+                if (report) outputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
+            }
+            if(changed)WriteEyes(eyes);
         }
-        if(changed)WriteEyes(eyes);
+        if (!report) return;
+        _outputStatusTick = tick;
+        try
+        {
+            var status = new JsonObject { ["updated"] = utc, ["settings"] = _adjustments.Settings.DeepClone(),
+                ["inputs"] = inputs, ["outputs"] = outputs, ["pupilTracking"] = _pupil.Current(tick) is not null };
+            var path = Path.Combine(_settingsRoot, "output-status.json");
+            File.WriteAllText(path + ".tmp", status.ToJsonString());
+            File.Move(path + ".tmp", path, true);
+            _outputStatusFailed = false;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            if (!_outputStatusFailed) Logger?.LogWarning(error, "Could not publish QFT+ adjustment readout");
+            _outputStatusFailed = true;
+        }
     }
 
     private void TryOpenMap()
@@ -418,10 +487,13 @@ public sealed class TrackingModule : ExtTrackingModule
         bool customFresh = _lastGazeTick != 0 &&
             now - _lastGazeTick <= GazeTimeoutMs;
 
-        if (customFresh && (_gazeFlags & 1) != 0)
+        bool leftX = _adjustments.Passthrough("GazeLeftX"), leftY = _adjustments.Passthrough("GazeLeftY");
+        bool rightX = _adjustments.Passthrough("GazeRightX"), rightY = _adjustments.Passthrough("GazeRightY");
+        if (customFresh && (_gazeFlags & 1) != 0 && !(leftX && leftY))
         {
-            UnifiedTracking.Data.Eye.Left.Gaze.x = _leftGazeX;
-            UnifiedTracking.Data.Eye.Left.Gaze.y = _leftGazeY;
+            (float x, float y) = leftValid ? QuaternionToCartesian(_second, 296) : (UnifiedTracking.Data.Eye.Left.Gaze.x, UnifiedTracking.Data.Eye.Left.Gaze.y);
+            UnifiedTracking.Data.Eye.Left.Gaze.x = leftX ? x : _leftGazeX;
+            UnifiedTracking.Data.Eye.Left.Gaze.y = leftY ? y : _leftGazeY;
             _leftGazeHeldTick = now;
         }
         else if (leftValid)
@@ -433,10 +505,11 @@ public sealed class TrackingModule : ExtTrackingModule
         }
         else if (now - _leftGazeHeldTick > GazeHoldMs) { UnifiedTracking.Data.Eye.Left.Gaze.x = 0; UnifiedTracking.Data.Eye.Left.Gaze.y = 0; }
 
-        if (customFresh && (_gazeFlags & 2) != 0)
+        if (customFresh && (_gazeFlags & 2) != 0 && !(rightX && rightY))
         {
-            UnifiedTracking.Data.Eye.Right.Gaze.x = _rightGazeX;
-            UnifiedTracking.Data.Eye.Right.Gaze.y = _rightGazeY;
+            (float x, float y) = rightValid ? QuaternionToCartesian(_second, 324) : (UnifiedTracking.Data.Eye.Right.Gaze.x, UnifiedTracking.Data.Eye.Right.Gaze.y);
+            UnifiedTracking.Data.Eye.Right.Gaze.x = rightX ? x : _rightGazeX;
+            UnifiedTracking.Data.Eye.Right.Gaze.y = rightY ? y : _rightGazeY;
             _rightGazeHeldTick = now;
         }
         else if (rightValid)
@@ -455,8 +528,8 @@ public sealed class TrackingModule : ExtTrackingModule
         ResetPupilDilation();
         if (_pupil.Current(Environment.TickCount64) is { } pupil)
         {
-            UnifiedTracking.Data.Eye.Left.PupilDiameter_MM = pupil.Left * 10;
-            UnifiedTracking.Data.Eye.Right.PupilDiameter_MM = pupil.Right * 10;
+            if (!_adjustments.Passthrough("PupilLeft")) UnifiedTracking.Data.Eye.Left.PupilDiameter_MM = pupil.Left * 10;
+            if (!_adjustments.Passthrough("PupilRight")) UnifiedTracking.Data.Eye.Right.PupilDiameter_MM = pupil.Right * 10;
         }
 
         UpdateEyeExpressions(values);
@@ -484,6 +557,8 @@ public sealed class TrackingModule : ExtTrackingModule
         bool customFresh = _tongueEnabled && _lastTongueTick != 0 &&
             Environment.TickCount64 - _lastTongueTick <= TongueTimeoutMs;
         int mask = customFresh ? _tongueMask : 0;
+        for (int index = 0; index < TongueNames.Length; index++)
+            if (_adjustments.Passthrough(TongueNames[index])) mask &= ~(1 << index);
         for (int index = 0; index < TongueExpressions.Length; index++)
         {
             if ((mask & (1 << index)) == 0) Set(TongueExpressions[index], 0);

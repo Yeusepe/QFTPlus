@@ -124,7 +124,7 @@ class DetectorOutputParser:
         if match.group("valid") is not None and not 0.25 <= sum(value * value for value in vector) <= 2.25:
             self._pending.pop(eye, None)
             return None
-        self._pending[eye] = (kernel_time, vector)  # type: ignore[assignment]
+        self._pending[eye] = (kernel_time, vector)
         if 0 not in self._pending or 1 not in self._pending:
             return None
         left_time, left_vector = self._pending[0]
@@ -176,8 +176,8 @@ class VisualAxisPairParser:
             kernel_time_s=float(match.group("time")),
             left_valid=True,
             right_valid=True,
-            left_vector=left,  # type: ignore[arg-type]
-            right_vector=right,  # type: ignore[arg-type]
+            left_vector=left,
+            right_vector=right,
         )
 
 

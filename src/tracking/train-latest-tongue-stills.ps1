@@ -11,11 +11,9 @@ param(
 $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 try {
-    $python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $PSScriptRoot ".venv\Scripts\python.exe" }
-    $pythonFallback = Join-Path $PSScriptRoot ".venv\Scripts\qpro-python-console.exe"
-    if (-not (Test-Path -LiteralPath $python) -and (Test-Path -LiteralPath $pythonFallback)) { $python = $pythonFallback }
+    $python = if (-not [string]::IsNullOrWhiteSpace($env:QPRO_PYTHON)) { $env:QPRO_PYTHON } else { Join-Path $PSScriptRoot "runtime\python.exe" }
     if (-not (Test-Path -LiteralPath $python)) {
-        throw "Python environment missing. Run build-and-run.ps1 once first."
+        throw "Bundled Python not found. Run setup-runtime.ps1 -Legacy."
     }
     $latest = if (-not [string]::IsNullOrWhiteSpace($SessionPath)) {
         Get-Item -LiteralPath ([System.IO.Path]::GetFullPath($SessionPath)) -ErrorAction Stop
@@ -60,7 +58,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $device -notin @("cuda:0", "cpu")) { throw "Could not determine the PyTorch training device. Run PC runtime setup again." }
     $effectiveBatchSize = if ($device -eq "cpu") { [Math]::Min($BatchSize, 16) } else { $BatchSize }
     Write-Host "TRAIN_DEVICE device=$device batch=$effectiveBatchSize"
-    if ($device -eq "cpu") { Write-Warning "CUDA is unavailable. CPU fallback is active; full-dataset training may take hours. Bundled Studio installs train on CPU. NVIDIA training needs a CUDA-enabled PyTorch runtime; see ML-VALIDATION.md." }
+    if ($device -eq "cpu") { Write-Warning "CUDA is unavailable. CPU fallback is active; full-dataset training may take hours. Compatible calibration jobs can also use the QFT+ GPU trainer." }
     Write-Host "TRAIN_STAGE index=1 total=1 name=paired epochs=$Epochs device=$device"
     & $python .\train_tongue_model.py $cache `
         --architecture spatial-stereo-resnet-v2 `

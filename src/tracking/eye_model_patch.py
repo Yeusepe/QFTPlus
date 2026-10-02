@@ -62,37 +62,23 @@ def patch(source: Path, destination: Path) -> dict[str, object]:
     original = member_map[GRAPH_MEMBER]
     graph = graph_from_pickle(original)
     reshape_input = {node["id"]: node for node in graph["node"]}[52]["input"]
-    if reshape_input == [[18, 0], [51, 0]]:
-        validate_contract(graph, patched=True)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
-        with zipfile.ZipFile(destination, "r") as verification:
-            verification.testzip()
-            validate_contract(
-                graph_from_pickle(verification.read(GRAPH_MEMBER)), patched=True
-            )
-        result = destination.read_bytes()
-        return {
-            "source": str(source),
-            "destination": str(destination),
-            "bytes": len(result),
-            "sha256": hashlib.sha256(result).hexdigest(),
-            "redirect": "public gaze reshape already uses local per-eye node 18",
-            "alreadyPatched": True,
-        }
-
-    validate_contract(graph, patched=False)
-    if original.count(OLD_NODE) != 1:
-        raise ValueError("The expected public gaze reshape was not unique")
-    modified = original.replace(OLD_NODE, NEW_NODE, 1)
-    if len(modified) != len(original):
-        raise AssertionError("The graph patch must remain byte-length preserving")
-    validate_contract(graph_from_pickle(modified), patched=True)
+    already_patched = reshape_input == [[18, 0], [51, 0]]
+    validate_contract(graph, patched=already_patched)
+    if not already_patched:
+        if original.count(OLD_NODE) != 1:
+            raise ValueError("The expected public gaze reshape was not unique")
+        modified = original.replace(OLD_NODE, NEW_NODE, 1)
+        if len(modified) != len(original):
+            raise AssertionError("The graph patch must remain byte-length preserving")
+        validate_contract(graph_from_pickle(modified), patched=True)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(destination, "w") as output:
-        for info, payload in members:
-            output.writestr(info, modified if info.filename == GRAPH_MEMBER else payload)
+    if already_patched:
+        shutil.copyfile(source, destination)
+    else:
+        with zipfile.ZipFile(destination, "w") as output:
+            for info, payload in members:
+                output.writestr(info, modified if info.filename == GRAPH_MEMBER else payload)
     with zipfile.ZipFile(destination, "r") as verification:
         verification.testzip()
         validate_contract(
@@ -104,8 +90,9 @@ def patch(source: Path, destination: Path) -> dict[str, object]:
         "destination": str(destination),
         "bytes": len(result),
         "sha256": hashlib.sha256(result).hexdigest(),
-        "redirect": "public gaze reshape: final blend node 50 -> local per-eye node 18",
-        "alreadyPatched": False,
+        "redirect": ("public gaze reshape already uses local per-eye node 18" if already_patched
+                     else "public gaze reshape: final blend node 50 -> local per-eye node 18"),
+        "alreadyPatched": already_patched,
     }
 
 

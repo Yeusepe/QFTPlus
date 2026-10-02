@@ -11,12 +11,6 @@ class Pupil:
     contrast: float
 
 
-def _median_u8(pixels):
-    cumulative = np.bincount(pixels, minlength=256).cumsum()
-    a, b = cumulative.searchsorted([(pixels.size-1)//2+1, pixels.size//2+1])
-    return (int(a)+int(b))*.5
-
-
 def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil | None:
     if gray.ndim != 2 or gray.dtype != np.uint8 or min(gray.shape) < 40:
         raise ValueError("Expected a grayscale uint8 eye image")
@@ -58,7 +52,7 @@ def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil
             ring = patch[outside != 0]
             if not len(inner) or not len(ring):
                 continue
-            contrast = _median_u8(ring) - _median_u8(inner)
+            contrast = float(np.median(ring) - np.median(inner))
             if contrast < 20:
                 continue
             if center is not None and np.linalg.norm(np.asarray((x, y))-center) > 25:
