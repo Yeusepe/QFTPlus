@@ -2,10 +2,12 @@ let driver=null,driverGone=false,stopped=false,reason=null,cleanupError=null;
 const observations=[0,1].map(side=>({side,state:'waiting-driver',samples:0,
     trackedCounts:[0,0,0,0],routes:0,posesSuppressed:0}));
 let ticks=0,poses=0;
-function physicalSkeleton(controller,side) {
+let inputUpdate=null;
+function physicalSkeleton(controller,side,updated=null) {
     const captured=driver.base.add(0x9a7a8+side*8).readU64();
     const native=controller.add(0xf0).readU64();
-    const skeleton=captured.equals(0) ? native : captured;
+    let skeleton=captured.equals(0) ? native : captured;
+    if(skeleton.equals(0) && updated!==null)skeleton=updated;
     Object.assign(observations[side],{physicalSkeleton:skeleton,capturedSkeleton:captured,controllerSkeleton:native});
     return skeleton;
 }
@@ -30,7 +32,8 @@ function resolve(side) {
         physicalSkeleton:skeleton.toString(),handSkeleton:original.skeleton.toString()});
     Object.assign(observed,{state:'resolved',handSkeleton:original.skeleton.toString(),
         device:hand.add(0x40).readU32()});
-    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),active:false,physical:false,priority:false};
+    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),
+        updatedSkeleton:null,active:false,physical:false,priority:false};
 }
 function current(h) {
     if(driverGone)return false;
@@ -38,6 +41,34 @@ function current(h) {
     return controller.equals(h.controller) && controller.add(0x48).readPointer().equals(h.hand);
 }
 const hands=[null,null];
+function hookInput() {
+    const context = driver.base.add(0x9a6b8).readPointer();
+    if (context.isNull()) return;
+    const input = new NativeFunction(context.readPointer().readPointer(),
+        'pointer', ['pointer', 'pointer', 'pointer'])(
+        context, Memory.allocUtf8String('IVRDriverInput_005'), Memory.alloc(4));
+    if (input.isNull()) return;
+
+    const update = new NativeFunction(input.readPointer().add(6 * Process.pointerSize).readPointer(),
+        'int', ['pointer', 'uint64', 'int', 'pointer', 'uint32']);
+    Interceptor.replace(update, new NativeCallback((self, handle, range, bones, count) => {
+        let hand;
+        try {
+            if (!stopped && count === 31 && !self.equals(input)) {
+                hand = hands.find(h => h !== null && current(h) &&
+                    h.controller.add(0x40).readU32() === handle.shr(32).toNumber());
+                if (hand?.active && hand.skeleton.equals(handle)) return 0;
+            }
+        } catch (error) {
+            halt('PC skeleton routing failed: ' + error);
+        }
+
+        const result = update(self, handle, range, bones, count);
+        if (!stopped && hand && result === 0 && !handle.equals(0)) hand.updatedSkeleton = handle;
+        return result;
+    }, 'int', ['pointer', 'uint64', 'int', 'pointer', 'uint32']));
+    inputUpdate = update;
+}
 let timer=null,deadline=null,poseListener=null;
 const modules=Process.attachModuleObserver({
     onRemoved(module) {
@@ -77,6 +108,10 @@ function stop() {
     if(deadline!==null){clearTimeout(deadline);deadline=null;}
     modules.detach();
     const failures=[];
+    if(inputUpdate!==null) {
+        try { Interceptor.revert(inputUpdate); } catch(error) { failures.push(String(error)); }
+        inputUpdate=null;
+    }
     if(poseListener!==null) {
         try { poseListener.detach(); } catch(error) { failures.push(String(error)); }
         poseListener=null;
@@ -100,6 +135,7 @@ rpc.exports={
         const host=driver.base.add(0x9a6e0).readPointer();
         if(host.isNull())return false;
         hands[0]=resolve(0);hands[1]=resolve(1);
+        hookInput();
         const poseUpdated=host.readPointer().add(Process.pointerSize).readPointer();
         poseListener=Interceptor.attach(poseUpdated, {
             onEnter(args) {
@@ -129,7 +165,9 @@ rpc.exports={
                     }
                     h.device=h.hand.add(0x40).readU32();
                     const observed=observations[side];
-                    const skeleton=physicalSkeleton(h.controller,side);
+                    if(h.updatedSkeleton!==null && h.updatedSkeleton.shr(32).toNumber()!==h.controller.add(0x40).readU32())
+                        h.updatedSkeleton=null;
+                    const skeleton=physicalSkeleton(h.controller,side,h.updatedSkeleton);
                     const data=h.controller.add(0x10).readPointer();
                     Object.assign(observed,{state:'waiting-data',device:h.device,data,
                         frame:null,trackedRaw:null,tracked:null,optical:null});
