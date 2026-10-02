@@ -1,67 +1,44 @@
 #!/usr/bin/env python3
-"""Receive Quest Pro inward-camera frames over an ADB-forwarded socket."""
+"""Receive Quest Pro inward-camera frames, run face tracking and Studio calibration, and serve camera snapshots."""
 
 from __future__ import annotations
 
-import argparse
-import importlib.util
 import http.server
+import json
 import os
 import socket
-import struct
-import sys
 import threading
 import time
-import zlib
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from capture_format import CaptureWriter
-from calibration import CalibrationSession, STEPS, play_cue, prompt_image
-from tongue_calibration import TONGUE_STEPS
-from tongue_still_capture import (
-    TONGUE_ARC_PROMPTS,
-    TONGUE_CORRECTION_PROMPTS,
-    TONGUE_REFINEMENT_PROMPTS,
-    TongueStillCaptureSession,
-)
+from capture_format import TRANSPORT_HEADER as HEADER
+from headset import stop_event
 from label_capture import LabelSidecarRecorder
+from studio_capture import StudioCapture
 
-
-HEADER = struct.Struct("<8sIIQQIIIIIIQ")
 MAGIC = b"QPLIVE3\0"
-CAMERA_WIDTH = 400
-CAMERA_HEIGHT = 400
-CAMERA_NAMES = {
-    0: "left eye",
-    1: "right eye",
-    2: "left face",
-    3: "right face",
-    4: "center eyebrow",
-}
+ROOT = Path(__file__).resolve().parent
+STREAM_PORT, LABELS_PORT, PREVIEW_PORT = 27273, 27274, 8081
 
 
 class ReceiverStopped(Exception):
     pass
 
 
-def receive_exact(connection: socket.socket, size: int, should_stop=None) -> bytes:
+def receive_exact(connection: socket.socket, size: int, should_stop) -> bytes:
     output = bytearray(size)
     view = memoryview(output)
     received = 0
     while received < size:
-        if should_stop is not None and should_stop():
+        if should_stop():
             raise ReceiverStopped()
         try:
             amount = connection.recv_into(view[received:])
         except socket.timeout:
-            if should_stop is None:
-                raise
             continue
         if amount == 0:
             raise ConnectionError("The headset streamer disconnected")
@@ -69,104 +46,21 @@ def receive_exact(connection: socket.socket, size: int, should_stop=None) -> byt
     return bytes(output)
 
 
-def camera_ids_from_mask(mask: int) -> list[int]:
-    return [camera_id for camera_id in range(5) if mask & (1 << camera_id)]
-
-
-def mouth_camera_strip(strip: np.ndarray, camera_ids: list[int]) -> np.ndarray:
-    """Select the actual mouth cameras, including from a five-camera stream."""
-    if strip.shape != (CAMERA_HEIGHT, len(camera_ids) * CAMERA_WIDTH):
-        raise ValueError("Camera strip dimensions do not match camera IDs")
-    if len(set(camera_ids)) != len(camera_ids) or not {2, 3} <= set(camera_ids):
-        raise ValueError("Tongue inference requires cameras 2 and 3")
-    return np.concatenate([
-        strip[:, camera_ids.index(i) * CAMERA_WIDTH:(camera_ids.index(i) + 1) * CAMERA_WIDTH]
-        for i in (2, 3)
-    ], axis=1)
-
-
-@dataclass
-class StreamGapStats:
-    """Recent source and PC-arrival cadence for diagnosing visible pauses."""
-
-    source_ms: deque[float] = field(default_factory=lambda: deque(maxlen=240))
-    arrival_ms: deque[float] = field(default_factory=lambda: deque(maxlen=240))
-    last_source_ns: int | None = None
-    last_arrival_ns: int | None = None
-
-    def add(self, source_ns: int, arrival_ns: int) -> None:
-        if self.last_source_ns is not None and source_ns > self.last_source_ns:
-            self.source_ms.append((source_ns - self.last_source_ns) / 1_000_000.0)
-        if self.last_arrival_ns is not None and arrival_ns > self.last_arrival_ns:
-            self.arrival_ms.append((arrival_ns - self.last_arrival_ns) / 1_000_000.0)
-        self.last_source_ns = source_ns
-        self.last_arrival_ns = arrival_ns
-
-    @staticmethod
-    def _summary(values: deque[float]) -> tuple[float, float]:
-        if not values:
-            return 0.0, 0.0
-        samples = np.asarray(values, dtype=np.float64)
-        return float(np.percentile(samples, 95)), float(np.max(samples))
-
-    def summaries(self) -> tuple[tuple[float, float], tuple[float, float]]:
-        return self._summary(self.source_ms), self._summary(self.arrival_ms)
-
-
-@dataclass
-class FrameReplayStats:
-    """Detect exact nonconsecutive payloads resurfacing from a DMA ring."""
-
-    recent: deque[int] = field(default_factory=lambda: deque(maxlen=12))
-    suspected_replays: int = 0
-
-    def add(self, payload: bytes) -> bool:
-        fingerprint = zlib.crc32(payload)
-        replayed = bool(
-            len(self.recent) >= 2
-            and fingerprint != self.recent[-1]
-            and fingerprint in self.recent
-        )
-        if replayed:
-            self.suspected_replays += 1
-        self.recent.append(fingerprint)
-        return replayed
-
-
-@dataclass
 class SharedPreview:
-    lock: threading.Condition = field(default_factory=threading.Condition)
-    jpegs: dict[str, bytes] = field(default_factory=dict)
-    images: dict[str, np.ndarray] = field(default_factory=dict)
-    pupils: list = field(default_factory=lambda: [None, None])
-    pupil_requested_at: float = -float("inf")
-    generation: int = 0
-    selected: int | str = 3
-    available: list[int] = field(default_factory=list)
-    calibration_keys: list[str] = field(default_factory=list)
-    runtime_keys: list[str] = field(default_factory=list)
-    running: bool = True
+    """Latest camera panels for the Studio's Cameras page, JPEG-encoded on request."""
 
-    def select(self, choice: int | str) -> bool:
-        with self.lock:
-            if choice != "strip" and choice not in self.available:
-                return False
-            self.selected = choice
-            self.lock.notify_all()
-            return True
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.images: dict[str, np.ndarray] = {}
+        self.jpegs: dict[str, bytes] = {}
+        self.pupils = [None, None]
+        self.pupil_requested_at = -float("inf")
 
-    def update(self, strip: np.ndarray, camera_ids: list[int]) -> None:
-        images = {f"camera{camera_id}": strip[:, index*CAMERA_WIDTH:(index+1)*CAMERA_WIDTH]
-                  for index, camera_id in enumerate(camera_ids)}
-        images["strip"] = strip
+    def update(self, strip: np.ndarray, pupils) -> None:
+        images = {f"camera{i}": strip[:, i * 400:(i + 1) * 400] for i in range(5)}
+        images["pupil0"], images["pupil1"] = images["camera0"], images["camera1"]
         with self.lock:
-            self.available = camera_ids
-            if self.selected != "strip" and self.selected not in camera_ids:
-                self.selected = camera_ids[0]
-            self.images = images
-            self.jpegs = {}
-            self.generation += 1
-            self.lock.notify_all()
+            self.images, self.jpegs, self.pupils = images, {}, list(pupils)
 
     def get_jpeg(self, key: str) -> bytes | None:
         with self.lock:
@@ -174,11 +68,10 @@ class SharedPreview:
                 self.pupil_requested_at = time.monotonic()
             if key in self.jpegs:
                 return self.jpegs[key]
-            image = self.images.get(key)
+            image = source = self.images.get(key)
             pupil = self.pupils[int(key[-1])] if key in ("pupil0", "pupil1") else None
         if image is None:
             return None
-        source = image
         if key in ("pupil0", "pupil1"):
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             if pupil is not None:
@@ -194,31 +87,8 @@ class SharedPreview:
                 self.jpegs[key] = jpeg
         return jpeg
 
-    def selected_key(self) -> str:
-        return "strip" if self.selected == "strip" else f"camera{self.selected}"
 
-    def queue_calibration_key(self, key: str) -> None:
-        with self.lock:
-            self.calibration_keys.append(key)
-
-    def take_calibration_keys(self) -> list[str]:
-        with self.lock:
-            keys = self.calibration_keys
-            self.calibration_keys = []
-            return keys
-
-    def queue_runtime_key(self, key: str) -> None:
-        with self.lock:
-            self.runtime_keys.append(key)
-
-    def take_runtime_keys(self) -> list[str]:
-        with self.lock:
-            keys = self.runtime_keys
-            self.runtime_keys = []
-            return keys
-
-
-class MjpegHandler(http.server.BaseHTTPRequestHandler):
+class PreviewHandler(http.server.BaseHTTPRequestHandler):
     shared: SharedPreview
 
     def do_GET(self) -> None:
@@ -230,60 +100,17 @@ class MjpegHandler(http.server.BaseHTTPRequestHandler):
                 or (origin is not None and origin != f"http://{host}")):
             self.send_error(403)
             return
-        if self.path.endswith('.jpg'):
-            key = self.path[1:-4]
-            jpeg = self.shared.get_jpeg(key)
-            if jpeg is None:
-                self.send_error(404); return
-            self.send_response(200)
-            self.send_header('Cache-Control', 'no-store')
-            self.send_header('Content-Type', 'image/jpeg')
-            self.send_header('Content-Length', str(len(jpeg)))
-            self.end_headers()
-            try: self.wfile.write(jpeg)
-            except (BrokenPipeError, ConnectionResetError): pass
-            return
-        if self.path in ("/", "/selected.mjpg"):
-            requested = "selected"
-        elif self.path == "/strip.mjpg":
-            requested = "strip"
-        elif self.path.startswith("/camera") and self.path.endswith(".mjpg"):
-            requested = self.path[1:-5]
-            if requested not in {f"camera{i}" for i in range(5)}:
-                self.send_error(404)
-                return
-        else:
+        jpeg = self.shared.get_jpeg(self.path[1:-4]) if self.path.endswith(".jpg") else None
+        if jpeg is None:
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(jpeg)))
         self.end_headers()
-        generation = -1
         try:
-            while self.shared.running:
-                with self.shared.lock:
-                    self.shared.lock.wait_for(
-                        lambda: not self.shared.running
-                        or (self.shared.generation != generation
-                            and bool(self.shared.images)),
-                        timeout=1.0,
-                    )
-                    if not self.shared.running:
-                        break
-                    key = (self.shared.selected_key()
-                           if requested == "selected" else requested)
-                    generation = self.shared.generation
-                jpeg = self.shared.get_jpeg(key)
-                if jpeg is None:
-                    continue
-                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n")
-                self.wfile.write(
-                    f"Content-Length: {len(jpeg)}\r\n\r\n".encode("ascii")
-                )
-                self.wfile.write(jpeg)
-                self.wfile.write(b"\r\n")
+            self.wfile.write(jpeg)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
@@ -297,128 +124,14 @@ class MjpegHandler(http.server.BaseHTTPRequestHandler):
         super().end_headers()
 
 
-def start_mjpeg_server(
-    shared: SharedPreview, port: int
-) -> http.server.ThreadingHTTPServer:
-    handler = type("QuestProMjpegHandler", (MjpegHandler,), {"shared": shared})
+def start_preview_server(shared: SharedPreview, port: int) -> http.server.ThreadingHTTPServer:
+    handler = type("QuestProPreviewHandler", (PreviewHandler,), {"shared": shared})
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
-    threading.Thread(
-        target=server.serve_forever, name="mjpeg-server", daemon=True
-    ).start()
+    threading.Thread(target=server.serve_forever, name="preview-server", daemon=True).start()
     return server
 
 
-def handle_key(shared: SharedPreview, key: str) -> None:
-    key = key.lower()
-    if key in ("0", "1", "2", "3", "4"):
-        shared.select(int(key))
-    elif key == "s":
-        shared.select("strip")
-    elif key in ("q", "\x1b"):
-        shared.running = False
-    elif key == "t":
-        shared.queue_runtime_key(key)
-    elif key in (" ", "\r", "\n", "r", "b", "k", "x", "\x08"):
-        shared.queue_calibration_key(key)
-
-
-def console_keyboard_worker(shared: SharedPreview) -> None:
-    if sys.platform != "win32":
-        return
-    import msvcrt
-
-    while shared.running:
-        if msvcrt.kbhit():
-            handle_key(shared, msvcrt.getwch())
-        else:
-            time.sleep(0.02)
-
-
-def label_strip(
-    strip: np.ndarray,
-    camera_ids: list[int],
-    fps: float,
-    selected: int | str,
-    sequence_gap: int,
-    rejected_torn: int,
-    throughput_mbps: float,
-    captured_frames: int,
-    label_samples: int,
-    suspected_replays: int = 0,
-    source_gap_ms: tuple[float, float] = (0.0, 0.0),
-    arrival_gap_ms: tuple[float, float] = (0.0, 0.0),
-) -> np.ndarray:
-    display = cv2.cvtColor(strip, cv2.COLOR_GRAY2BGR)
-    for index, camera_id in enumerate(camera_ids):
-        x = index * CAMERA_WIDTH
-        cv2.putText(
-            display,
-            f"camera {camera_id} - {CAMERA_NAMES[camera_id]}",
-            (x + 10, 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (60, 255, 60),
-            1,
-            cv2.LINE_AA,
-        )
-        color = (0, 255, 255) if selected == camera_id else (180, 180, 180)
-        thickness = 4 if selected == camera_id else 1
-        cv2.rectangle(
-            display,
-            (x + 1, 1),
-            (x + CAMERA_WIDTH - 2, CAMERA_HEIGHT - 2),
-            color,
-            thickness,
-        )
-    if selected == "strip":
-        cv2.rectangle(
-            display, (1, 1), (display.shape[1] - 2, CAMERA_HEIGHT - 2),
-            (0, 255, 255), 4
-        )
-    status = (
-        f"{fps:4.1f} FPS | {throughput_mbps:4.1f} MB/s | selected: {selected} | "
-        f"source skips: {sequence_gap} | torn rejected: {rejected_torn} | "
-        f"exact replays: {suspected_replays} | "
-        + (f"REC {captured_frames} | " if captured_frames else "")
-        + (f"LBL {label_samples} | " if captured_frames else "")
-        + "keys 0-4/S, click, Q quits"
-    )
-    cadence = (
-        f"cadence p95/max: headset {source_gap_ms[0]:.0f}/{source_gap_ms[1]:.0f} ms | "
-        f"PC receive {arrival_gap_ms[0]:.0f}/{arrival_gap_ms[1]:.0f} ms"
-    )
-    cv2.putText(
-        display,
-        cadence,
-        (10, 371),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.43,
-        (150, 205, 255),
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        display,
-        status,
-        (10, 392),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.48,
-        (80, 220, 255),
-        1,
-        cv2.LINE_AA,
-    )
-    max_width = 1500
-    if display.shape[1] > max_width:
-        scale = max_width / display.shape[1]
-        display = cv2.resize(
-            display, (max_width, round(display.shape[0] * scale)),
-            interpolation=cv2.INTER_AREA
-        )
-    return display
-
-
 def studio_config():
-    import json
     return json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
 
 
@@ -430,670 +143,115 @@ def face_log_path(config, kind):
     return str(root / 'sessions' / (time.strftime('%Y%m%d-%H%M%S') + f'-{kind}.facelog.jsonl'))
 
 
-def load_studio_reload(arguments, tongue_model_preview):
-    config = studio_config()
-    tongue = None
-    if (tongue_model_preview is not None and Path(config.get('tongueDirectionModelPath') or '').is_file()
-            and Path(config['tongueDirectionModelPath']).resolve() != tongue_model_preview.checkpoint_path):
-        from tongue_model_preview import LiveTongueModelPreview
-        tongue = LiveTongueModelPreview(config['tongueDirectionModelPath'],
-            smoothing=1.0 - .88*(arguments.tongue_smoothing/100), bias=float(config.get('faceEventBias') or 0),
-            log=face_log_path(config, 'tongue'))
-    extra_face = None
-    legacy_ready = importlib.util.find_spec('torch') is not None
-    if config.get('faceEngine') != 'legacy' or not legacy_ready:
-        try:
-            from universal_face import FAMILIES, UniversalFace
-            from tongue_output import TongueBroadcaster
-            model = config.get('universalModelPath') or str(Path(__file__).resolve().parent / 'models' / 'universal-face-v2.npz')
-            extra_face = UniversalFace(model, config.get('faceEnrollment'), config.get('extraFaceOutput', True) is not False,
-                families=[f for f in FAMILIES if config.get(f'extraFaceOutput-{f}', True) is not False],
-                render=not arguments.no_window, bias=float(config.get('faceEventBias') or 0), log=face_log_path(config, 'universal'),
-                tongue=TongueBroadcaster(enabled=config.get('tongueOutput', True)))
-            return config, None, extra_face, PupilDilationLoader(arguments, config)
-        except Exception as error:
-            print('UNIVERSAL_FALLBACK ' + str(error), flush=True)
-            config = dict(config, universalError='Using your previous calibration: ' + str(error))
-    if not legacy_ready:
-        return config, tongue, None, PupilDilationLoader(arguments, config)
-    from extra_face_preview import ExtraFacePreview, configured_models
-    if config.get('extraFaceOutput') and configured_models(config):
-        extra_face = ExtraFacePreview(configured_models(config), True, render=not arguments.no_window,
-                                      bias=float(config.get('faceEventBias') or 0), enrollment=config.get('faceEnrollment'),
-                                      log=face_log_path(config, 'face'))
-    return config, tongue, extra_face, PupilDilationLoader(arguments, config)
-
-
-def PupilDilationLoader(arguments, config):
+def load_models():
+    """The settings' face model and pupil output; a face model that can't load is reported, not fatal."""
     from pupil_dilation import PupilDilation
-    return PupilDilation(path=arguments.pupil_calibration,
-        enabled=config.get('pupilDilation', False), render=not arguments.no_window,
-        asynchronous=arguments.no_window)
+    from tongue_output import TongueBroadcaster
+    from universal_face import FAMILIES, UniversalFace
+    config = studio_config()
+    face, error = None, ''
+    tongue = TongueBroadcaster(enabled=config.get('tongueOutput', True), supported=["extension", "horizontal", "vertical"])
+    try:
+        face = UniversalFace(config.get('universalModelPath') or ROOT / 'models' / 'universal-face-v2.npz', config.get('faceEnrollment'),
+            config.get('extraFaceOutput', True) is not False,
+            families=[f for f in FAMILIES if config.get(f'extraFaceOutput-{f}', True) is not False],
+            bias=float(config.get('faceEventBias') or 0), log=face_log_path(config, 'universal'), tongue=tongue)
+    except Exception as failure:
+        print('UNIVERSAL_FAILED ' + str(failure), flush=True)
+        error = str(failure)
+        tongue.close()
+    pupils = PupilDilation(path=ROOT / 'calibration' / 'qpro-pupil-dilation.json', enabled=config.get('pupilDilation', False), asynchronous=True)
+    return face, pupils, error
+
+
+def connect(should_stop) -> socket.socket | None:
+    deadline = time.monotonic() + 20.0
+    while not should_stop():
+        try:
+            connection = socket.create_connection((os.environ.get("QFT_STREAM_HOST", "127.0.0.1"), STREAM_PORT), timeout=2)
+            break
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise ConnectionError("The injected streamer did not begin listening. Send the three logs.")
+            time.sleep(0.25)
+    else:
+        return None
+    connection.settimeout(0.25)
+    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    connection.sendall(os.environ["QFT_STREAM_TOKEN"].encode("ascii"))
+    return connection
 
 
 def main() -> int:
     cv2.setNumThreads(1)
-    try:
-        import torch
-        torch.set_num_threads(2)
-    except ImportError:
-        pass
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=27273)
-    parser.add_argument("--mjpeg-port", type=int, default=8081)
-    parser.add_argument("--no-window", action="store_true")
-    parser.add_argument("--studio", action="store_true")
-    parser.add_argument("--calibration-ui")
-    parser.add_argument("--resume-session")
-    parser.add_argument("--pupil-calibration", default="calibration/qpro-pupil-dilation.json")
-    parser.add_argument(
-        "--record",
-        nargs="?",
-        const="auto",
-        help="losslessly record synchronized raw frames to a .qpcap file",
-    )
-    parser.add_argument(
-        "--record-seconds",
-        type=float,
-        default=0.0,
-        help="stop after this many seconds of recorded frames (0 is unlimited)",
-    )
-    parser.add_argument("--labels-port", type=int, default=27274)
-    parser.add_argument("--no-labels", action="store_true")
-    calibrations = parser.add_mutually_exclusive_group()
-    calibrations.add_argument("--calibration", action="store_true")
-    calibrations.add_argument("--tongue-calibration", action="store_true")
-    calibrations.add_argument("--tongue-still-calibration", action="store_true")
-    calibrations.add_argument("--tongue-correction-calibration", action="store_true")
-    calibrations.add_argument("--tongue-refinement-calibration", action="store_true")
-    calibrations.add_argument("--tongue-arc-calibration", action="store_true")
-    from extra_face_capture import FAMILIES
-    calibrations.add_argument("--extra-face-capture", choices=tuple(FAMILIES))
-    parser.add_argument("--pupil-preview", action="store_true")
-    parser.add_argument("--pupil-dilation", action="store_true")
-    parser.add_argument("--extra-face-model", action="append", help="repeat once per expression group")
-    parser.add_argument("--extra-face-output", action="store_true")
-    parser.add_argument("--tongue-model", help="direction checkpoint; Meta's native TongueOut decides visibility")
-    parser.add_argument("--tongue-model-device", default="auto")
-    parser.add_argument("--tongue-smoothing", type=int, default=55)
-    parser.add_argument(
-        "--tongue-output",
-        action="store_true",
-        help="start the experimental tongue-only VRCFT override enabled",
-    )
-    parser.add_argument(
-        "--stop-file",
-        help="exit cleanly when this supervisor-owned file appears",
-    )
-    arguments = parser.parse_args()
-    if arguments.resume_session and not (arguments.tongue_refinement_calibration and arguments.record not in (None, "auto")):
-        parser.error("--resume-session requires tongue refinement and a new record path")
-    calibration_ui = None
-    if arguments.calibration_ui:
-        if not (arguments.tongue_refinement_calibration or arguments.extra_face_capture or arguments.pupil_preview):
-            parser.error("--calibration-ui requires still or pupil calibration")
-        from calibration_ui import CalibrationUI
-        calibration_ui = CalibrationUI(arguments.calibration_ui)
-    stop_file = Path(arguments.stop_file).resolve() if arguments.stop_file else None
-    if arguments.record_seconds < 0:
-        parser.error("--record-seconds cannot be negative")
-    if not 0 <= arguments.tongue_smoothing <= 100:
-        parser.error("--tongue-smoothing must be between 0 and 100")
-    if arguments.record_seconds and arguments.record is None:
-        parser.error("--record-seconds requires --record")
-    for mode in ("calibration", "tongue_calibration", "tongue_still_calibration",
-                 "tongue_correction_calibration", "tongue_refinement_calibration", "tongue_arc_calibration"):
-        if getattr(arguments, mode) and arguments.record is None:
-            parser.error(f"--{mode.replace('_', '-')} requires --record")
-    if arguments.extra_face_capture and (arguments.record is None or (arguments.no_window and not calibration_ui) or arguments.record_seconds):
-        parser.error("--extra-face-capture needs --record, a visible window and no timed recording")
-    if arguments.pupil_preview and arguments.no_window and not calibration_ui:
-        parser.error("--pupil-preview requires a visible window")
-    if arguments.extra_face_model and arguments.no_window and not arguments.extra_face_output:
-        parser.error("hidden extra-face tracking requires --extra-face-output")
-    if arguments.extra_face_output and not arguments.extra_face_model:
-        parser.error("--extra-face-output requires a reviewed extra-face model")
-    if (arguments.calibration or arguments.tongue_calibration
-            or arguments.tongue_still_calibration) and arguments.no_window:
-        parser.error("--calibration requires the visible prompt window")
-    if (arguments.tongue_correction_calibration
-            or arguments.tongue_refinement_calibration
-            or arguments.tongue_arc_calibration) and arguments.no_window and not calibration_ui:
-        parser.error("--calibration requires the visible prompt window")
-    if arguments.tongue_model and arguments.no_window and not arguments.tongue_output:
-        parser.error("hidden tongue tracking requires --tongue-output")
-    if arguments.tongue_model and arguments.no_labels:
-        parser.error("--tongue-model requires live native TongueOut confidence")
-    if arguments.tongue_model and (
-        arguments.calibration or arguments.tongue_calibration
-        or arguments.tongue_still_calibration
-        or arguments.tongue_correction_calibration
-        or arguments.tongue_refinement_calibration
-        or arguments.tongue_arc_calibration
-    ):
-        parser.error("--tongue-model must run by itself")
+    token = os.environ.get("QFT_STREAM_TOKEN", "")
+    if len(token) != 64 or set(token) - set("0123456789abcdef"):
+        raise SystemExit("Start tracking from QFT+.")
+    should_stop = stop_event().is_set
     shared = SharedPreview()
-    server = start_mjpeg_server(shared, arguments.mjpeg_port)
-    threading.Thread(
-        target=console_keyboard_worker,
-        args=(shared,),
-        name="console-keyboard",
-        daemon=True,
-    ).start()
-    connection: socket.socket | None = None
-    print(f"Selected MJPEG: http://127.0.0.1:{arguments.mjpeg_port}/selected.mjpg")
-    print("Per-camera MJPEG: /camera0.mjpg through /camera4.mjpg; /strip.mjpg")
-
-    frames = 0
-    fps = 0.0
-    interval_bytes = 0
-    throughput_mbps = 0.0
-    fps_started = time.perf_counter()
-    last_sequence: int | None = None
-    sequence_gap = 0
-    stream_gap_stats = StreamGapStats()
-    frame_replay_stats = FrameReplayStats()
-    window_name = "Quest Pro inward cameras"
-    window_created = False
-    current_ids: list[int] = []
-    capture_writer: CaptureWriter | None = None
-    capture_started_ns: int | None = None
-    capture_completed = False
-    label_recorder: LabelSidecarRecorder | None = None
-    calibration_session: CalibrationSession | None = None
-    tongue_still_session: TongueStillCaptureSession | None = None
-    calibration_completed = False
-    labels_live_reported: bool | None = None
-    prompt_window_name = (
-        "Quest Pro tongue training capture"
-        if (arguments.extra_face_capture or arguments.tongue_calibration or arguments.tongue_still_calibration
-            or arguments.tongue_correction_calibration
-            or arguments.tongue_refinement_calibration
-            or arguments.tongue_arc_calibration)
-        else "Quest Pro whole-face calibration"
-    )
-    tongue_model_window_name = "Quest Pro personalized stereo tongue preview"
-    tongue_model_preview = None
-    tongue_broadcaster = None
-    tongue_inference_worker = None
-    extra_face_preview = None
-    pupil_dilation = None
-    from studio_capture import StudioCapture
-    studio = StudioCapture(Path(__file__).resolve().parent) if arguments.studio else None
-    reload_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="studio-reload") if studio else None
-    reload_future = None
-
-    def mouse_callback(event: int, x: int, _y: int, _flags: int, _data: object) -> None:
-        if event != cv2.EVENT_LBUTTONDOWN or not current_ids:
-            return
-        display_width = min(1500, len(current_ids) * CAMERA_WIDTH)
-        panel = min(len(current_ids) - 1, x * len(current_ids) // display_width)
-        shared.select(current_ids[panel])
-
+    server = start_preview_server(shared, PREVIEW_PORT)
+    labels = LabelSidecarRecorder(port=LABELS_PORT)
+    studio = StudioCapture(ROOT)
+    loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="studio-reload")
+    loading = None
+    face = pupils = connection = None
     try:
-        if arguments.extra_face_model:
-            from extra_face_preview import ExtraFacePreview
-            extra_face_preview = ExtraFacePreview(arguments.extra_face_model, arguments.extra_face_output, render=not arguments.no_window)
-        if arguments.pupil_preview or arguments.pupil_dilation:
-            from pupil_dilation import PupilDilation
-            pupil_dilation = PupilDilation(path=arguments.pupil_calibration, enabled=arguments.pupil_dilation,
-                                          render=not arguments.no_window, asynchronous=arguments.no_window)
-        if arguments.record is not None:
-            if arguments.record == "auto":
-                stamp = time.strftime("%Y%m%d-%H%M%S")
-                subseconds = time.time_ns() % 1_000_000_000
-                capture_path = Path("captures") / f"questpro-{stamp}-{subseconds:09d}.qpcap"
-            else:
-                capture_path = Path(arguments.record)
-            if arguments.resume_session:
-                import shutil
-                source = Path(arguments.resume_session).resolve()
-                for suffix in (".qpcap", ".qplabel.jsonl", ".qpsession.json"):
-                    previous = Path(str(source).removesuffix(".qpsession.json") + suffix)
-                    destination = capture_path.with_suffix(suffix)
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    with previous.open("rb") as old, destination.open("xb") as new:
-                        shutil.copyfileobj(old, new)
-            capture_writer = CaptureWriter(capture_path, append=bool(arguments.resume_session))
-            print(f"Recording lossless synchronized frames to {capture_writer.path}")
-            if arguments.extra_face_capture:
-                from extra_face_capture import ExtraFaceCapture
-                tongue_still_session = ExtraFaceCapture(
-                    capture_writer.path.with_suffix(".qpsession.json"), arguments.extra_face_capture)
-                prompt_window_name = "Quest Pro extra face capture"
-                print("SPACE saves one five-camera sample; K skips unperformable poses")
-            elif arguments.calibration or arguments.tongue_calibration:
-                steps = TONGUE_STEPS if arguments.tongue_calibration else STEPS
-                calibration_session = CalibrationSession(
-                    capture_writer.path.with_suffix(".qpsession.json"),
-                    steps=steps,
-                    session_type=(
-                        "tongue-stereo-v1"
-                        if arguments.tongue_calibration
-                        else "whole-face-v1"
-                    ),
-                )
-                print(
-                    f"User-paced calibration: {len(steps)} steps, "
-                    f"{calibration_session.total_seconds / 60:.1f} minutes "
-                    "minimum recommended capture time"
-                )
-            elif (arguments.tongue_still_calibration
-                  or arguments.tongue_correction_calibration
-                  or arguments.tongue_refinement_calibration
-                  or arguments.tongue_arc_calibration):
-                tongue_still_session = TongueStillCaptureSession(
-                    capture_writer.path.with_suffix(".qpsession.json"),
-                    resume=bool(arguments.resume_session),
-                    prompts=(
-                        TONGUE_ARC_PROMPTS
-                        if arguments.tongue_arc_calibration
-                        else TONGUE_REFINEMENT_PROMPTS
-                        if arguments.tongue_refinement_calibration
-                        else TONGUE_CORRECTION_PROMPTS
-                        if arguments.tongue_correction_calibration
-                        else None
-                    ),
-                    session_type=(
-                        "tongue-stereo-arc-v3"
-                        if arguments.tongue_arc_calibration
-                        else "tongue-stereo-refinement-v2"
-                        if arguments.tongue_refinement_calibration
-                        else "tongue-stereo-corrections-v1"
-                        if arguments.tongue_correction_calibration
-                        else "tongue-stereo-stills-v1"
-                    ),
-                    title=(
-                        "Quest Pro tongue extreme-arc refinement"
-                        if arguments.tongue_arc_calibration
-                        else "Quest Pro second-stage tongue refinement"
-                        if arguments.tongue_refinement_calibration
-                        else "Quest Pro targeted tongue correction capture"
-                        if arguments.tongue_correction_calibration
-                        else "Quest Pro manual stereo tongue capture"
-                    ),
-                )
-                print(
-                    f"Manual stereo tongue capture: "
-                    f"{len(tongue_still_session.prompts)} cards; "
-                    "SPACE saves exactly one synchronized pair"
-                )
-        if not arguments.no_labels and (
-            arguments.record is not None
-            or arguments.tongue_model is not None
-            or arguments.studio
-        ):
-            if capture_writer is not None:
-                label_path = capture_writer.path.with_suffix(".qplabel.jsonl")
-            else:
-                label_path = None
-            label_recorder = LabelSidecarRecorder(
-                label_path, port=arguments.labels_port, append=bool(arguments.resume_session)
-            )
-            print(
-                f"Listening for timestamped factory labels on "
-                f"127.0.0.1:{arguments.labels_port}"
-            )
-        if arguments.tongue_model is not None:
-            from tongue_model_preview import (
-                LiveTongueModelPreview,
-                TongueBroadcaster,
-                TongueInferenceWorker,
-            )
-
-            tongue_model_preview = LiveTongueModelPreview(
-                arguments.tongue_model,
-                device_name=arguments.tongue_model_device,
-                smoothing=1.0 - 0.88 * (arguments.tongue_smoothing / 100.0),
-            )
-            tongue_output = arguments.tongue_output and (not arguments.studio or studio_config().get('tongueOutput', True))
-            tongue_broadcaster = TongueBroadcaster(enabled=tongue_output, supported=tongue_model_preview.supported_targets)
-            tongue_inference_worker = TongueInferenceWorker(
-                tongue_model_preview, tongue_broadcaster, render=not arguments.no_window
-            )
-            print(
-                f"Loaded opt-in stereo tongue model on "
-                f"{tongue_model_preview.device}: {tongue_model_preview.checkpoint_path}"
-            )
-            print(
-                "Experimental VRCFT tongue output starts "
-                + ("ON." if tongue_output else "OFF. Press T to toggle it.")
-            )
-        if not arguments.no_window:
-            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
-            if pupil_dilation is not None:
-                cv2.namedWindow("Quest Pro pupil dilation", cv2.WINDOW_NORMAL)
-                cv2.resizeWindow("Quest Pro pupil dilation", 1200, 800)
-            window_created = True
-            cv2.setMouseCallback(window_name, mouse_callback)
-            if calibration_session is not None or tongue_still_session is not None:
-                cv2.namedWindow(prompt_window_name, cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty(
-                    prompt_window_name,
-                    cv2.WND_PROP_FULLSCREEN,
-                    cv2.WINDOW_FULLSCREEN,
-                )
-            if tongue_model_preview is not None:
-                cv2.namedWindow(tongue_model_window_name, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(tongue_model_window_name, 1100, 760)
-        print("Connecting to headset streamer (up to 20 seconds)...")
-        deadline = time.monotonic() + 20.0
-        while connection is None:
-            if stop_file is not None and stop_file.exists():
-                return 0
-            try:
-                connection = socket.create_connection(
-                    (arguments.host, arguments.port), timeout=2
-                )
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise ConnectionError(
-                        "The injected streamer did not begin listening. "
-                        "Send the three logs."
-                    )
-                time.sleep(0.25)
-        connection.settimeout(0.25)
-        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        token = os.environ.get("QFT_STREAM_TOKEN", "")
-        if len(token) != 64 or any(c not in "0123456789abcdef" for c in token):
-            raise ValueError("Start the camera connection through QFT+ or build-and-run.ps1.")
-        connection.sendall(token.encode("ascii"))
-        print("Connected. Keys 0-4 select cameras; S selects strip; Q quits.")
-        def should_stop():
-            return not shared.running or (stop_file is not None and stop_file.exists())
-        while shared.running:
-            if stop_file is not None and stop_file.exists():
-                shared.running = False
-                break
+        connection = connect(should_stop)
+        if connection is None:
+            return 0
+        print("CONNECTED", flush=True)
+        while True:
             raw_header = receive_exact(connection, HEADER.size, should_stop)
-            (magic, version, header_size, sequence, timestamp_ns, width, height,
-             stride, pixel_format, payload_size, camera_mask,
-             rejected_torn) = HEADER.unpack(raw_header)
+            (magic, version, header_size, _sequence, _timestamp_ns, width, height,
+             stride, pixel_format, payload_size, camera_mask, _rejected_torn) = HEADER.unpack(raw_header)
             if magic != MAGIC or version != 3 or header_size != HEADER.size:
                 raise ValueError("Unexpected live-stream header")
-            camera_ids = camera_ids_from_mask(camera_mask)
-            if (arguments.extra_face_capture or pupil_dilation or arguments.extra_face_model) and camera_ids != [0, 1, 2, 3, 4]:
-                raise ValueError("Extra-face capture and pupil diagnostics require all five cameras")
-            expected_width = len(camera_ids) * CAMERA_WIDTH
-            if (width != expected_width or height != CAMERA_HEIGHT
-                    or stride != width or pixel_format != 1):
-                raise ValueError(
-                    f"Unsupported frame layout {width}x{height}, format {pixel_format}"
-                )
-            if payload_size != width * height:
-                raise ValueError("Invalid payload size")
+            if camera_mask != 0x1F or (width, height, stride, pixel_format, payload_size) != (2000, 400, 2000, 1, 800_000):
+                raise ValueError(f"Unsupported frame layout {width}x{height}, cameras 0x{camera_mask:x}, format {pixel_format}")
             payload = receive_exact(connection, payload_size, should_stop)
-            pc_received_at = time.perf_counter()
-            pc_monotonic_ns = time.monotonic_ns()
-            stream_gap_stats.add(timestamp_ns, pc_monotonic_ns)
-            frame_replay_stats.add(payload)
-            record_this_frame = bool(
-                capture_writer is not None
-                and tongue_still_session is None
-                and (
-                    calibration_session is None
-                    or calibration_session.phase in ("active", "ready")
-                )
-            )
-            if record_this_frame and capture_writer is not None:
-                capture_writer.write(
-                    raw_header, payload, pc_monotonic_ns, time.time_ns()
-                )
-                if capture_started_ns is None:
-                    capture_started_ns = pc_monotonic_ns
-            if tongue_still_session is not None and capture_writer is not None:
-                if tongue_still_session.consume_frame(
-                    capture_writer,
-                    raw_header,
-                    payload,
-                    pc_monotonic_ns,
-                    time.time_ns(),
-                ):
-                    if capture_started_ns is None:
-                        capture_started_ns = pc_monotonic_ns
-                    play_cue("advanced")
+            now_ns = time.monotonic_ns()
             strip = np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
-            current_ids[:] = camera_ids
-
-            if last_sequence is not None and sequence > last_sequence + 1:
-                sequence_gap += sequence - last_sequence - 1
-            last_sequence = sequence
-            frames += 1
-            interval_bytes += HEADER.size + payload_size
-            now = time.perf_counter()
-            elapsed = now - fps_started
-            if elapsed >= 1.0:
-                fps = frames / elapsed
-                throughput_mbps = interval_bytes / elapsed / 1_000_000
-                frames = 0
-                interval_bytes = 0
-                fps_started = now
-
-            shared.update(strip, camera_ids)
-            if studio is not None:
+            shared.update(strip, pupils.detected_pupils if pupils else (None, None))
+            try:
+                studio.update(strip, raw_header, payload, now_ns, labels)
+            except Exception as error:
+                print("STUDIO_CAPTURE_ERROR " + str(error), flush=True)
                 try:
-                    studio.update(strip, raw_header, payload, pc_monotonic_ns, label_recorder)
+                    studio.close()
+                except OSError:
+                    pass
+                studio.state.update(phase="cancelled", completed=False, error=str(error))
+            if studio.reload_requested and loading is None:
+                studio.reload_requested = False
+                loading = loader.submit(load_models)
+            if loading is not None and loading.done():
+                try:
+                    new_face, new_pupils, error = loading.result()
+                    for old in (face, pupils):
+                        if old is not None:
+                            old.close()
+                    face, pupils = new_face, new_pupils
+                    studio.state['error'] = error
                 except Exception as error:
-                    print("STUDIO_CAPTURE_ERROR " + str(error), flush=True)
-                    try: studio.close()
-                    except OSError: pass
-                    studio.state.update(phase="cancelled", completed=False, error=str(error))
-                if studio.reload_requested and reload_future is None:
-                    studio.reload_requested = False
-                    reload_future = reload_executor.submit(load_studio_reload, arguments, tongue_model_preview)
-                if reload_future is not None and reload_future.done():
-                    try:
-                        config, tongue_candidate, extra_face_candidate, pupil_candidate = reload_future.result()
-                        if tongue_broadcaster is not None:
-                            tongue_broadcaster.set_enabled(config.get('tongueOutput', True) and type(extra_face_candidate).__name__ != 'UniversalFace')
-                        if tongue_candidate is not None:
-                            tongue_inference_worker.close()
-                            tongue_model_preview = tongue_candidate
-                            tongue_broadcaster.supported = tongue_candidate.supported_targets
-                            tongue_inference_worker = TongueInferenceWorker(tongue_candidate, tongue_broadcaster, render=not arguments.no_window)
-                        if extra_face_preview is not None: extra_face_preview.close()
-                        extra_face_preview = extra_face_candidate
-                        if pupil_dilation is not None: pupil_dilation.close()
-                        pupil_dilation = pupil_candidate
-                        studio.state['error'] = config.get('universalError', '')
-                        studio.state['reloaded'] = time.time()
-                    except Exception as error:
-                        studio.state['error'] = 'Could not load calibration: '+str(error)
-                    reload_future = None
-            if tongue_inference_worker is not None and tongue_inference_worker.active:
-                factory_sample = label_recorder.nearest_sample(pc_monotonic_ns) if label_recorder else None
-                tongue_inference_worker.submit(
-                    mouth_camera_strip(strip, camera_ids), factory_sample,
-                    label_recorder.schema_names if label_recorder else [], received_at=pc_received_at)
-            if calibration_ui is not None:
-                ui_key = calibration_ui.take_key()
-                if ui_key is not None:
-                    if pupil_dilation is not None:
-                        pupil_dilation.handle_key(ui_key)
-                    else:
-                        handle_key(shared, ui_key)
-            if pupil_dilation is not None:
-                pupil_image = pupil_dilation.update(strip, preview=arguments.pupil_preview or
-                    time.monotonic()-shared.pupil_requested_at < 1.)
-                if studio is not None:
-                    with shared.lock:
-                        shared.pupils = getattr(pupil_dilation, "detected_pupils", [None, None])
-                        for i in range(2):
-                            shared.images[f"pupil{i}"] = strip[:, i*400:(i+1)*400]
-                if not arguments.no_window:
-                    cv2.imshow("Quest Pro pupil dilation", pupil_image)
-            if extra_face_preview:
-                extra_face_image = extra_face_preview.update(
-                    strip, label_recorder.nearest_sample(pc_monotonic_ns) if label_recorder else None,
-                    label_recorder.schema_names if label_recorder else (), pc_monotonic_ns)
-                if not arguments.no_window:
-                    cv2.imshow("Quest Pro extra expression preview", extra_face_image)
-            tongue_model_image = None
-            if tongue_model_preview is not None:
-                tongue_prediction, tongue_model_image = tongue_inference_worker.latest()
-            if not arguments.no_window:
-                with shared.lock:
-                    selected = shared.selected
-                cv2.imshow(
-                    window_name,
-                    label_strip(
-                        strip, camera_ids, fps, selected, sequence_gap,
-                        rejected_torn, throughput_mbps,
-                        capture_writer.frame_count if capture_writer else 0,
-                        label_recorder.sample_count if label_recorder else 0,
-                        frame_replay_stats.suspected_replays,
-                        *stream_gap_stats.summaries(),
-                    ),
-                )
-                if tongue_model_image is not None:
-                    cv2.imshow(tongue_model_window_name, tongue_model_image)
-                key = cv2.waitKeyEx(1)
-                if key >= 0:
-                    if pupil_dilation is not None:
-                        pupil_dilation.handle_key(chr(key & 0xFF))
-                    handle_key(shared, chr(key & 0xFF))
-            if tongue_broadcaster is not None:
-                for runtime_key in shared.take_runtime_keys():
-                    if runtime_key == "t":
-                        enabled = tongue_broadcaster.toggle()
-                        print(
-                            "EXPERIMENTAL_TONGUE_OUTPUT_ON"
-                            if enabled else "EXPERIMENTAL_TONGUE_OUTPUT_OFF stock=restored"
-                        )
-            if calibration_session is not None:
-                labels_live = bool(
-                    label_recorder is not None and label_recorder.source_is_live()
-                )
-                if labels_live != labels_live_reported:
-                    print(
-                        "LABEL_PREFLIGHT_OK source=changing"
-                        if labels_live
-                        else "LABEL_PREFLIGHT_WAITING source=frozen; "
-                        "start SteamVR and VRCFT, then move your face and eyes"
-                    )
-                    labels_live_reported = labels_live
-                for calibration_key in shared.take_calibration_keys():
-                    if (
-                        calibration_session.phase == "instruction"
-                        and calibration_key.lower() in (" ", "\r", "\n")
-                        and not labels_live
-                    ):
-                        action = "not_ready"
-                    else:
-                        action = calibration_session.handle_key(
-                            calibration_key, pc_monotonic_ns
-                        )
-                    if action is not None:
-                        play_cue(action)
-                    if action == "completed":
-                        calibration_completed = True
-                        shared.running = False
-                if calibration_session.update(pc_monotonic_ns):
-                    play_cue("ready")
-                step_index, step, phase, elapsed_active, remaining = (
-                    calibration_session.status(pc_monotonic_ns)
-                )
-                cv2.imshow(
-                    prompt_window_name,
-                    prompt_image(
-                        step_index, step, phase, elapsed_active, remaining,
-                        labels_live=labels_live,
-                        total_steps=len(calibration_session.steps),
-                    ),
-                )
-            if tongue_still_session is not None:
-                labels_ready_now = bool(
-                    label_recorder is not None
-                    and label_recorder.sample_count >= 10
-                    and label_recorder.source_change_sequence >= 3
-                )
-                labels_live_reported = bool(labels_live_reported or labels_ready_now)
-                for calibration_key in shared.take_calibration_keys():
-                    if calibration_key == " " and not labels_live_reported and not arguments.extra_face_capture:
-                        action = "not_ready"
-                        tongue_still_session.message = (
-                            "Factory reference is not ready yet; move your face briefly."
-                        )
-                    else:
-                        action = tongue_still_session.handle_key(calibration_key)
-                    if action is not None:
-                        play_cue(action)
-                    if action == "completed":
-                        calibration_completed = True
-                        shared.running = False
-                if not arguments.no_window:
-                    cv2.imshow(prompt_window_name, tongue_still_session.render(strip, bool(labels_live_reported)))
-            if calibration_ui is not None:
-                calibration_ui.publish(tongue_still_session, pupil_dilation,
-                    ready=bool(arguments.extra_face_capture or pupil_dilation or labels_live_reported),
-                    force=bool(tongue_still_session and tongue_still_session.completed))
-            if (capture_writer is not None and arguments.record_seconds > 0
-                    and capture_started_ns is not None
-                    and (pc_monotonic_ns - capture_started_ns) / 1_000_000_000
-                    >= arguments.record_seconds):
-                shared.running = False
-        capture_completed = True
+                    studio.state['error'] = 'Could not load calibration: ' + str(error)
+                loading = None
+            if pupils is not None:
+                pupils.update(strip, preview=time.monotonic() - shared.pupil_requested_at < 1.)
+            if face is not None:
+                face.update(strip, labels.nearest_sample(now_ns), labels.schema_names, now_ns)
     except ReceiverStopped:
-        capture_completed = True
+        pass
     finally:
-        if studio is not None:
-            studio.close()
-            reload_executor.shutdown(wait=False, cancel_futures=True)
-        shared.running = False
-        with shared.lock:
-            shared.lock.notify_all()
+        studio.close()
+        loader.shutdown(wait=False, cancel_futures=True)
         if connection is not None:
             connection.close()
         server.shutdown()
         server.server_close()
-        if window_created:
-            cv2.destroyAllWindows()
-        if tongue_inference_worker is not None:
-            tongue_inference_worker.close()
-        if extra_face_preview is not None:
-            extra_face_preview.close()
-        if pupil_dilation is not None:
-            pupil_dilation.close()
-        if tongue_broadcaster is not None:
-            tongue_broadcaster.close()
-            print("EXPERIMENTAL_TONGUE_OUTPUT_OFF stock=restored")
-        if calibration_session is not None:
-            calibration_session.finish(
-                time.monotonic_ns(), completed=calibration_completed
-            )
-            state = "complete" if calibration_completed else "stopped early"
-            print(f"Calibration session {state}: {calibration_session.path}")
-        if tongue_still_session is not None:
-            tongue_still_session.finish(completed=calibration_completed)
-            state = "complete" if calibration_completed else "stopped early but recoverable"
-            print(f"Manual tongue session {state}: {tongue_still_session.path}")
-        if capture_writer is not None:
-            capture_writer.close(completed=capture_completed)
-            state = "complete" if capture_completed else "recoverable but incomplete"
-            print(
-                f"Capture {state}: {capture_writer.frame_count} frames, "
-                f"{capture_writer.path}"
-            )
-        if label_recorder is not None:
-            label_recorder.close()
-            if label_recorder.sample_count:
-                if label_recorder.path is not None:
-                    print(
-                        f"Factory labels complete: {label_recorder.sample_count} samples, "
-                        f"{len(label_recorder.schema_names)} expressions, "
-                        f"{label_recorder.path}"
-                    )
-                else:
-                    print(
-                        f"Live factory labels received: {label_recorder.sample_count} "
-                        f"samples, {len(label_recorder.schema_names)} expressions"
-                    )
-            else:
-                print(
-                    "WARNING: no factory labels were received. The camera capture "
-                    "is valid but is not yet a supervised training dataset."
-                )
+        for model in (face, pupils):
+            if model is not None:
+                model.close()
+        labels.close()
     return 0
 
 

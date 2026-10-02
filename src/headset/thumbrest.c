@@ -16,12 +16,12 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
+
+#include "shared.h"
 
 #define PORT 27055
 #define PID_PATH "/data/local/tmp/qft-thumbrest.pid"
-#define LOG_PATH "/data/local/tmp/qft-thumbrest.log"
 #define SERVICE "trackingservice"
 #define PAGE_BYTES 4096
 #define SEQ_OFFSET 0x1e8
@@ -57,11 +57,9 @@ static int read_text(const char *path, char *buffer, size_t size) {
 }
 
 static int is_service(pid_t pid) {
-    char path[64], command[128];
-    snprintf(path, sizeof path, "/proc/%d/cmdline", (int)pid);
-    if (read_text(path, command, sizeof command) < 0) return 0;
-    const char *name = strrchr(command, '/');
-    return strcmp(name != NULL ? name + 1 : command, SERVICE) == 0;
+    char command[128];
+    const char *name = program_name(pid, command, sizeof command);
+    return name != NULL && strcmp(name, SERVICE) == 0;
 }
 
 static pid_t find_service(void) {
@@ -119,12 +117,10 @@ static int current_pages(const Source *source) {
 
 static int ensure_source(Source *source) {
     if (source->pid > 0 && current_pages(source)) return 1;
-    int restarted = source->pid > 0;
     close_source(source);
     source->pid = find_service();
     if (source->pid < 0) return 0;
     for (int side = 0; side < 2; side++) source->pages[side] = map_page(source->pid, PAGE_NAMES[side], &source->inodes[side]);
-    if (restarted) fprintf(stderr, "trackingservice changed; remapping to pid %d\n", (int)source->pid);
     if (source->pages[0] != NULL && source->pages[1] != NULL) return 1;
     close_source(source);
     return 0;
@@ -159,20 +155,14 @@ static int read_packet(const uint8_t *page, int kind, int side, uint32_t *seq, u
     return 1;
 }
 
-static uint64_t now_ms(void) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
-}
-
 static void stream(int client, Source *source) {
     uint32_t sent[2][2] = {{0}};
     int have[2][2] = {{0}};
-    uint64_t checked = now_ms();
+    uint64_t checked = monotonic_nanoseconds();
     struct pollfd watch = {.fd = client, .events = POLLIN};
     while (!g_stop) {
-        if (now_ms() - checked >= 1000) {
-            checked = now_ms();
+        if (monotonic_nanoseconds() - checked >= UINT64_C(1000000000)) {
+            checked = monotonic_nanoseconds();
             if (!ensure_source(source)) memset(have, 0, sizeof have);
         }
         for (int side = 0; side < 2 && source->pages[side] != NULL; side++) {
@@ -218,34 +208,24 @@ static void serve(int server) {
         int client = accept4(server, NULL, NULL, SOCK_CLOEXEC);
         if (client < 0) {
             if (errno == EINTR) continue;
-            perror("accept");
             break;
         }
         int on = 1;
         setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &on, sizeof on);
-        fprintf(stderr, "client connected; %s\n", ensure_source(&source) ? "controller pages mapped" : SERVICE " not found yet");
+        ensure_source(&source);
         stream(client, &source);
         close(client);
-        fprintf(stderr, "client disconnected\n");
     }
     close_source(&source);
     close(server);
 }
 
 static pid_t running_pid(void) {
-    char text[32], path[64], command[256];
+    char text[32], command[256];
     if (read_text(PID_PATH, text, sizeof text) < 0) return -1;
     pid_t pid = (pid_t)atoi(text);
-    snprintf(path, sizeof path, "/proc/%d/cmdline", (int)pid);
-    if (pid <= 0 || read_text(path, command, sizeof command) < 0 || strstr(command, "qft-thumbrest") == NULL) return -1;
-    return pid;
-}
-
-static int write_pid(pid_t pid) {
-    FILE *file = fopen(PID_PATH, "we");
-    if (file == NULL) return 0;
-    fprintf(file, "%d\n", (int)pid);
-    return fclose(file) == 0;
+    const char *name = pid > 0 ? program_name(pid, command, sizeof command) : NULL;
+    return name != NULL && strstr(name, "qft-thumbrest") != NULL ? pid : -1;
 }
 
 int main(int argc, char **argv) {
@@ -259,9 +239,8 @@ int main(int argc, char **argv) {
         puts("THUMBREST_STOPPED");
         return 0;
     }
-    int daemon_mode = argc == 2 && strcmp(argv[1], "--daemon") == 0;
-    if (argc > 1 && !daemon_mode) {
-        fprintf(stderr, "usage: %s [--daemon | --stop]\n", argv[0]);
+    if (argc != 2 || strcmp(argv[1], "--daemon") != 0) {
+        fprintf(stderr, "usage: %s --daemon | --stop\n", argv[0]);
         return 2;
     }
     if (running_pid() > 0) {
@@ -273,27 +252,14 @@ int main(int argc, char **argv) {
         perror("listen on 127.0.0.1:27055");
         return 1;
     }
-    if (daemon_mode) {
-        pid_t child = fork();
-        if (child < 0) {
-            perror("fork");
-            return 1;
-        }
-        if (child > 0) {
-            if (!write_pid(child)) perror(PID_PATH);
-            printf("THUMBREST_RUNNING pid=%d\n", (int)child);
-            return 0;
-        }
-        setsid();
-        int input = open("/dev/null", O_RDONLY | O_CLOEXEC);
-        int log = open(LOG_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-        if (input >= 0) dup2(input, STDIN_FILENO);
-        if (log >= 0) {
-            dup2(log, STDOUT_FILENO);
-            dup2(log, STDERR_FILENO);
-        }
-    } else if (!write_pid(getpid())) {
-        perror(PID_PATH);
+    if (daemon(0, 0) != 0) {
+        perror("daemon");
+        return 1;
+    }
+    FILE *pid_file = fopen(PID_PATH, "we");
+    if (pid_file != NULL) {
+        fprintf(pid_file, "%d\n", (int)getpid());
+        fclose(pid_file);
     }
     serve(server);
     if (running_pid() == getpid()) unlink(PID_PATH);

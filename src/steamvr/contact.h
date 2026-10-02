@@ -1,13 +1,11 @@
 #pragma once
 
-//========= Copyright Valve Corporation ============//
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 
 enum class Contact { None, Pending, Active, Rejected };
-enum class Mode { Native, Joystick, Swipe, Mouse, Off };
+enum class Mode { Native, Joystick, Swipe, Mouse };
 enum class Rail { Undecided, Vertical, Horizontal, Free };
 
 struct Tuning {
@@ -16,6 +14,10 @@ struct Tuning {
     float joystickRange = 0.5f;
     float swipeGain = 0.35f, swipeDecayMs = 350, swipeDeadzone = 0.3f;
     float railAngle = 35, railStart = 0.4f, railRelease = 0.8f;
+    float xMin = 0, xMax = 255, yMin = 0, yMax = 255;
+    float rotation[2] = {-20, 20};
+    float mouseSpeed = 1200, slideTouchCurl = 0.95f;
+    bool slideReversed = false;
 };
 
 struct Pad {
@@ -55,12 +57,15 @@ inline void Begin(Pad &pad) {
     pad.onPath = pad.offPath = 0;
 }
 
+inline Rail RailFor(float dx, float dy, const Tuning &k) {
+    float angle = std::fabs(std::atan2(dy, dx)) * 180 / 3.14159265f, fromHorizontal = std::min(angle, 180 - angle);
+    return fromHorizontal <= k.railAngle ? Rail::Horizontal : 90 - fromHorizontal <= k.railAngle ? Rail::Vertical : Rail::Free;
+}
+
 inline void Steer(Pad &pad, const Pad &last, const Tuning &k) {
     if (pad.rail == Rail::Undecided) {
         float dx = pad.x - pad.anchorX, dy = pad.y - pad.anchorY;
-        if (std::hypot(dx, dy) < k.railStart) return;
-        float angle = std::fabs(std::atan2(dy, dx)) * 180 / 3.14159265f, fromHorizontal = std::min(angle, 180 - angle);
-        pad.rail = fromHorizontal <= k.railAngle ? Rail::Horizontal : 90 - fromHorizontal <= k.railAngle ? Rail::Vertical : Rail::Free;
+        if (std::hypot(dx, dy) >= k.railStart) pad.rail = RailFor(dx, dy, k);
         return;
     }
     if (pad.rail == Rail::Free) return;
@@ -75,8 +80,7 @@ inline void OnRail(const Pad &pad, const Tuning &k, float &x, float &y) {
     if (rail == Rail::Undecided) {
         float dx = pad.x - pad.anchorX, dy = pad.y - pad.anchorY;
         if (dx == 0 && dy == 0) return;
-        float angle = std::fabs(std::atan2(dy, dx)) * 180 / 3.14159265f, fromHorizontal = std::min(angle, 180 - angle);
-        rail = fromHorizontal <= k.railAngle ? Rail::Horizontal : 90 - fromHorizontal <= k.railAngle ? Rail::Vertical : Rail::Free;
+        rail = RailFor(dx, dy, k);
     }
     if (rail == Rail::Vertical) x = 0;
     if (rail == Rail::Horizontal) y = 0;
@@ -140,7 +144,7 @@ inline float Glide(float velocity, bool touching, uint64_t lifted, uint64_t now,
 inline Report Evaluate(Pad &pad, uint64_t now, Mode mode, const Tuning &k) {
     Report r;
     bool touching = Touching(pad, now, k);
-    if (mode == Mode::Mouse || mode == Mode::Off) return r;
+    if (mode == Mode::Mouse) return r;
     r.force = touching ? Force(pad.force, k) : 0;
     r.click = touching && pad.click;
     if (mode == Mode::Native) {

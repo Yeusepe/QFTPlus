@@ -15,7 +15,6 @@ import os
 import socket
 import time
 from pathlib import Path
-import cv2
 import numpy as np
 from face_events import BROW, PUFF, SUCK, TONGUE, FaceEvents
 from gpu_lock import GPU_LOCK
@@ -26,6 +25,8 @@ META = {"schema", "names", "slots", "browNames", "imageSize", "approvedForOutput
 HEAD = {"missing", "w1", "b1", "w2", "b2", "w3", "b3"}
 BROW_HEAD = {"missing", "w1", "b1", "w2", "b2"}
 SLOTS = ["neutral", "jaw_open", "pucker", "puff", "tongue_out", "suck"]
+SIDES = ["puff_left", "puff_right"]
+MAX_UNMIX_COND = 10.
 CHEEKS = ["CheekPuffLeft", "CheekPuffRight", "CheekSuckLeft", "CheekSuckRight"]
 BROWS = [b + s for b in ("BrowInnerUp", "BrowOuterUp", "BrowLowerer", "BrowPinch") for s in ("Left", "Right")]
 FAMILIES = {"puff": CHEEKS, "brows": BROWS}
@@ -67,6 +68,11 @@ def head_forward(h, q, anchors, present):
     return sigmoid(h["w3"] @ z + h["b3"])
 
 
+def puff_depth(q, neutral, axis):
+    """Per mouth camera, how far q has moved from neutral toward the both-cheeks puff (1 = all the way) -> (2,)"""
+    return np.clip(((q.reshape(2, -1) - neutral) * axis).sum(1), 0., None)
+
+
 def brow_forward(h, w, neutral, present):
     """w (480,), neutral (480,), present 0/1 -> per-side brows (8,)"""
     n = neutral if present else h["missing"]
@@ -74,7 +80,7 @@ def brow_forward(h, w, neutral, present):
 
 
 class UniversalFace:
-    def __init__(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), render=True, bias=0., log=None, tongue=None):
+    def __init__(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), bias=0., log=None, tongue=None):
         """path: MODEL.npz (MODEL.area.onnx next to it)."""
         path = Path(path).resolve()
         graph_path = path.with_suffix(".area.onnx")
@@ -102,13 +108,17 @@ class UniversalFace:
             print("INFERENCE_FALLBACK cpu: " + str(error), flush=True)
             self.model = session(graph, cpu=True)
         print("INFERENCE_BACKEND " + self.model.get_providers()[0] + " " + str(graph_path), flush=True)
-        self.anchors, self.present, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment)
+        self.anchors, self.present, sides, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment)
         if not self.present.any() and meta["allowsNoEnrollment"] is not True:
             raise ValueError("Run the one-minute face setup first: this model needs it.")
         self.puff_axis, reach = None, {}
         if self.present[0] and self.present[3]:
             n, d = self.anchors[0].reshape(2, -1), (self.anchors[3] - self.anchors[0]).reshape(2, -1)
-            self.puff_axis = (n, d / np.maximum((d * d).sum(1, keepdims=True), 1e-6))
+            axis, unmix = d / np.maximum((d * d).sum(1, keepdims=True), 1e-6), None
+            if len(sides) == 2:
+                mix = np.stack([puff_depth(sides[s], n, axis) for s in SIDES], 1)
+                unmix = np.linalg.inv(mix) if np.linalg.cond(mix) < MAX_UNMIX_COND else None
+            self.puff_axis = (n, axis, unmix)
             full = head_forward(self.head, self.anchors[3], self.anchors, self.present)[[self.names.index(c) for c in CHEEKS[:2]]].max()
             reach = dict.fromkeys(CHEEKS[:2], float(full)) if full >= .3 else {}
         brow_rest = {k: v for k, v in brow_rest.items() if not k.startswith(tuple(NATIVE_RAISE))}
@@ -117,7 +127,7 @@ class UniversalFace:
         self.sent = [n for f in families if f in FAMILIES for n in FAMILIES[f] if n not in RAISES]
         self.send_shares = "brows" in families
         self.share, self.share_ns = {}, None
-        self.enabled, self.render, self.tongue = enabled, render, tongue
+        self.enabled, self.tongue = enabled, tongue
         self.inference_ms, self.last = 0., {}
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -135,23 +145,26 @@ class UniversalFace:
         return q[0], t[0], w[0]
 
     def encode_enrollment(self, enrollment):
-        """Face setup file -> mouth anchors (6, 512) + presence (6,), brow neutral embedding (480,) + presence, and the
-        brows' resting outputs (face_events' starting neutral). Runs once, at load."""
+        """Face setup file -> mouth anchors (6, 512) + presence (6,), the one-cheek puff embeddings {side: (512,)}, brow
+        neutral embedding (480,) + presence, and the brows' resting outputs (face_events' starting neutral). Runs once, at load."""
         anchors, present = np.zeros((6, 512), np.float32), np.zeros(6, np.float32)
-        brow_neutral, brow_present, rest = np.zeros(480, np.float32), 0., {}
+        sides, brow_neutral, brow_present, rest = {}, np.zeros(480, np.float32), 0., {}
         if not enrollment or not Path(enrollment).is_file():
-            return anchors, present, (brow_neutral, brow_present), rest
+            return anchors, present, sides, (brow_neutral, brow_present), rest
         with np.load(enrollment, allow_pickle=False) as z:
             if json.loads(str(z["meta"]))["schema"] != "face-enrollment-v1":
-                return anchors, present, (brow_neutral, brow_present), rest
-            for s, slot in enumerate(SLOTS):
+                return anchors, present, sides, (brow_neutral, brow_present), rest
+            for slot in SLOTS + SIDES:
                 if f"slot_{slot}" in z:
                     q, _, w = (np.stack(x) for x in zip(*(self.run(f) for f in z[f"slot_{slot}"])))
-                    anchors[s], present[s] = q.mean(0), 1.0
+                    if slot in SIDES:
+                        sides[slot] = q.mean(0)
+                        continue
+                    anchors[SLOTS.index(slot)], present[SLOTS.index(slot)] = q.mean(0), 1.0
                     if slot == "neutral":
                         brow_neutral, brow_present = w.mean(0), 1.
                         rest = dict(zip(BROWS, np.median([brow_forward(self.brow_head, r, brow_neutral, 1.) for r in w], 0).tolist()))
-        return anchors, present, (brow_neutral, brow_present), rest
+        return anchors, present, sides, (brow_neutral, brow_present), rest
 
     def update(self, strip, native=None, native_names=(), now_ns=0):
         if strip.shape != (400, 2000):
@@ -163,9 +176,13 @@ class UniversalFace:
         horizontal, vertical = np.tanh(t[1:3])
         self.inference_ms = (time.perf_counter() - started) * 1000
         if self.puff_axis is not None:
-            n, axis = self.puff_axis
-            d = np.clip(((q.reshape(2, -1) - n) * axis).sum(1), 0., None)
-            share = (d / max(float(d.max()), 1e-6)) ** 2
+            n, axis, unmix = self.puff_axis
+            d = puff_depth(q, n, axis)
+            if unmix is None:
+                share = (d / max(float(d.max()), 1e-6)) ** 2
+            else:
+                d = np.clip(unmix @ d, 0., None)
+                share = d / max(float(d.max()), 1e-6)
             amount = max(p["CheekPuffLeft"], p["CheekPuffRight"])
             p["CheekPuffLeft"], p["CheekPuffRight"] = amount * float(share[0]), amount * float(share[1])
         fresh = native is not None and abs(int(native["arrivalMonotonicNs"]) - now_ns) <= NATIVE_MAX_AGE_NS
@@ -191,25 +208,14 @@ class UniversalFace:
             self.socket.sendto(json.dumps(packet).encode(), ("127.0.0.1", 27278))
             if self.tongue is not None:
                 self.tongue.send_prediction(TonguePrediction(values=np.array([max(0.4, tongue_native), horizontal, vertical], np.float32),
-                    native_tongue_out=tongue_native, fused_visibility=tongue_native, visible=self.events.on["TongueOut"],
-                    inference_ms=self.inference_ms), ["extension", "horizontal", "vertical"])
-        if not self.render:
-            return None
-        shown = CHEEKS + ["TongueOut"] + BROWS
-        image = np.zeros((90 + 26 * len(shown), 800, 3), np.uint8)
-        cv2.putText(image, f"Universal face model ({self.inference_ms:.2f} ms), anchors {int(self.present.sum())}/6"
-                    + ("  speaking" if self.events.speaking else ""), (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 220, 255), 1)
-        for i, n in enumerate(shown):
-            y = 70 + i * 26
-            cv2.putText(image, n, (15, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (225, 225, 225), 1)
-            cv2.rectangle(image, (320, y - 12), (320 + round(out[n] * 440), y), (90, 220, 140), -1)
-            cv2.rectangle(image, (320, y + 1), (320 + round(values[n] * 440), y + 3), (150, 150, 150), -1)
-        return image
+                    visible=self.events.on["TongueOut"]), ["extension", "horizontal", "vertical"])
 
     def close(self):
-        with GPU_LOCK:  # the session is released here, not whenever the garbage collector gets to it
+        with GPU_LOCK:
             self.model = None
         self.events.close()
+        if self.tongue is not None:
+            self.tongue.close()
         if self.enabled:
             self.socket.sendto(b'{"version":1,"enabled":false,"values":{}}', ("127.0.0.1", 27278))
         self.socket.close()

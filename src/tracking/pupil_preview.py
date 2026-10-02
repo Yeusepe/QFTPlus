@@ -8,10 +8,9 @@ import numpy as np
 class Pupil:
     ellipse: tuple
     diameter_px: float
-    contrast: float
 
 
-def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil | None:
+def detect_pupil(gray: np.ndarray, *, diameter_range=None) -> Pupil | None:
     if gray.ndim != 2 or gray.dtype != np.uint8 or min(gray.shape) < 40:
         raise ValueError("Expected a grayscale uint8 eye image")
     smooth = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -55,9 +54,7 @@ def detect_pupil(gray: np.ndarray, *, center=None, diameter_range=None) -> Pupil
             contrast = float(np.median(ring) - np.median(inner))
             if contrast < 20:
                 continue
-            if center is not None and np.linalg.norm(np.asarray((x, y))-center) > 25:
-                continue
-            candidates.append((contrast * fill, Pupil(ellipse, major, contrast)))
+            candidates.append((contrast * fill, Pupil(ellipse, major)))
     pupils = []
     for score, pupil in candidates:
         x, y = pupil.ellipse[0]

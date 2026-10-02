@@ -1,17 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Globalization;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
-using QproFaceTracking.Hub;
 using Qpro.GazeBridge;
 
 namespace QFTPlus;
@@ -121,7 +115,7 @@ public partial class StudioWindow
         problem.Text=valid?"":"Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.";
         problem.Visibility=valid?Visibility.Collapsed:Visibility.Visible;
         if(!valid||preview)return;
-        var saved=Session.Read(path);saved[outputParameter]=values.DeepClone();Session.Write(path,saved);Refresh();
+        var saved=Session.Read(path);saved[outputParameter]=values.DeepClone();CalibrationSettings.WriteJson(path,saved);Refresh();
     }
     var modeled=names.Any(OutputAdjustments.Modeled);
     var scope=area is null?"These settings apply to every parameter unless an area or parameter changes them.":single?$"Only settings you change here override {area} and All areas.":$"These settings apply to every parameter in {area}. Only settings you change here override All areas.";
@@ -194,7 +188,7 @@ public partial class StudioWindow
         if(area=="Pupils")status.Text+=data["pupilTracking"]?.GetValue<bool>()==true?" Pupil tracking is live. Dilation combines both eyes.":" Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes.";
     }
     adjustmentRefresh=Refresh;Refresh();
-    var reset=Button(outputParameter=="*"?"Reset defaults":"Use inherited settings",()=>{if(!preview){var data=Session.Read(path);data.Remove(outputParameter);Session.Write(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
+    var reset=Button(outputParameter=="*"?"Reset defaults":"Use inherited settings",()=>{if(!preview){var data=Session.Read(path);data.Remove(outputParameter);CalibrationSettings.WriteJson(path,data);}Navigate("Adjustments");});Actions.Children.Add(reset);
  }
  void Manual()
  {
@@ -203,7 +197,7 @@ public partial class StudioWindow
     select.SelectionChanged+=(_,_)=>{var focus=select.IsKeyboardFocusWithin;StopManual();manualGroup=(string)select.SelectedItem;Navigate("Manual");if(focus)Page.Children.OfType<ComboBox>().First().Focus();};Field(Page,"Area",select);
     manualValues=new();var stack=new StackPanel{IsEnabled=false};
     var enabled=new CheckBox{Content="Override live tracking",IsChecked=false};AutomationProperties.SetName(enabled,"Override live tracking");
-    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!preview){var processes=System.Diagnostics.Process.GetProcessesByName("VRCFaceTracking");foreach(var process in processes)process.Dispose();if(processes.Length==0){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");}}stack.IsEnabled=manualTesting;PublishManual();};Page.Children.Add(enabled);
+    enabled.Click+=(_,_)=>{manualTesting=enabled.IsChecked==true;if(manualTesting&&!preview){if(!Processes.Running("VRCFaceTracking")){enabled.IsChecked=manualTesting=false;Error("Open VRCFaceTracking to test movements.");}}stack.IsEnabled=manualTesting;PublishManual();};Page.Children.Add(enabled);
     var about=Text("While it’s on, VRCFaceTracking gets these values instead of your face.",13,true);about.Margin=new(0,0,0,16);Page.Children.Add(about);
     var names=Parameters().Where(name=>OutputAdjustments.Area(name)==manualGroup).ToArray();
     foreach(var name in names)
@@ -218,7 +212,7 @@ public partial class StudioWindow
  {
     if(preview)return;
     var data=new JsonObject{["expires"]=manualTesting?DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0+1.5:0,["values"]=manualTesting?manualValues.DeepClone():new JsonObject()};
-    Session.Write(Path.Combine(session.Root,"manual-output.json"),data);
+    CalibrationSettings.WriteJson(Path.Combine(session.Root,"manual-output.json"),data);
  }
  void StopManual(){if(!manualTesting)return;manualTesting=false;PublishManual();}
 
@@ -406,10 +400,6 @@ public partial class StudioWindow
         var gpu=new ComboBox{ItemsSource=adapters.Select(a=>a.Name).ToArray(),SelectedIndex=Math.Max(0,adapters.FindIndex(a=>a.Index==(session.Config["gpuIndex"]?.GetValue<int>()??0))),Margin=new(0,0,0,8)};
         gpu.SelectionChanged+=(_,_)=>{if(!preview)session.Save("gpuIndex",adapters[gpu.SelectedIndex].Index);};Field(graphics,"Graphics card",gpu);
     }
-    var training=new CheckBox{Content=new TextBlock{Text="Train calibrations on the graphics card"},IsChecked=session.Config["gpuTraining"]?.GetValue<bool>()!=false,Margin=new(0,0,0,4)};
-    AutomationProperties.SetHelpText(training,"Much faster calibration. Falls back to the processor automatically if the graphics card can't train correctly or quickly.");
-    training.Click+=(_,_)=>{if(!preview)session.Save("gpuTraining",JsonValue.Create(training.IsChecked==true));};
-    hardware.Children.Add(training);hardware.Children.Add(Text("Falls back to the processor automatically when the graphics card can't.",13,true));
     hardware.Children.Add(graphics);hardware.Children.Add(Text("Takes effect the next time tracking starts. To leave more performance for VR, choose Graphics card, then a different card from the one running your game.",13,true));Page.Children.Add(new Expander{Header="Processing",Content=hardware});
  }
 }

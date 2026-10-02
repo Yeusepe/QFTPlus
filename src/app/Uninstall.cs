@@ -1,9 +1,5 @@
-using System;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
-using QproFaceTracking.Hub;
 
 namespace QFTPlus;
 
@@ -16,7 +12,7 @@ internal static class Uninstall
         void Try(Action action) { try { action(); } catch (Exception error) { Trace.WriteLine("Uninstall: " + error.Message); } }
         Try(() => SteamVrDriver.Unregister());
         Try(() => RemoveModule(root));
-        Try(AdbServer.Stop);
+        Try(Adb.Stop);
         if (File.Exists(Path.Combine(root, "SHA256SUMS.txt"))) Try(() => RemoveProgram(root));
         if (File.Exists(EverythingMarker)) Try(() => RemoveData(WorkingCopy.Home, SetupService.AutoPath));
     }
@@ -53,9 +49,7 @@ internal static class Uninstall
     internal static string? Blocker()
     {
         if (SteamVrDriver.Loaded()) return "Close SteamVR, which is using the QFT+ driver.";
-        var vrcft = Process.GetProcessesByName("VRCFaceTracking");
-        foreach (var process in vrcft) process.Dispose();
-        return vrcft.Length > 0 ? "Quit VRCFaceTracking from its system tray menu; it has the QFT+ module loaded." : null;
+        return Processes.Running("VRCFaceTracking") ? "Quit VRCFaceTracking from its system tray menu; it has the QFT+ module loaded." : null;
     }
 
     static void Delete(string file) { if (File.Exists(file)) File.Delete(file); }
@@ -98,7 +92,7 @@ internal static class Uninstall
         if (Directory.Exists(runtime)) Gone(() => Directory.Delete(runtime, true));
         foreach (var cache in Directory.GetDirectories(root, "__pycache__", links)) Gone(() => Directory.Delete(cache, true));
         foreach (var file in Directory.GetFiles(root, "*", links))
-            if (Path.GetFileName(file) is var name && (name.StartsWith(".qpro-", Ignore) || name.EndsWith(".pyc", Ignore) || name.StartsWith("autostart-status.json", Ignore) || name.Contains(".replaced-", Ignore)))
+            if (Path.GetFileName(file) is var name && (name.StartsWith(".qpro-", Ignore) || name.EndsWith(".pyc", Ignore) || name.Contains(".replaced-", Ignore)))
                 Gone(() => File.Delete(file));
         foreach (var folder in Directory.GetDirectories(root, "*", links).OrderByDescending(folder => folder.Length))
             if (!Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);

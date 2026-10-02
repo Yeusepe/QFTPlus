@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 
-namespace QproFaceTracking.Hub;
+namespace QFTPlus;
 
 internal static class SteamVr
 {
@@ -10,19 +10,19 @@ internal static class SteamVr
     {
         get
         {
-            var processes = Process.GetProcessesByName("vrserver");
             try
             {
-                if (processes.Length == 0) return false;
-                var paths = JsonNode.Parse(File.ReadAllText(Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "openvr/openvrpaths.vrpath")));
-                var config = paths?["config"]?[0]?.GetValue<string>();
-                return config is not null && JsonNode.Parse(File.ReadAllText(Path.Combine(config, "steamvr.vrsettings")))?
+                return Running() && SettingsFile() is { } file && JsonNode.Parse(File.ReadAllText(file))?
                     ["LastKnown"]?["ActualHMDDriver"]?.GetValue<string>() == "vrlink";
             }
-            catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return false; }
-            finally { foreach (var process in processes) process.Dispose(); }
+            catch (Exception error) when (error is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException) { return false; }
         }
+    }
+
+    internal static JsonNode? OpenVrPaths()
+    {
+        var file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "openvr", "openvrpaths.vrpath");
+        return File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) : null;
     }
 
     internal static void ConfigureSteamLink()
@@ -61,7 +61,7 @@ internal static class SteamVr
         var settings = File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file))!.AsObject() : new JsonObject();
         if (settings["driver_qftplus"] is not JsonObject driver) settings["driver_qftplus"] = driver = new JsonObject();
         foreach (var (key, value) in values) driver[key] = value.DeepClone();
-        Save(file, settings);
+        CalibrationSettings.WriteJson(file, settings);
         return false;
     }
 
@@ -80,32 +80,16 @@ internal static class SteamVr
                     Function<RemoveKey>(table, 10)("driver_qftplus", "blocked_by_safe_mode", ref error);
                     if (error != 0) throw new IOException($"SteamVR didn’t lift its safe-mode block on the driver ({error}).");
                 });
-            else { driver.Remove("blocked_by_safe_mode"); Save(file!, settings); }
+            else { driver.Remove("blocked_by_safe_mode"); CalibrationSettings.WriteJson(file!, settings); }
             return true;
         }
         catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or ArgumentOutOfRangeException)
         { throw new IOException("SteamVR’s settings can’t be read: " + error.Message, error); }
     }
 
-    internal static bool Running()
-    {
-        var processes = Process.GetProcessesByName("vrserver");
-        foreach (var process in processes) process.Dispose();
-        return processes.Length > 0;
-    }
+    internal static bool Running() => Processes.Running("vrserver");
 
-    static string? SettingsFile()
-    {
-        var paths = JsonNode.Parse(File.ReadAllText(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "openvr/openvrpaths.vrpath")));
-        return paths?["config"]?[0]?.GetValue<string>() is { } config ? Path.Combine(config, "steamvr.vrsettings") : null;
-    }
-
-    static void Save(string file, JsonObject settings)
-    {
-        File.WriteAllText(file + ".tmp", settings.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-        File.Move(file + ".tmp", file, true);
-    }
+    static string? SettingsFile() => OpenVrPaths()?["config"]?[0]?.GetValue<string>() is { } config ? Path.Combine(config, "steamvr.vrsettings") : null;
 
     static void WithSettings(string what, Action<nint> use)
     {

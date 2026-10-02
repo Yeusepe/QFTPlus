@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -15,29 +14,18 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "shared.h"
+
 #define CAMERA_MAP_BYTES ((size_t)0xC4000)
-#define SENSOR_WIDTH 2000
-#define SENSOR_HEIGHT 400
-#define SENSOR_BYTES ((size_t)SENSOR_WIDTH * SENSOR_HEIGHT)
 #define FRAME_COUNTER_OFFSET (SENSOR_BYTES + (size_t)24)
 #define FACE_X 800
 #define MAX_CAMERA_MAPS 16
-#define LOG_PATH "/data/local/tmp/questpro-live-v8.log"
-#define SHARED_PATH "/data/local/tmp/questpro-live-v8-shared.bin"
-#define SHARED_HEADER_BYTES ((size_t)80)
-#define SHARED_BYTES (SHARED_HEADER_BYTES + SENSOR_BYTES)
-#define SHARED_TORN_COUNT_OFFSET ((size_t)56)
-#define SHARED_ACTIVE_UNTIL_OFFSET ((size_t)64)
-#define SHARED_REQUESTED_MAX_FPS_OFFSET ((size_t)72)
+#define LOG_PATH "/data/local/tmp/questpro-live-v9.log"
 
-typedef struct {
-    uint8_t *address;
-} CameraMap;
-
-static CameraMap g_maps[MAX_CAMERA_MAPS];
+static uint8_t *g_maps[MAX_CAMERA_MAPS];
 static size_t g_map_count;
-static pthread_t g_worker;
 static int g_started;
+static ino_t g_shared_inode;
 
 static void log_line(const char *format, ...) {
     int fd = open(LOG_PATH, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
@@ -67,9 +55,9 @@ static void log_line(const char *format, ...) {
 }
 
 static int compare_map_address(const void *left, const void *right) {
-    const CameraMap *a = (const CameraMap *)left;
-    const CameraMap *b = (const CameraMap *)right;
-    return a->address < b->address ? -1 : a->address > b->address;
+    const uint8_t *a = *(uint8_t *const *)left;
+    const uint8_t *b = *(uint8_t *const *)right;
+    return a < b ? -1 : a > b;
 }
 
 static int discover_camera_maps(void) {
@@ -97,16 +85,16 @@ static int discover_camera_maps(void) {
             fclose(maps);
             return 0;
         }
-        g_maps[g_map_count++].address = (uint8_t *)(uintptr_t)start;
+        g_maps[g_map_count++] = (uint8_t *)(uintptr_t)start;
     }
     fclose(maps);
     qsort(g_maps, g_map_count, sizeof(g_maps[0]), compare_map_address);
     return g_map_count == 9;
 }
 
-static uint32_t frame_counter(const CameraMap *map) {
+static uint32_t frame_counter(const uint8_t *map) {
     uint32_t value = 0;
-    memcpy(&value, map->address + FRAME_COUNTER_OFFSET, sizeof(value));
+    memcpy(&value, map + FRAME_COUNTER_OFFSET, sizeof(value));
     return value;
 }
 
@@ -127,13 +115,6 @@ static int contains_face_views(const uint8_t *pixels) {
     return samples != 0 && nonzero * 4 > samples * 3;
 }
 
-static uint64_t monotonic_nanoseconds(void) {
-    struct timespec value;
-    clock_gettime(CLOCK_MONOTONIC, &value);
-    return (uint64_t)value.tv_sec * UINT64_C(1000000000) +
-           (uint64_t)value.tv_nsec;
-}
-
 static uint8_t *open_shared_output(void) {
     for (;;) {
         int fd = open(SHARED_PATH, O_RDWR | O_CLOEXEC | O_NOFOLLOW);
@@ -145,7 +126,10 @@ static uint8_t *open_shared_output(void) {
                 void *mapping = mmap(NULL, SHARED_BYTES, PROT_READ | PROT_WRITE,
                                      MAP_SHARED, fd, 0);
                 close(fd);
-                if (mapping != MAP_FAILED) return (uint8_t *)mapping;
+                if (mapping != MAP_FAILED) {
+                    g_shared_inode = status.st_ino;
+                    return (uint8_t *)mapping;
+                }
             } else {
                 close(fd);
             }
@@ -155,15 +139,20 @@ static uint8_t *open_shared_output(void) {
     }
 }
 
+static int shared_output_replaced(void) {
+    struct stat status;
+    return stat(SHARED_PATH, &status) != 0 || status.st_ino != g_shared_inode;
+}
+
 static void publish_frame(uint8_t *shared, uint64_t sequence,
                           const uint8_t *frame) {
-    uint32_t *generation = (uint32_t *)(void *)(shared + 8);
+    uint32_t *generation = (uint32_t *)(void *)(shared + SHARED_GENERATION_OFFSET);
     uint32_t value = __atomic_load_n(generation, __ATOMIC_RELAXED);
     if (value & 1u) ++value;
     __atomic_store_n(generation, value + 1u, __ATOMIC_RELEASE);
-    memcpy(shared + 16, &sequence, sizeof(sequence));
+    memcpy(shared + SHARED_SEQUENCE_OFFSET, &sequence, sizeof(sequence));
     uint64_t timestamp = monotonic_nanoseconds();
-    memcpy(shared + 24, &timestamp, sizeof(timestamp));
+    memcpy(shared + SHARED_TIMESTAMP_OFFSET, &timestamp, sizeof(timestamp));
     memcpy(shared + SHARED_HEADER_BYTES, frame, SENSOR_BYTES);
     __atomic_store_n(generation, value + 2u, __ATOMIC_RELEASE);
 }
@@ -186,13 +175,13 @@ static uint32_t requested_max_fps(const uint8_t *shared) {
     return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
 
-static int copy_stable_frame(const CameraMap *map, uint32_t expected_counter,
+static int copy_stable_frame(const uint8_t *map, uint32_t expected_counter,
                              uint8_t *first, uint8_t *second) {
     uint32_t before = frame_counter(map);
     if (before != expected_counter) return 0;
-    memcpy(first, map->address, SENSOR_BYTES);
+    memcpy(first, map, SENSOR_BYTES);
     usleep(250);
-    memcpy(second, map->address, SENSOR_BYTES);
+    memcpy(second, map, SENSOR_BYTES);
     uint32_t after = frame_counter(map);
     return before == after && memcmp(first, second, SENSOR_BYTES) == 0;
 }
@@ -201,7 +190,7 @@ static uint32_t newest_counter(void) {
     uint32_t newest = 0;
     int have_newest = 0;
     for (size_t i = 0; i < g_map_count; ++i) {
-        uint32_t current = frame_counter(&g_maps[i]);
+        uint32_t current = frame_counter(g_maps[i]);
         if (!have_newest || counter_is_newer(current, newest)) {
             newest = current;
             have_newest = 1;
@@ -210,16 +199,16 @@ static uint32_t newest_counter(void) {
     return newest;
 }
 
-static CameraMap *newest_face_slot(uint32_t after_counter,
-                                   uint32_t *selected_counter) {
-    CameraMap *newest = NULL;
+static const uint8_t *newest_face_slot(uint32_t after_counter,
+                                       uint32_t *selected_counter) {
+    const uint8_t *newest = NULL;
     uint32_t newest_value = after_counter;
     for (size_t i = 0; i < g_map_count; ++i) {
-        CameraMap *map = &g_maps[i];
+        const uint8_t *map = g_maps[i];
         uint32_t current = frame_counter(map);
         if (!counter_is_newer(current, after_counter) ||
             (newest && !counter_is_newer(current, newest_value)) ||
-            !contains_face_views(map->address))
+            !contains_face_views(map))
             continue;
         newest = map;
         newest_value = current;
@@ -252,6 +241,7 @@ static void *stream_worker(void *unused) {
     uint64_t rejected_torn = 0;
     uint64_t next_capture_at = 0;
     uint32_t last_published_counter = 0;
+    unsigned idle_polls = 0;
     int was_active = 0;
     for (;;) {
         int active = capture_is_requested(shared);
@@ -264,6 +254,13 @@ static void *stream_worker(void *unused) {
         }
         if (!active) {
             next_capture_at = 0;
+            if (++idle_polls % 50 == 0 && shared_output_replaced()) {
+                munmap(shared, SHARED_BYTES);
+                shared = open_shared_output();
+                rejected_torn = 0;
+                publish_torn_count(shared, 0);
+                log_line("SHARED_OUTPUT_READY bytes=%zu", SHARED_BYTES);
+            }
             usleep(20000);
             continue;
         }
@@ -279,7 +276,7 @@ static void *stream_worker(void *unused) {
             next_capture_at = now + interval;
         }
         uint32_t selected_counter = last_published_counter;
-        CameraMap *map = newest_face_slot(
+        const uint8_t *map = newest_face_slot(
             last_published_counter, &selected_counter);
         if (!map) {
             usleep(1000);
@@ -304,20 +301,17 @@ static void *stream_worker(void *unused) {
     }
 }
 
-__attribute__((constructor)) static void start_streamer(void) {
-    if (__atomic_exchange_n(&g_started, 1, __ATOMIC_ACQ_REL)) return;
-    int result = pthread_create(&g_worker, NULL, stream_worker, NULL);
-    if (result != 0) {
-        log_line("THREAD_CREATE_FAILED error=%s", strerror(result));
-        return;
-    }
-    pthread_detach(g_worker);
-    log_line("STREAMER_STARTED version=8.0 cameras=all stability=counter-guarded-double-copy provider-cap=relay-max-fps ring-order=hardware-counter lifecycle=client-lease diagnostics=torn-count");
-}
-
 void qft_streamer_main(const char *data, int *unload_policy, void *state) {
     (void)data;
     (void)state;
     *unload_policy = 1;
-    start_streamer();
+    if (__atomic_exchange_n(&g_started, 1, __ATOMIC_ACQ_REL)) return;
+    pthread_t worker;
+    int result = pthread_create(&worker, NULL, stream_worker, NULL);
+    if (result != 0) {
+        log_line("THREAD_CREATE_FAILED error=%s", strerror(result));
+        return;
+    }
+    pthread_detach(worker);
+    log_line("STREAMER_STARTED version=9.0 cameras=all stability=counter-guarded-double-copy provider-cap=relay-max-fps ring-order=hardware-counter lifecycle=client-lease diagnostics=torn-count");
 }

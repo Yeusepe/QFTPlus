@@ -203,29 +203,38 @@ class GuidedSession:
 
 
 ENROLL_CAP_SECONDS = 90.
+SLOW = 2.
 RELAX = Step("Relax", "Let your face go loose.", 1., "relax")
 
 
-def enrollment_steps():
-    """About 50 s: neutral, five ramp-and-hold anchors (1 s in, 2 s hold, 1 s relax), a sweep, optional reading."""
+def enrollment_steps(pace=1.):
+    """About 50 s (slow mode: pace=SLOW, about 100 s): neutral, seven ramp-and-hold anchors (1 s in, 2 s hold, 1 s relax),
+    two sweeps, optional reading. The one-cheek puffs replace the old puff sweep, whose frames nothing read."""
     def anchor(slot, title, instruction, targets=None, native=None, soft=False):
         return [Step(title, instruction, 3., f"anchor:{slot}", targets or {}, ramp=1., slot=slot, record_hz=4.,
                      native=native or {}, soft=soft), RELAX]
-    return ([Step("Relax and look ahead", "Keep your face still and relaxed.", 3., "neutral", slot="neutral", record_hz=4.)]
+    steps = ([Step("Relax and look ahead", "Keep your face still and relaxed.", 3., "neutral", slot="neutral", record_hz=4.)]
             + anchor("jaw_open", "Open your mouth wide", "As wide as is comfortable.", native={"JawDrop": .4})
             + anchor("pucker", "Kiss", "Push your lips forward into a kiss.",
                      {f"LipPucker{p}{s}": 1. for p in ("Upper", "Lower") for s in ("Left", "Right")}, native={"LipPucker": .3})
             + anchor("puff", "Puff both cheeks", "Fill with air, lips sealed.", {"CheekPuffLeft": 1., "CheekPuffRight": 1.},
                      native={"CheekPuff": .2}, soft=True)
+            + anchor("puff_left", "Puff only your left cheek", "Move the air into your left cheek, lips sealed.", {"CheekPuffLeft": 1.},
+                     native={"CheekPuffL": .2}, soft=True)
+            + anchor("puff_right", "Puff only your right cheek", "Move the air into your right cheek, lips sealed.", {"CheekPuffRight": 1.},
+                     native={"CheekPuffR": .2}, soft=True)
             + anchor("tongue_out", "Stick your tongue out", "Straight out, as far as is comfortable.",
                      {"visibility": 1., "extension": 1., "horizontal": 0., "vertical": 0.}, native={"TongueOut": .5})
             + anchor("suck", "Suck in your cheeks", "Pull both cheeks in between your teeth.", {"CheekSuckLeft": 1., "CheekSuckRight": 1.},
                      native={"CheekSuck": .2}, soft=True)
             + [Step("Tongue in a circle", "Slowly circle your tongue outside your lips.", 6., "sweep:tongue", record_hz=2.),
-               Step("Puff left, right, both", "Move the air from one cheek to the other, then both.", 6., "sweep:puff",
-                    {"CheekPuffLeft": 1., "CheekPuffRight": 1.}, record_hz=2.),
                Step("Jaw side to side", "Slowly, teeth apart.", 6., "sweep:jaw", record_hz=2.),
                Step("Read this out loud", READ[0], 9., "speech:read", record_hz=2., optional=True)])
+    return [paced(s, pace) for s in steps]
+
+
+def paced(step, pace):
+    return replace(step, seconds=step.seconds * pace, ramp=step.ramp * pace)
 
 
 def mouth_roi(strip):
@@ -236,9 +245,9 @@ def mouth_roi(strip):
 class EnrollmentSession(GuidedSession):
     """Checks every anchor hold; a failed hold is retried once with the reason, then skipped. Never exceeds the cap."""
 
-    def __init__(self, path, steps, now_ns, **meta):
-        super().__init__(path, steps, "face-enrollment-v1", now_ns, capSeconds=ENROLL_CAP_SECONDS, **meta)
-        self.observed, self.neutral_roi, self.retried = [], None, set()
+    def __init__(self, path, steps, now_ns, pace=1., **meta):
+        super().__init__(path, steps, "face-enrollment-v1", now_ns, capSeconds=ENROLL_CAP_SECONDS * pace, pace=pace, **meta)
+        self.observed, self.neutral_roi, self.retried, self.pace = [], None, set(), pace
 
     def observe(self, strip, native, frozen):
         """native: {name: value} from a fresh native sample, or None."""
@@ -276,7 +285,7 @@ class EnrollmentSession(GuidedSession):
 
     def _advance(self, now_ns, skipped):
         step, entry = self.current, self.record["steps"][self.index]
-        elapsed_total = (now_ns - self.record["startedMonotonicNs"]) / 1e9 - sum((b - a) / 1e9 for a, b in self.record["pauses"])
+        elapsed_total = ((now_ns - self.record["startedMonotonicNs"]) / 1e9 - sum((b - a) / 1e9 for a, b in self.record["pauses"])) / self.pace
         if step.slot:
             gate = {"passed": False, "reason": "skipped"} if skipped else self.evaluate(step)
             entry["gate"] = gate
@@ -285,7 +294,7 @@ class EnrollmentSession(GuidedSession):
             if not gate["passed"] and not skipped and step.slot not in self.retried and elapsed_total < ENROLL_CAP_SECONDS - 10:
                 self.retried.add(step.slot)
                 retry = replace(step, name="Once more: " + step.name, instruction=gate["reason"] + " " + step.instruction)
-                self._insert(self.index + 1, [retry, RELAX])
+                self._insert(self.index + 1, [retry, paced(RELAX, self.pace)])
         self.observed = []
         if elapsed_total > ENROLL_CAP_SECONDS - 15:
             for i in range(len(self.steps) - 1, self.index, -1):

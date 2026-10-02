@@ -1,6 +1,4 @@
 <Solution>
   <Project Path="src/app/QFTPlus.csproj" />
-  <Project Path="src/setup/QproFaceTracking.Hub.csproj" />
-  <Project Path="src/bridges/virtual-desktop/Qpro.VirtualDesktopLabelBridge.csproj" />
   <Project Path="src/bridges/vrcft/Qpro.GazeBridge.csproj" />
 </Solution>

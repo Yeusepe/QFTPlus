@@ -15,7 +15,6 @@ from capture_format import (
     FRAME_MAGIC,
     TRANSPORT_HEADER,
 )
-from dataset_inspect import nearest_label_indices
 
 
 def resize_cameras(strip: np.ndarray, size: int, count: int = 5) -> np.ndarray:

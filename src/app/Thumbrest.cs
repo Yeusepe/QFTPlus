@@ -1,8 +1,3 @@
-using System;
-using System.IO;
-using System.Security.Cryptography;
-using System.Threading.Tasks;
-
 namespace QFTPlus;
 internal static class Thumbrest
 {
@@ -12,16 +7,10 @@ internal static class Thumbrest
     {
         try
         {
-            var adb = Path.Combine(session.Root, "platform-tools/adb.exe");
-            var local = Path.Combine(session.Root, "qft-thumbrest");
-            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(local))).ToLowerInvariant();
-            var installed = await session.Run(adb, ["-s", target, "shell", "sha256sum " + Remote], allowFailure: true, seconds: 15);
-            if (!installed.Output.TrimStart().StartsWith(hash, StringComparison.Ordinal))
-            {
-                await session.Run(adb, ["-s", target, "shell", $"su -c '{Remote} --stop'"], allowFailure: true, seconds: 15);
-                await session.Run(adb, ["-s", target, "push", local, Remote], seconds: 60);
-                await session.Run(adb, ["-s", target, "shell", "chmod 755 " + Remote], seconds: 15);
-            }
+            var adb = Adb.Exe(session.Root);
+            await session.Run(adb, ["-s", target, "shell", $"su -c '{Remote} --stop'"], allowFailure: true, seconds: 15);
+            await session.Run(adb, ["-s", target, "push", Path.Combine(session.Root, "qft-thumbrest"), Remote], seconds: 60);
+            await session.Run(adb, ["-s", target, "shell", "chmod 755 " + Remote], seconds: 15);
             await session.Run(adb, ["-s", target, "shell", $"su -c '{Remote} --daemon'"], seconds: 15);
             await session.Run(adb, ["-s", target, "forward", Port, Port], seconds: 15);
         }
@@ -33,10 +22,10 @@ internal static class Thumbrest
 
     internal static async Task StopAsync(Session session, string target)
     {
-        var adb = Path.Combine(session.Root, "platform-tools/adb.exe");
+        var adb = Adb.Exe(session.Root);
         try
         {
-            await session.Run(adb, ["-s", target, "shell", $"su -c '{Remote} --stop'"], allowFailure: true, seconds: 15);
+            await session.Run(adb, ["-s", target, "shell", $"su -c '{Remote} --stop; rm -f {Remote}'"], allowFailure: true, seconds: 15);
             await session.Run(adb, ["-s", target, "forward", "--remove", Port], allowFailure: true, seconds: 15);
         }
         catch (IOException error) { Log(session, "Stopping the thumbrest trackpad: " + error.Message); }

@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
 using System.Text.Json.Nodes;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -25,7 +19,7 @@ public partial class StudioWindow : Window
  readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(250)};
  readonly HttpClient http=new(){Timeout=TimeSpan.FromSeconds(1)};
  readonly System.Windows.Forms.NotifyIcon? tray;
- string page="Tracking", kind="tongue", runtimeId="", candidate="", prefix="";
+ string page="Tracking", kind="enroll", runtimeId="", candidate="", prefix="";
  JsonObject state=new();
  long command;
  bool busy, polling, recording, training, quitting, reloadPending;
@@ -34,11 +28,8 @@ public partial class StudioWindow : Window
  ProgressBar? progress;
  Canvas? face;
  Button? pause, begin, cancel, skip;
- double applyingAt;
  readonly List<(Image Image,string Key)> cameras=new();
  readonly Dictionary<string,ListBoxItem> nav=new();
- bool automatic=true;
- double settle=2.0;
  public StudioWindow(string root,bool preview=false)
  {
     InitializeComponent();this.preview=preview;session=new(root);
@@ -121,7 +112,7 @@ public partial class StudioWindow : Window
     trackingRefresh?.Invoke();
     try {await session.Start(fromModule);ClearNotice();}
     catch(OperationCanceledException){session.Notify("Ready");ClearNotice();}
-    catch(Exception error){setupProblem=error.Message;moduleMissing=error is QproFaceTracking.Hub.ModuleNotInstalledException;if(page!="Tracking")Error(error.Message);session.Notify("Couldn’t start",error.Message);}
+    catch(Exception error){setupProblem=error.Message;moduleMissing=error is ModuleNotInstalledException;if(page!="Tracking")Error(error.Message);session.Notify("Couldn’t start",error.Message);}
     finally {busy=false;StartButton.IsEnabled=true;SidebarStatus();trackingRefresh?.Invoke();setupRefresh?.Invoke();}
  }
  async void StartClick(object sender,RoutedEventArgs e)
@@ -185,7 +176,7 @@ public partial class StudioWindow : Window
     var action=new Button{HorizontalAlignment=HorizontalAlignment.Left};
     var view=Button("View cameras",()=>Navigate("Cameras"));
     var help=Button("",()=>{if(session.HelpTarget is {} target)Open(target);});
-    var logs=Button("View logs",()=>{revealLog=session.State=="Tracking stopped"?session.ErrorLog:setupStep>=0&&!setupDone?"setup.log":"autostart.log";Navigate("Settings");});
+    var logs=Button("View logs",()=>{revealLog=session.State=="Tracking stopped"?session.ErrorLog:setupStep>=0&&!setupDone?"setup.log":"tracking.log";Navigate("Settings");});
     var buttons=new WrapPanel{Margin=new(0,12,0,-8)};foreach(var button in new[]{action,view,help,logs}){button.Margin=new(0,0,8,8);buttons.Children.Add(button);}
     var body=new StackPanel{VerticalAlignment=VerticalAlignment.Center};body.Children.Add(headline);body.Children.Add(detail);body.Children.Add(bar);body.Children.Add(buttons);
     var hero=new DockPanel();DockPanel.SetDock(badge,Dock.Left);hero.Children.Add(badge);hero.Children.Add(body);Page.Children.Add(Card(hero));
@@ -220,19 +211,8 @@ public partial class StudioWindow : Window
     {
         var needsEyeSetup=session.IndependentGaze&&!eyeModel;
         Show(Row("Eye gaze",()=>Navigate(needsEyeSetup?"Setup":"Settings")),!session.IndependentGaze?"Standard":needsEyeSetup?"Needs setup":"Independent",needsEyeSetup);
-        if(!session.Legacy)
-        {
-            var enrolled=Has("faceEnrollment");
-            Show(Row("Cheeks, tongue and brows",()=>{kind="enroll";Navigate("Calibration");}),
-                !On("extraFaceOutput",true)&&!On("tongueOutput",true)?"Off":enrolled?"Calibrated":"Standard");
-        }
-        else
-        {
-        Show(Row("Tongue",()=>{kind="tongue";Navigate("Calibration");}),!On("tongueOutput",true)?"Off":Has("tongueDirectionModelPath")?"Calibrated":"Standard model");
-        var groups=QproFaceTracking.Hub.CalibrationSettings.FaceGroups;var calibratedGroups=groups.Count(group=>session.FaceCalibrated(group.Kind));var onGroups=groups.Count(group=>session.FaceOn(group.Kind));
-        Show(Row("Extra expressions",()=>{kind=groups.FirstOrDefault(group=>!session.FaceCalibrated(group.Kind)).Kind??"puff";Navigate("Calibration");}),
-            calibratedGroups==0?"Not calibrated":onGroups==0?"Off":onGroups<calibratedGroups?$"{onGroups} of {calibratedGroups} on":$"{calibratedGroups} of {groups.Length} calibrated");
-        }
+        Show(Row("Cheeks, tongue and brows",()=>{kind="enroll";Navigate("Calibration");}),
+            !On("extraFaceOutput",true)&&!On("tongueOutput",true)?"Off":Has("faceEnrollment")?"Calibrated":"Standard");
         Show(Row("Pupil dilation",()=>{kind="pupils";Navigate("Calibration");}),!pupils?"Not calibrated":On("pupilDilation")?"Calibrated":"Off");
     }
     var hybridStopped=false;
@@ -266,7 +246,7 @@ public partial class StudioWindow : Window
         logs.Visibility=Problem?Visibility.Visible:Visibility.Collapsed;
         hybridStopped=session.Hybrid is not null&&!Session.Alive(session.Hybrid);
         var hybridFailed=session.HybridProblem.Length>0;
-        Show(hybrid,use=="face"?"Off":QproFaceTracking.Hub.SteamVr.IsSteamLink?"Requires Virtual Desktop":hybridFailed?"Couldn’t start":hybridStopped?"Stopped":"On",hybridStopped||hybridFailed);
+        Show(hybrid,use=="face"?"Off":SteamVr.IsSteamLink?"Requires Virtual Desktop":hybridFailed?"Couldn’t start":hybridStopped?"Stopped":"On",hybridStopped||hybridFailed);
     }
     trackingRefresh=Refresh;Refresh();
  }
@@ -281,7 +261,7 @@ public partial class StudioWindow : Window
     foreach(var (key,title) in new[]{("tongueOutput","Tongue"),("extraFaceOutput","Extra expressions"),("pupilDilation","Pupil dilation")})
     {
         var calibrated=session.Calibrated(key);
-        var option=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=calibrated&&(session.Config[key]?.GetValue<bool>()??(key=="tongueOutput"||key=="extraFaceOutput"&&!session.Legacy))};AutomationProperties.SetName(option,title);
+        var option=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=calibrated&&(session.Config[key]?.GetValue<bool>()??key!="pupilDilation")};AutomationProperties.SetName(option,title);
         rows.Children.Add(option);
         if(key=="extraFaceOutput"){ExpressionGroups(rows,option);continue;}
         option.Click+=(_,_)=>{if(preview)return;session.Save(key,JsonValue.Create(option.IsChecked==true));if(session.Running)Send("reload");};
@@ -291,18 +271,16 @@ public partial class StudioWindow : Window
  void ExpressionGroups(Panel rows,CheckBox parent)
  {
     var groups=new List<(string Kind,CheckBox Box)>();
-    foreach(var (kind,title) in QproFaceTracking.Hub.CalibrationSettings.FaceGroups.Where(g=>session.Legacy||Session.UniversalGroups.Contains(g.Kind)))
+    foreach(var (kind,title) in CalibrationSettings.FaceGroups)
     {
-        var calibrated=session.FaceCalibrated(kind);
-        var box=new CheckBox{Content=new TextBlock{Text=calibrated?title:title+" · Calibrate first"},IsEnabled=calibrated,IsChecked=session.FaceOn(kind),Margin=new(28,0,0,0)};
-        AutomationProperties.SetName(box,title);rows.Children.Add(box);
-        if(calibrated)groups.Add((kind,box));
+        var box=new CheckBox{Content=new TextBlock{Text=title},IsChecked=session.FaceOn(kind),Margin=new(28,0,0,0)};
+        AutomationProperties.SetName(box,title);rows.Children.Add(box);groups.Add((kind,box));
     }
     void Mixed(){var on=groups.Count(g=>g.Box.IsChecked==true);parent.IsChecked=on==0?false:on==groups.Count?true:null;}
     void Save(IEnumerable<(string Kind,CheckBox Box)> changed)
     {
         if(preview)return;
-        foreach(var (kind,box) in changed)session.Save(QproFaceTracking.Hub.CalibrationSettings.FaceOutputKey(kind),JsonValue.Create(box.IsChecked==true));
+        foreach(var (kind,box) in changed)session.Save(CalibrationSettings.FaceOutputKey(kind),JsonValue.Create(box.IsChecked==true));
         session.Save("extraFaceOutput",JsonValue.Create(groups.Any(g=>g.Box.IsChecked==true)));
         if(session.Running)Send("reload");
     }
@@ -355,26 +333,6 @@ public partial class StudioWindow : Window
  {
     var panel=new StackPanel();var heading=Text("Face calibration",16);heading.FontWeight=FontWeights.SemiBold;AutomationProperties.SetHeadingLevel(heading,AutomationHeadingLevel.Level2);panel.Children.Add(heading);
     panel.Children.Add(Text("Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate.",13,true));
-    var legacy=new CheckBox{Content=new TextBlock{Text="Use older calibrations",TextWrapping=TextWrapping.Wrap},IsChecked=session.Legacy,Margin=new(0,8,0,0)};
-    const string legacyAbout="Calibrations made one area at a time, like cheeks, brows and lip pucker. Turn this on to keep using or redo them. The first time, it downloads about 140 MB.";
-    AutomationProperties.SetHelpText(legacy,legacyAbout);
-    var legacyStatus=Text("",13,true);legacyStatus.Visibility=Visibility.Collapsed;AutomationProperties.SetLiveSetting(legacyStatus,AutomationLiveSetting.Polite);
-    var legacyProgress=new ProgressBar{IsIndeterminate=true,Height=3,Margin=new(0,0,0,8),Visibility=Visibility.Collapsed};legacyProgress.SetResourceReference(ProgressBar.ForegroundProperty,"Accent");
-    legacy.Click+=async(_,_)=>
-    {
-        if(preview)return;
-        var on=legacy.IsChecked==true;
-        if(on&&!session.LegacyInstalled)
-        {
-            legacy.IsEnabled=false;legacyStatus.Visibility=legacyProgress.Visibility=Visibility.Visible;legacyStatus.Text="Downloading older calibration support (about 140 MB)…";
-            try{await session.InstallLegacy(line=>{if(line.StartsWith("Downloading "))Dispatcher.BeginInvoke(()=>legacyStatus.Text=line.TrimEnd('.')+"…");});}
-            catch(IOException error){legacy.IsChecked=false;legacy.IsEnabled=true;legacyProgress.Visibility=Visibility.Collapsed;legacyStatus.Text="Couldn’t turn on older calibrations. "+error.Message;return;}
-            legacy.IsEnabled=true;legacyProgress.Visibility=Visibility.Collapsed;
-        }
-        session.Save("faceEngine",JsonValue.Create(on?"legacy":"universal"));Send("reload");
-        var y=PageScroll.VerticalOffset;Navigate("Settings");Dispatcher.BeginInvoke(()=>PageScroll.ScrollToVerticalOffset(y),System.Windows.Threading.DispatcherPriority.Loaded);
-    };
-    panel.Children.Add(legacy);panel.Children.Add(Text(legacyAbout,13,true));panel.Children.Add(legacyStatus);panel.Children.Add(legacyProgress);
     var log=new CheckBox{Content=new TextBlock{Text="Save face-tracking logs on this PC (numbers only, no images)",TextWrapping=TextWrapping.Wrap},IsChecked=session.Config["faceLog"]?.GetValue<bool>()==true,Margin=new(0,8,0,0)};
     log.Click+=(_,_)=>{if(preview)return;session.Save("faceLog",JsonValue.Create(log.IsChecked==true));Send("reload");};
     panel.Children.Add(log);
@@ -440,7 +398,7 @@ public partial class StudioWindow : Window
         if(preview||pending.Count==0){pending.Clear();return;}
         try
         {
-            var live=QproFaceTracking.Hub.SteamVr.SetThumbrest(pending);
+            var live=SteamVr.SetThumbrest(pending);
             foreach(var (key,value) in pending)saved[key]=value.DeepClone();
             session.Save("thumbrest",saved.DeepClone());
             status.Text=live?"Applied.":"Applies when SteamVR starts.";
@@ -469,7 +427,7 @@ public partial class StudioWindow : Window
         var on=!driverOn;driver.IsEnabled=false;
         try
         {
-            var note=await Task.Run(()=>on?QproFaceTracking.Hub.SteamVrDriver.Register(System.IO.Path.Combine(session.Root,"steamvr","qftplus")):QproFaceTracking.Hub.SteamVrDriver.Unregister());
+            var note=await Task.Run(()=>on?SteamVrDriver.Register(System.IO.Path.Combine(session.Root,"steamvr","qftplus")):SteamVrDriver.Unregister());
             session.Save("steamvrDriver",on);options.Visibility=on?Visibility.Visible:Visibility.Collapsed;
             if(!on)await session.StopThumbrest();
             driverOn=on;driver.Content=on?"Uninstall SteamVR driver":"Install SteamVR driver";
@@ -501,7 +459,7 @@ public partial class StudioWindow : Window
     options.Children.Add(details);options.Visibility=driverOn?Visibility.Visible:Visibility.Collapsed;
     panel.Children.Add(options);panel.Children.Add(status);Page.Children.Add(Card(panel));
  }
- static readonly (string Title,string File,string Empty)[] Logs={("Tracking (autostart.log)","autostart.log","Start tracking to create it."),("Eye tracking (autostart-eyes.log)","autostart-eyes.log","Start tracking with independent eye gaze on to create it."),("Face and tongue (autostart-tongue.log)","autostart-tongue.log","Start tracking to create it."),("Headset relay (questpro-live-relay.txt)","questpro-live-relay.txt","It’s written when a tracking session ends."),("Setup (setup.log)","setup.log","Run setup to create it."),("Components (studio.log)","studio.log","It’s created when calibration or hybrid hands install or train something."),("Hybrid hands (hybrid.log)","hybrid.log","Turn on hybrid hands, then start tracking to create it.")};
+ static readonly (string Title,string File,string Empty)[] Logs={("Tracking (tracking.log)","tracking.log","Start tracking to create it."),("Eye tracking (eyes.log)","eyes.log","Start tracking with independent eye gaze on to create it."),("Face and tongue (face.log)","face.log","Start tracking to create it."),("Headset relay (questpro-live-relay.txt)","questpro-live-relay.txt","Start tracking to create it."),("Setup (setup.log)","setup.log","Run setup to create it."),("Components (studio.log)","studio.log","It’s created when calibration or hybrid hands run a step."),("Hybrid hands (hybrid.log)","hybrid.log","Turn on hybrid hands, then start tracking to create it.")};
  Action? liveLog;
  string? revealLog;
  int logIndex;
@@ -576,12 +534,8 @@ public partial class StudioWindow : Window
  static void Open(string target)=>Process.Start(new ProcessStartInfo(target){UseShellExecute=true});
  internal void PreviewPage(string requested)
  {
-    if(requested=="Guide"){kind="tongue";Navigate("Calibration");recording=true;RefreshCalibrationControls();poseTitle!.Text="Tongue left";poseDetail!.Text="Point toward your left.";cue!.Text="Hold";count!.Text="8 of 42";progress!.Value=19;state["targets"]=new JsonObject{["visibility"]=1,["extension"]=.75,["horizontal"]=-1};DrawFace(face!,state["targets"]!.AsObject(),"tongue");}
-    else if(requested=="Cheeks"){kind="puff";Navigate("Calibration");recording=true;RefreshCalibrationControls();poseTitle!.Text="Left cheek · halfway";poseDetail!.Text="Fill halfway. Other cheek flat.";cue!.Text="Halfway · 2";count!.Text="3 of 21";progress!.Value=12;state["targets"]=new JsonObject{["CheekPuffLeft"]=.5,["CheekPuffRight"]=1};DrawFace(face!,state["targets"]!.AsObject(),"puff");}
-    else if(requested.StartsWith("Pose:")){var parts=requested.Split(':',4);kind=parts[1];Navigate("Calibration");recording=true;RefreshCalibrationControls();poseTitle!.Text=parts[2];state["targets"]=JsonNode.Parse(parts[3])!.AsObject();DrawFace(face!,state["targets"]!.AsObject(),kind);}
-    else if(requested=="Logs"){revealLog="autostart.log";Navigate("Settings");}
-    else if(requested=="Busy"){Navigate("Tracking");session.Notify("Preparing components","One-time setup…");}
-    else Navigate(requested=="Calibrate"?"Calibration":requested);
+    if(requested.StartsWith("Pose:")){var parts=requested.Split(':',4);kind=parts[1];Navigate("Calibration");recording=true;RefreshCalibrationControls();poseTitle!.Text=parts[2];state["targets"]=JsonNode.Parse(parts[3])!.AsObject();DrawFace(face!,state["targets"]!.AsObject(),kind);}
+    else Navigate(requested);
  }
  static readonly double[] NeutralMouth={32,170,1/3.0,14.67,14.67},SmileMouth={38,168,1/3.0,26.67,26.67},OpenMouth={22,176,1,-20,20},FlatMouth={34,176,1/3.0,0,0},PursedMouth={12,176,1/3.0,2,2};
  readonly double[] facePose=new double[37],faceSpeed=new double[37],faceGoal=new double[37];
@@ -602,7 +556,6 @@ public partial class StudioWindow : Window
     double right=Value("CheekPuffRight"),left=Value("CheekPuffLeft"),tongue=0,angle=0,length=0;faceGoalSide=1;
     var mouth=NeutralMouth;
     if(right>0||left>0||Value("CheekSuckRight")>0||Value("CheekSuckLeft")>0)mouth=PursedMouth;
-    else if(type=="puff"){}
     else if(Value("visibility")>0)
     {
         double h=Value("horizontal"),v=Value("vertical");
@@ -694,7 +647,7 @@ public partial class StudioWindow : Window
         else Line(F($"M {x},{107-9*(1-closed)-look} V {107+9*(1-closed)-look}"),closed>.1||Math.Abs(look)>.5?accent:ink);
     }
     var flare=(p[28]+p[29])/2;
-    if(faceType=="nose"||Math.Abs(flare)>.02)
+    if(Math.Abs(flare)>.02)
     {
         Line("M 180,98 V 124",ink);
         Line(F($"M {171-4*flare},135 Q {173-3*flare},127 180,129 Q {187+3*flare},127 {189+4*flare},135"),Math.Abs(flare)>.05?accent:ink,null,1,6);

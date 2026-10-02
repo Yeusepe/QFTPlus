@@ -64,7 +64,6 @@ const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, co
     const sharedMulti = getField(sharedClass, utf8('_useMultiModal'));
     if (sharedMulti.isNull()) throw new Error('Shared multimodal field missing');
     const sharedMultiOffset = fieldOffset(sharedMulti);
-    send({event:'settings', object:shared.toString(), offset:sharedMultiOffset, value:shared.add(sharedMultiOffset).readU8()});
     send({event: 'resolved', multiOffset, addresses: Object.fromEntries(
         Object.entries(addresses).map(([k,v]) => [k, {address:v.toString(),
             module:Process.findModuleByAddress(v)?.name, code:hexdump(v,{length:24,header:false,ansi:false})}]))});
@@ -74,7 +73,7 @@ const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, co
 });
 const gcPin = api('mono_gchandle_new', 'uint', ['pointer','int']);
 const gcFree = api('mono_gchandle_free', 'void', ['uint']);
-let listener = null, handListener = null, lastSend = 0, frames = 0;
+let listener = null, handListener = null, frames = 0;
 let state = 'idle', originalShared = null, originalHmd = null, sharedPin = null;
 let hmdObject=null, hmdPin=null, deadline=null, restoreFallback=null;
 let reason=null, cleanupError=null, restoring=false;
@@ -152,16 +151,10 @@ rpc.exports = {
                 onEnter(args) { this.self=args[0]; this.output=args[1]; },
                 onLeave() {
                     if (state !== 'running') return;
-                    const before=[this.output.readU8(),this.output.add(1).readU8()];
                     const active=[convert(this.self,0,this.output.add(4)),convert(this.self,1,this.output.add(1460))];
                     this.output.writeU8(active[0] ? 1 : 0);
                     this.output.add(1).writeU8(active[1] ? 1 : 0);
                     frames++;
-                    const now=Date.now();
-                    if (now-lastSend >= 1000) {
-                        lastSend=now;
-                        send({event:'hands',frames,before,active});
-                    }
                 }
             });
             listener = Interceptor.attach(addresses.update, {

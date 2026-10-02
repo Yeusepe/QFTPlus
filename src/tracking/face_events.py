@@ -6,7 +6,7 @@ Per frame, for each configured channel, in this order:
   3. mutually exclusive shapes (puff vs suck): the weaker one cannot fire
   4. speech-aware threshold raise / longer onset (speech = 2-7 Hz jaw motion in native JawDrop over 1 s; no microphone)
   5. event state machine: on above `on` held `hold_on` seconds, off below `off` held `hold_off` seconds
-  6. One Euro smoothing of the intensity while on; 0 while off
+  6. One Euro smoothing (min cutoff 1.5 Hz, beta .5) of the intensity while on; 0 while off
 Neutral refreshes slowly on quiet frames and resets after a donning gap. Unconfigured channels pass through unchanged.
 Continuous channels (brows) skip 3-5: offset, gain, then smoothing on every frame; their neutral refreshes when Meta's native
 brows are quiet (and the offset value is below .5).
@@ -15,8 +15,9 @@ from collections import deque
 import json
 from pathlib import Path
 from dataclasses import dataclass
-import math
 import numpy as np
+
+from eye_signal_filter import OneEuroVectorFilter
 
 NATIVE_MAX_AGE_NS = 100_000_000
 DONNING_GAP_NS = 2_000_000_000
@@ -47,27 +48,12 @@ BROW = Event(.5, .5, 0., continuous=True, quiet=NATIVE_BROWS)
 EVENTS = {"CheekPuffLeft": PUFF, "CheekPuffRight": PUFF, "CheekSuckLeft": SUCK, "CheekSuckRight": SUCK, "TongueOut": TONGUE}
 
 
+def smoother():
+    return OneEuroVectorFilter(1, min_cutoff_hz=1.5, beta=.5, derivative_cutoff_hz=1.)
+
+
 def ramp(value, low, high):
     return min(1., max(0., (value - low) / (high - low)))
-
-
-class OneEuro:
-    def __init__(self, min_cutoff=1.5, beta=.5, d_cutoff=1.):
-        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
-        self.x = self.dx = None
-
-    @staticmethod
-    def _alpha(cutoff, dt):
-        return 1. / (1. + 1. / (2 * math.pi * cutoff * dt))
-
-    def __call__(self, x, dt):
-        if self.x is None or dt <= 0:
-            self.x, self.dx = x, 0.
-            return x
-        dx = (x - self.x) / dt
-        self.dx += self._alpha(self.d_cutoff, dt) * (dx - self.dx)
-        self.x += self._alpha(self.min_cutoff + self.beta * abs(self.dx), dt) * (x - self.x)
-        return self.x
 
 
 class Speech:
@@ -114,7 +100,7 @@ class FaceEvents:
         self.neutral = {n: self.anchor_neutral.get(n, 0.) for n in self.config}
         self.on = {n: False for n in self.config}
         self.since = {n: None for n in self.config}
-        self.filters = {n: OneEuro() for n in self.config}
+        self.filters = {n: smoother() for n in self.config}
 
     def _native(self, sample, names, now_ns):
         if (sample is None or not names or sample.get("values") is None
@@ -159,7 +145,7 @@ class FaceEvents:
         for name, v in post.items():
             e = self.config[name]
             if e.continuous:
-                out[name] = self.filters[name](v, dt)
+                out[name] = float(self.filters[name].update([v], now_ns / 1e9)[0])
                 continue
             if e.exclusive and v <= max((w for k, w in post.items() if k.startswith(e.exclusive)), default=-1.):
                 v = 0.
@@ -175,8 +161,8 @@ class FaceEvents:
                 self.on[name] = not self.on[name]
                 self.since[name] = None
                 if not self.on[name]:
-                    self.filters[name] = OneEuro()
-            out[name] = self.filters[name](v, dt) if self.on[name] else 0.
+                    self.filters[name] = smoother()
+            out[name] = float(self.filters[name].update([v], now_ns / 1e9)[0]) if self.on[name] else 0.
         if self.log_path is not None:
             self._log(now_ns, values, out, sample, native is not None)
         return out

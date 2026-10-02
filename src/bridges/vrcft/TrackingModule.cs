@@ -31,7 +31,7 @@ public sealed class TrackingModule : ExtTrackingModule
     private const float BlinkClosed = 0.5f;
     private const long BlinkSettleMs = 100;
     private const int TonguePort = 27276;
-    private const int TonguePacketBytes = 56;
+    private const int TonguePacketBytes = 72;
     private const long TongueTimeoutMs = 300;
     private static readonly (int Source, int[] Targets)[] ExpressionMap =
     [
@@ -55,9 +55,11 @@ public sealed class TrackingModule : ExtTrackingModule
     private UdpClient? _steamLinkSocket;
     private readonly SteamLinkState _steamLink = new();
     private readonly byte[] _steamLinkBytes = new byte[StateBytes];
-    private MemoryMappedFile? _steamLinkMap;
-    private MemoryMappedViewAccessor? _steamLinkView;
-    private long _steamLinkSequence;
+    private IPEndPoint _labelsEndpoint = new(IPAddress.Loopback, 27274);
+    private static readonly JsonSerializerOptions LabelJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private UdpClient? _labelSocket;
+    private readonly byte[] _lastLabelState = new byte[StateBytes];
+    private long _labelSequence, _labelChanges, _labelChangeQpc, _labelSchemaQpc;
     private readonly byte[] _lastVdState = new byte[StateBytes];
     private long _lastVdChange;
     private string? _source;
@@ -146,14 +148,13 @@ public sealed class TrackingModule : ExtTrackingModule
             _steamLinkSocket.Client.Blocking = false;
             WakeOnPackets(_steamLinkSocket);
             _steamLinkSocket.Client.ReceiveBufferSize = 1024 * 1024;
-            _steamLinkMap = MemoryMappedFile.CreateOrOpen(SteamLinkSharedState.MapName, SteamLinkSharedState.Bytes);
-            _steamLinkView = _steamLinkMap.CreateViewAccessor();
         }
         catch (Exception error) when (error is SocketException or IOException or UnauthorizedAccessException)
         {
             Logger.LogError(error, "Steam Link port 9015 unavailable. Disable the standalone SteamLink module and restart VRCFaceTracking");
         }
         TryOpenMap();
+        _labelSocket = new UdpClient(AddressFamily.InterNetwork);
         _extraFaceSocket = Bind(27278, "extra expressions", LogLevel.Warning);
         _pupilSocket = Bind(27279, "pupil dilation", LogLevel.Warning);
         StartLocalRuntime();
@@ -246,9 +247,7 @@ public sealed class TrackingModule : ExtTrackingModule
     public override void Teardown()
     {
         _steamLinkSocket?.Dispose(); _steamLinkSocket = null;
-        _steamLinkView?.Write(360, 0L);
-        _steamLinkView?.Dispose(); _steamLinkView = null;
-        _steamLinkMap?.Dispose(); _steamLinkMap = null;
+        _labelSocket?.Dispose(); _labelSocket = null;
         RestoreAdjustedOutput();
         if (_needsEye) ResetPupilDilation();
         _pupilSocket?.Dispose();
@@ -292,7 +291,7 @@ public sealed class TrackingModule : ExtTrackingModule
             start.ArgumentList.Add(root);
             using var process = Process.Start(start);
             Logger.LogInformation("Qpro automatic runtime started; diagnostics: {Path}",
-                Path.Combine(root, "autostart.log"));
+                Path.Combine(root, "tracking.log"));
         }
         catch (Exception error)
         {
@@ -421,15 +420,6 @@ public sealed class TrackingModule : ExtTrackingModule
         long now = Environment.TickCount64;
         Receive(_steamLinkSocket, packet => _steamLink.Accept(packet, now), 512);
         bool steamLink = _steamLink.CopyTo(_steamLinkBytes, now);
-        if (_steamLinkView is not null)
-        {
-            _steamLinkView.Write(368, ++_steamLinkSequence);
-            Thread.MemoryBarrier();
-            _steamLinkView.WriteArray(0, _steamLinkBytes, 0, StateBytes);
-            _steamLinkView.Write(360, steamLink ? now : 0L);
-            Thread.MemoryBarrier();
-            _steamLinkView.Write(368, ++_steamLinkSequence);
-        }
         bool vd = TryReadVirtualDesktop(now);
         if (steamLink) _steamLinkBytes.CopyTo(_second, 0);
         string source = steamLink ? "Steam Link" : vd ? "Virtual Desktop" : "waiting for tracking";
@@ -438,7 +428,36 @@ public sealed class TrackingModule : ExtTrackingModule
             _source = source;
             Logger?.LogInformation("QFT+ factory source: {Source}", source);
         }
+        if (steamLink || vd) SendLabels(source);
         return steamLink || vd;
+    }
+
+    private void SendLabels(string source)
+    {
+        long now = Stopwatch.GetTimestamp();
+        if (!_second.AsSpan().SequenceEqual(_lastLabelState)) { _second.CopyTo(_lastLabelState, 0); _labelChangeQpc = now; _labelChanges++; }
+        if (now >= _labelSchemaQpc)
+        {
+            SendLabel(new { V = 1, Type = "schema", Names = SteamLinkState.ExpressionNames });
+            _labelSchemaQpc = now + Stopwatch.Frequency * 2;
+        }
+        float[] Floats(int offset, int count) => MemoryMarshal.Cast<byte, float>(_second.AsSpan(offset, count * sizeof(float))).ToArray();
+        SendLabel(new
+        {
+            V = 1, Type = "sample", Source = source, Sequence = ++_labelSequence, Qpc = now, QpcFrequency = Stopwatch.Frequency,
+            UtcUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), SourceChangeSequence = _labelChanges,
+            SourceUnchangedMs = (now - _labelChangeQpc) * 1000.0 / Stopwatch.Frequency,
+            Values = Floats(ExpressionOffset, ExpressionCount), FaceFlags = _second[0], IsEyeFollowingBlendshapesValid = _second[1] != 0,
+            LeftEyeIsValid = _second[292] != 0, RightEyeIsValid = _second[293] != 0,
+            LeftEyeOrientation = Floats(296, 4), LeftEyePosition = Floats(312, 3), RightEyeOrientation = Floats(324, 4), RightEyePosition = Floats(340, 3),
+            LeftEyeConfidence = BitConverter.ToSingle(_second, 352), RightEyeConfidence = BitConverter.ToSingle(_second, 356)
+        });
+    }
+
+    private void SendLabel<T>(T message)
+    {
+        try { var data = JsonSerializer.SerializeToUtf8Bytes(message, LabelJson); _labelSocket?.Send(data, data.Length, _labelsEndpoint); }
+        catch (Exception error) when (error is SocketException or ArgumentException) { }
     }
 
     private bool TryReadVirtualDesktop(long now)
@@ -491,19 +510,17 @@ public sealed class TrackingModule : ExtTrackingModule
     {
         if (packet.Length < 8 ||
             !packet.AsSpan(0, 4).SequenceEqual("QPTO"u8) ||
-            !((packet[4] == 1 && packet.Length == TonguePacketBytes) ||
-              (packet[4] == 2 && packet.Length == 72)))
+            packet[4] != 2 || packet.Length != TonguePacketBytes)
             return;
         bool valid = true;
         for (int index = 0; index < _tongueValues.Length; index++)
             valid &= float.IsFinite(ReadFloat(packet, 8 + index * 4));
         if (!valid) return;
-        _tongueMask = packet[4] == 1 ? (ushort)0xFFF :
-            (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(6, 2)) & 0xFFF);
+        _tongueMask = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet.AsSpan(6, 2)) & 0xFFF);
         _tongueEnabled = (packet[5] & 1) != 0;
         for (int index = 0; index < _tongueValues.Length; ++index)
             _tongueValues[index] = Math.Clamp(ReadFloat(packet, 8 + index * 4), 0.0f, 1.0f);
-        if (packet[4] == 2 && Environment.TickCount64 - _lastTongueTimingTick >= 5000)
+        if (Environment.TickCount64 - _lastTongueTimingTick >= 5000)
         {
             double arrival = BitConverter.ToDouble(packet, 56), sent = BitConverter.ToDouble(packet, 64);
             double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;

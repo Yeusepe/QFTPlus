@@ -1,15 +1,9 @@
-using System;
 using System.Diagnostics;
-using System.IO;
 using System.Globalization;
-using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Threading;
-using System.Threading.Tasks;
-using QproFaceTracking.Hub;
 
 namespace QFTPlus;
 internal sealed class Session
@@ -17,8 +11,8 @@ internal sealed class Session
     internal readonly string Root;
     internal readonly string ConfigPath;
     internal event Action<string>? Changed;
-    internal Process? Runtime, Hybrid;
-    string? stop;
+    internal Process? Hybrid;
+    Tracking? tracking;
     bool attempted;
     SetupService? setup;
     CancellationTokenSource? discoveryCancel;
@@ -28,54 +22,34 @@ internal sealed class Session
     bool handsSession, hybridReady, hybridPending, stopping;
     const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
     internal string HybridProblem = "";
+    string? hybridIncompatible;
     internal string State = "Ready", Detail = "";
     internal int Progress;
     internal string? HelpTarget;
     internal string HelpCaption = "Help";
-    internal string ErrorLog = "autostart.log";
+    internal string ErrorLog = "tracking.log";
     internal Session(string root, string? configPath = null) { Root = root; ConfigPath = configPath ?? SetupService.AutoPath; }
     internal static JsonObject Read(string path) { try { return CalibrationSettings.ReadJson(path); } catch { return new(); } }
     internal JsonObject Config => File.Exists(ConfigPath) ? CalibrationSettings.ReadJson(ConfigPath) : new();
-    internal bool Calibrated(string option) => option switch
-    {
-        "extraFaceOutput" => !Legacy || CalibrationSettings.FaceGroups.Any(group => FaceCalibrated(group.Kind)),
-        "pupilDilation" => Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() == "qpro-relative-pupil-v1",
-        _ => true
-    };
-    internal static readonly string[] UniversalGroups = ["puff", "brows"];
-    internal bool Legacy => Config["faceEngine"]?.GetValue<string>() == "legacy" && LegacyInstalled;
-    internal bool LegacyInstalled => File.Exists(Path.Combine(Root, "runtime", "legacy-ready.json"));
-    internal async Task InstallLegacy(Action<string>? line = null)
-    {
-        var (code, output) = await Run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(Root, "setup-runtime.ps1"), "-Legacy"], allowFailure: true, line: line);
-        if (code != 0 || !LegacyInstalled)
-            throw new IOException(output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.EndsWith("try again.") || l.EndsWith("setup.log.")) ?? "The older models couldn’t be set up. The Components log in Settings has the details.");
-    }
-    internal bool FaceCalibrated(string kind) => Legacy ? File.Exists(Config[CalibrationSettings.FaceModelKey(kind)]?.GetValue<string>()) : UniversalGroups.Contains(kind);
-    internal bool FaceOn(string kind) => FaceCalibrated(kind) && (Config["extraFaceOutput"]?.GetValue<bool>() ?? !Legacy)
-        && Config[CalibrationSettings.FaceOutputKey(kind)]?.GetValue<bool>() != false;
-    string? StockTongue => File.Exists(Path.Combine(Root, "models", "qpro-stereo-tongue-v8-direction.pt")) ? Path.Combine(Root, "models", "qpro-stereo-tongue-v8-direction.pt") : null;
-    static string? PersonalTongue(JsonObject config) =>
-        config["tongueDirectionModelPath"]?.GetValue<string>() is { Length: >0 } direction && File.Exists(direction) ? direction : null;
+    internal bool Calibrated(string option) => option != "pupilDilation"
+        || Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() == "qpro-relative-pupil-v1";
+    internal bool FaceOn(string kind) => (Config["extraFaceOutput"]?.GetValue<bool>() ?? true) && Config[CalibrationSettings.FaceOutputKey(kind)]?.GetValue<bool>() != false;
     internal void DisableUncalibratedOutputs()
     {
-        foreach(var option in new[]{"extraFaceOutput","pupilDilation"})
-            if(!Calibrated(option) && Config[option]?.GetValue<bool>() == true) Save(option,false);
+        if(!Calibrated("pupilDilation") && Config["pupilDilation"]?.GetValue<bool>() == true) Save("pupilDilation",false);
     }
-    internal string Use => Config["use"]?.GetValue<string>() is ("face" or "hands" or "both") and var use ? use
-        : Config["hybridHands"]?.GetValue<bool>() == false ? "face" : "both";
-    internal bool Face => Use != "hands";
+    internal string Use => Config["use"]?.GetValue<string>() is ("face" or "hands" or "both") and var use ? use : "both";
     internal bool Hands => Use != "face";
     internal bool HybridReady => hybridReady && Alive(Hybrid);
     internal bool IndependentGaze => Config["independentGaze"]?.GetValue<bool>() ?? true;
     internal double VergenceGain => Config["vergenceGain"] is JsonValue v && v.TryGetValue<double>(out var n) && double.IsFinite(n) ? Math.Clamp(n, 0, 3) : 1;
-    internal string Python => Config["runtimePython"]?.GetValue<string>() is { } python && File.Exists(python) ? python : SetupService.FindPython(Root);
+    internal string Python => PythonRuntime.Exe(Root);
     internal void CancelSetup() { setup?.CancelOperation(); discoveryCancel?.Cancel(); }
     internal void Notify(string state, string detail = "") { State = state; Detail = detail; Changed?.Invoke(state); }
     internal void Save(string key, JsonNode? value)
     {
         var config = Config; config[key] = value;
-        Write(ConfigPath, config);
+        CalibrationSettings.WriteJson(ConfigPath, config);
     }
     internal void SetVergenceGain(double value)
     {
@@ -87,18 +61,8 @@ internal sealed class Session
         try { socket.Send(data, data.Length, "127.0.0.1", 27277); }
         catch (SocketException error) { throw new IOException("Your change was saved. Stop and start tracking to apply it.", error); }
     }
-    internal static void Write(string path, JsonObject data)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path+".tmp", data.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        for (var attempt = 0; ; attempt++)
-        {
-            try { File.Move(path+".tmp", path, true); return; }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException && attempt < 20) { Thread.Sleep(10); }
-        }
-    }
     internal static bool Alive(Process? process) { try { return process is not null && !process.HasExited; } catch { return false; } }
-    internal bool Running => Alive(Runtime) || handsSession;
+    internal bool Running => tracking?.Running == true || handsSession;
     internal bool SettingUp => setup is not null;
     internal async Task Prepare()
     {
@@ -124,16 +88,6 @@ internal sealed class Session
         attempted = true;
         if (use == "hands" && SteamVr.IsSteamLink)
             throw new IOException("Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.");
-        var oldRoot = Config["root"]?.GetValue<string>();
-        if (oldRoot is not null)
-        {
-            var status = Read(Path.Combine(oldRoot, "autostart-status.json"));
-            if (status["state"]?.GetValue<string>() is "running" or "starting" or "waiting")
-            {
-                try { using var previous = Process.GetProcessById(status["pid"]!.GetValue<int>()); if (!previous.HasExited) throw new IOException("Stop the previous tracking app before starting this test build."); }
-                catch (ArgumentException) { }
-            }
-        }
         if (!fromModule && (Config["setupOnStart"]?.GetValue<bool>()??true))
         {
             await Prepare();
@@ -154,10 +108,9 @@ internal sealed class Session
         var config = Config;
         if (!string.Equals(config["root"]?.GetValue<string>(), Root, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Complete setup in this app before enabling auto-start.");
-        File.Delete(Path.Combine(Root, ".qpro-manual.stop"));
         HybridProblem = "";
-        if (File.Exists(Path.Combine(Root, "platform-tools/adb.exe")))
-            await AdbServer.EnsureAsync(Path.Combine(Root, "platform-tools/adb.exe"), config["adbTarget"]?.GetValue<string>());
+        if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, default); }
+        await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>());
         if (config["steamvrDriver"]?.GetValue<bool>() == true && config["adbTarget"]?.GetValue<string>() is { Length: >0 } target) thumbrest = (Thumbrest.StartAsync(this, target), target);
         if (use == "hands")
         {
@@ -168,41 +121,29 @@ internal sealed class Session
             catch { handsSession = false; throw; }
             return;
         }
-        stop = Path.Combine(Root, ".qpro-studio-"+Guid.NewGuid().ToString("N")+".stop");
-        var args = new System.Collections.Generic.List<string> { "-u", Path.Combine(Root,"autostart_runtime.py"), "--owner-pid", Environment.ProcessId.ToString(), "--stop-file", stop, "--quiet" };
-        if (!IndependentGaze) args.Add("--no-independent-gaze");
-        args.AddRange(["--vergence-gain", VergenceGain.ToString(CultureInfo.InvariantCulture)]);
-        Add("adbTarget", "--adb-target");
-        if (Legacy && (PersonalTongue(config) ?? StockTongue) is { } direction) args.AddRange(["--tongue-model", direction]);
-        if (config["pupilDilation"]?.GetValue<bool>() == true) args.Add("--pupil-dilation");
-        void Add(string name,string option) { if (config[name]?.GetValue<string>() is { Length: >0 } value) { args.Add(option); args.Add(value); } }
-        Runtime?.Dispose(); Runtime = Launch(Python, args.ToArray());
+        tracking = new Tracking(this, config["adbTarget"]?.GetValue<string>() ?? "", IndependentGaze, VergenceGain);
         Notify("Connecting", "Starting the headset cameras…");
         if (!fromModule && (config["openVrApps"]?.GetValue<bool>()??true)) OpenVrApps(face: true);
         hybridPending = use == "both" && !SteamVr.IsSteamLink;
     }
     static void OpenVrApps(bool face)
     {
-        var streamers=Process.GetProcessesByName("VirtualDesktop.Streamer");
-        foreach(var process in streamers)process.Dispose();
-        if(!SteamVr.IsSteamLink&&streamers.Length==0&&File.Exists(SetupService.VirtualDesktopStreamer))Process.Start(new ProcessStartInfo(SetupService.VirtualDesktopStreamer){UseShellExecute=true});
+        if(!SteamVr.IsSteamLink&&!Processes.Running("VirtualDesktop.Streamer")&&File.Exists(SetupService.VirtualDesktopStreamer))Process.Start(new ProcessStartInfo(SetupService.VirtualDesktopStreamer){UseShellExecute=true});
         OpenSteam("250820", "vrserver");
         if (face) OpenSteam("3329480", "VRCFaceTracking");
     }
     internal void Poll()
     {
         if (stopping) return;
-        if (Runtime is null && !handsSession) return;
+        if (tracking is null && !handsSession) return;
         if (!Running)
         {
-            var ended = Read(Path.Combine(Root,"autostart-status.json"));
-            var mine = ended["pid"]?.GetValue<int>() == Runtime!.Id;
-            ErrorLog = mine && ended["log"]?.GetValue<string>() is { Length: >0 } log ? log : "autostart.log";
-            Notify("Tracking stopped", mine && ended["error"]?.GetValue<string>() is { Length: >0 } error ? error : "Tracking ended unexpectedly.");
+            ErrorLog = tracking!.ErrorLog;
+            Notify("Tracking stopped", tracking.Error.Length > 0 ? tracking.Error : "Tracking ended unexpectedly.");
             return;
         }
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode == 4)
-            HybridProblem = "This headset's controller runtime is not supported by hybrid tracking. See the Hybrid log for details.";
+            HybridProblem = hybridIncompatible ?? "This headset's controller runtime is not supported by hybrid tracking. See the Hybrid log for details.";
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode is not (0 or 1 or 4))
             HybridProblem = HybridCleanupProblem;
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode is (0 or 1) && hybridRestart is null && DateTime.UtcNow >= hybridRetry && Hands)
@@ -218,9 +159,7 @@ internal sealed class Session
             else Notify("Waiting for headset", "Put on the headset, connect to this PC in Virtual Desktop, and enter SteamVR.");
             return;
         }
-        var status = Read(Path.Combine(Root,"autostart-status.json"));
-        if (status["pid"]?.GetValue<int>() != Runtime!.Id) return;
-        switch (status["state"]?.GetValue<string>())
+        switch (tracking!.State)
         {
             case "running":
                 Notify("Connected", "Quest Pro · "+via);
@@ -240,18 +179,13 @@ internal sealed class Session
             var cleanupFailed = false;
             if (Hybrid is not null)
             {
-                File.WriteAllText(Path.Combine(Root,"hybrid/hybrid.stop"), "stop");
-                await Hybrid.WaitForExitAsync();
+                await StopChild(Hybrid);
                 cleanupFailed = Hybrid.ExitCode is not (0 or 1 or 4);
                 Hybrid.Dispose(); Hybrid = null;
             }
             handsSession = hybridPending = false;
             await StopThumbrest();
-            if (Runtime is not null)
-            {
-                if (stop is not null) File.WriteAllText(stop, "stop");
-                await Runtime.WaitForExitAsync(); Runtime.Dispose(); Runtime = null;
-            }
+            if (tracking is not null) { await tracking.StopAsync(); tracking = null; }
             if (cleanupFailed) { HybridProblem = HybridCleanupProblem; Notify("Cleanup needs attention", HybridProblem); }
             else Notify("Ready");
         }
@@ -269,20 +203,16 @@ internal sealed class Session
         if (SteamVr.IsSteamLink) return;
         if (Alive(Hybrid)) return;
         var target = Config["adbTarget"]?.GetValue<string>() ?? "";
-        var probe = await Run(Python, ["-c", "import frida; assert frida.__version__ == '17.18.0'"], allowFailure: true);
-        if (probe.Code != 0)
-        {
-            throw new IOException("Hybrid components are missing. Run setup again.");
-        }
         using (var headset = new SetupService(Root))
         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
             if (await headset.HandSettingsProblemAsync(target, timeout.Token) is {} problem) throw new IOException(problem);
-        var context = new JsonObject { ["adb"] = Path.Combine(Root,"platform-tools/adb.exe"), ["stopFile"] = Path.Combine(Root,"hybrid/hybrid.stop"), ["ownerPid"] = Environment.ProcessId };
-        var path = Path.Combine(Root,"hybrid/context.json"); Write(path, context);
-        await Run(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--check", "--target", target]);
         if (stopping) return;
-        hybridReady = false; HybridProblem = "";
-        Hybrid?.Dispose(); Hybrid = Launch(Python, ["-u", Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", path, line => { if (line == "QROOT_READY") hybridReady = true; });
+        hybridReady = false; HybridProblem = ""; hybridIncompatible = null;
+        Hybrid?.Dispose(); Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
+        {
+            if (line == "QROOT_READY") hybridReady = true;
+            else if (line.StartsWith("QROOT_INCOMPATIBLE ")) hybridIncompatible = line["QROOT_INCOMPATIBLE ".Length..];
+        });
     }
     async Task TryStartHybrid()
     {
@@ -290,82 +220,47 @@ internal sealed class Session
         catch (Exception error) { HybridProblem = error.Message; try { File.AppendAllText(Path.Combine(Root,"hybrid.log"), "Couldn’t start hybrid hands: "+error.Message+Environment.NewLine); } catch (IOException) {} }
         finally { hybridRestart = null; }
     }
-    Process Launch(string exe, string[] args, string? log = null, string? context = null, Action<string>? line = null)
+    internal Process Launch(string exe, string[] args, string log, Action<string>? line = null, params (string Key, string Value)[] variables)
     {
         var info = Info(exe,args);
-        if (context is not null) info.Environment["QROOT_CONTEXT"] = context;
-        if (log is not null) { info.RedirectStandardOutput = info.RedirectStandardError = true; Rotate(Path.Combine(Root,log)); }
-        var process = Process.Start(info) ?? throw new IOException("Could not start tracking");
-        if (log is not null)
-        {
-            _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
-            async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); try { File.AppendAllText(Path.Combine(Root,log),text+Environment.NewLine); } catch (IOException) {} } }
-        }
+        info.RedirectStandardInput = info.RedirectStandardOutput = info.RedirectStandardError = true;
+        foreach (var (key, value) in variables) info.Environment[key] = value;
+        Rotate(Path.Combine(Root,log)); File.WriteAllText(Path.Combine(Root,log), "");
+        var process = Process.Start(info) ?? throw new IOException("Could not start "+Path.GetFileName(exe));
+        _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
+        async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); try { File.AppendAllText(Path.Combine(Root,log),text+Environment.NewLine); } catch (IOException) {} } }
         return process;
+    }
+    internal static async Task StopChild(Process process)
+    {
+        try { process.StandardInput.Close(); } catch (Exception error) when (error is IOException or InvalidOperationException) { }
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
     }
     static void Rotate(string path) { try { if (new FileInfo(path) is { Exists: true, Length: > 4 << 20 }) File.Move(path, path + ".old", true); } catch (IOException) {} }
     internal ProcessStartInfo Info(string exe, string[] args)
     {
-        var info = new ProcessStartInfo(exe) { WorkingDirectory=Root, UseShellExecute=false, CreateNoWindow=true };
-        foreach(var arg in args) info.ArgumentList.Add(arg);
-        info.Environment.Remove("PSModulePath"); info.Environment["QPRO_PYTHON"]=Python;
-        info.Environment["QPRO_ADB"]=Path.Combine(Root,"platform-tools/adb.exe"); info.Environment["PYTHONUNBUFFERED"]="1";
-        info.Environment["QFT_INFERENCE"]=Config["inferenceDevice"]?.GetValue<string>()??"auto";
-        info.Environment["QFT_GPU_INDEX"]=(Config["gpuIndex"]?.GetValue<int>()??0).ToString();
-        info.Environment["QFT_GPU_TRAINING"]=Config["gpuTraining"]?.GetValue<bool>()==false?"0":"1";
+        var info = Processes.Info(exe,args); info.WorkingDirectory=Root;
+        var config = Config;
+        info.Environment["QPRO_ADB"]=Adb.Exe(Root); info.Environment["PYTHONUNBUFFERED"]="1";
+        if (config["adbTarget"]?.GetValue<string>() is { Length: >0 } target) info.Environment["ANDROID_SERIAL"]=target;
+        info.Environment["QFT_INFERENCE"]=config["inferenceDevice"]?.GetValue<string>()??"auto";
+        info.Environment["QFT_GPU_INDEX"]=(config["gpuIndex"]?.GetValue<int>()??0).ToString();
         return info;
     }
-    internal async Task<(int Code,string Output)> Run(string exe,string[] args,bool allowFailure=false,Action<string>? line=null,int seconds=0)
+    internal async Task<(int Code,string Output)> Run(string exe,string[] args,bool allowFailure=false,int seconds=600)
     {
-        var info=Info(exe,args); info.RedirectStandardOutput=info.RedirectStandardError=true;
-        using var process=Process.Start(info) ?? throw new IOException("Could not start component");
-        if(line is not null) try{process.PriorityClass=ProcessPriorityClass.BelowNormal;}catch(InvalidOperationException){}
-        var output=new StringBuilder();
-        async Task Read(StreamReader reader){while(await reader.ReadLineAsync() is {} text){lock(output)output.AppendLine(text);line?.Invoke(text);}}
-        using var limit=seconds>0?new CancellationTokenSource(TimeSpan.FromSeconds(seconds)):null;
-        try{await Task.WhenAll(Read(process.StandardOutput),Read(process.StandardError),process.WaitForExitAsync(limit?.Token??default));}
-        catch(OperationCanceledException){try{process.Kill(true);}catch(InvalidOperationException){}throw new IOException($"{Path.GetFileName(exe)} didn’t answer within {seconds} s.");}
-        var text=output.ToString();
+        var (code,text)=await Processes.RunAsync(Info(exe,args),default,seconds);
         Rotate(Path.Combine(Root,"studio.log")); File.AppendAllText(Path.Combine(Root,"studio.log"),text+Environment.NewLine);
-        if(process.ExitCode!=0&&!allowFailure) throw new IOException("Couldn’t finish this step. The Components log in Settings has the details.");
-        return (process.ExitCode,text);
+        if(code!=0&&!allowFailure) throw new IOException("Couldn’t finish this step. The Components log in Settings has the details.");
+        return (code,text);
     }
-    internal static Action<string> TrainingProgress(string kind,Action<double> report)
+    internal async Task<string> Enroll(string prefix)
     {
-        int stage=1,stages=1;var prepare=kind=="tongue"?.1:0;
-        return line=>
-        {
-            var match=System.Text.RegularExpressions.Regex.Match(line,@"TRAIN_STAGE index=(\d+) total=(\d+)");
-            if(match.Success){stage=int.Parse(match.Groups[1].Value);stages=Math.Max(1,int.Parse(match.Groups[2].Value));report(prepare+(1-prepare)*(stage-1.0)/stages);return;}
-            match=System.Text.RegularExpressions.Regex.Match(line,@"TRAIN_EPOCH current=(\d+) total=(\d+)");
-            if(match.Success)report(prepare+(1-prepare)*(stage-1+double.Parse(match.Groups[1].Value)/Math.Max(1,double.Parse(match.Groups[2].Value)))/stages);
-        };
-    }
-    internal async Task<string> Train(string kind,string prefix,Action<double>? progress=null)
-    {
-        if(kind=="pupils") return prefix+".pupils.json";
-        if(kind=="enroll")
-        {
-            var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix],allowFailure:true);
-            if(anchors.Code!=0) throw new IOException(anchors.Output.Trim());
-            return prefix+".anchors.npz";
-        }
-        var line=TrainingProgress(kind,progress??(_=>{}));
-        if(CalibrationSettings.IsFaceGroup(kind))
-        {
-            var model=Path.Combine(Root,"models",Path.GetFileName(prefix)+".pt");
-            await Run(Python,[Path.Combine(Root,"train_extra_face.py"),prefix+".qpcap","--output",model,"--never-puff"],line:line);
-            var check=await Run(Python,[Path.Combine(Root,"calibration_ui.py"),"check",model],allowFailure:true);
-            if(check.Code!=0) throw new IOException(check.Output.Trim());
-            return model;
-        }
-        var args=new System.Collections.Generic.List<string>{"-NoProfile","-ExecutionPolicy","Bypass","-File",Path.Combine(Root,"train-latest-tongue-refinement.ps1"),"-SessionPath",prefix+".qpsession.json"};
-        var cfg=Config;
-        if(PersonalTongue(cfg) is { } direction) args.AddRange(["-BaseDirectionPath",direction]);
-        var output=await Run("powershell.exe",args.ToArray(),line:line);
-        var match=System.Text.RegularExpressions.Regex.Match(output.Output,@"MODEL_READY version=(\d+)");
-        if(!match.Success) throw new IOException("Creating the calibration didn’t finish. Try calibrating again.");
-        return Path.Combine(Root,"models","qpro-stereo-tongue-v"+match.Groups[1].Value);
+        var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix],allowFailure:true);
+        if(anchors.Code!=0) throw new IOException(anchors.Output.Trim());
+        return prefix+".anchors.npz";
     }
     internal const int ConsentVersion=1;
     internal bool Tester => Config["testerConsent"]?["version"]?.GetValue<int>() == ConsentVersion;
@@ -388,14 +283,9 @@ internal sealed class Session
         if(run.Code!=0||!match.Success)throw new IOException("Couldn’t prepare the recording to share. "+run.Output.Trim().Split('\n').LastOrDefault());
         return match.Groups[1].Value.Trim();
     }
-    internal async Task Apply(string kind,string result)
-    {
-        if(CalibrationSettings.IsFaceGroup(kind)) await Run(Python,[Path.Combine(Root,"calibration_ui.py"),"approve",result]);
-        CalibrationSettings.SaveCalibration(Root,kind,result,ConfigPath);
-    }
+    internal void Apply(string kind,string result) => CalibrationSettings.SaveCalibration(Root,kind,result,ConfigPath);
     static void OpenSteam(string id,string process)
     {
-        var existing=Process.GetProcessesByName(process); foreach(var p in existing) p.Dispose();
-        if(existing.Length==0) Process.Start(new ProcessStartInfo("steam://rungameid/"+id){UseShellExecute=true});
+        if(!Processes.Running(process)) Process.Start(new ProcessStartInfo("steam://rungameid/"+id){UseShellExecute=true});
     }
 }

@@ -7,7 +7,6 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import cv2
 import numpy as np
 
 from pupil_preview import detect_pupil
@@ -92,18 +91,16 @@ def relative_values(pupils, profile):
 
 
 class PupilDilation:
-    def __init__(self, path="calibration/qpro-pupil-dilation.json", enabled=False, *, render=True, asynchronous=False):
+    def __init__(self, path="calibration/qpro-pupil-dilation.json", enabled=False, *, asynchronous=False):
         self.path = Path(path)
         self.enabled = enabled
-        self.render = render
         self.profile = None
-        self.message = f"Dim the room lights, maximize this window in your headset desktop, then press C ({DURATION:.0f} seconds)."
+        self.message = ""
         if self.path.exists():
             try:
                 self.profile = read_calibration(self.path)
-                self.message = "Calibration loaded. C recalibrates after changing headset fit."
             except (ValueError, KeyError, TypeError, OSError) as error:
-                self.message = f"Calibration unavailable: {error}. Press C."
+                self.message = f"Calibration unavailable: {error}."
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.phase = None
         self.level = 0.
@@ -118,7 +115,6 @@ class PupilDilation:
         self.last_pupils = [0., 0.]
         self.last_pupil_time = [-1e9, -1e9]
         self.detected_pupils = [None, None]
-        self.image = np.zeros((800, 1200, 3), np.uint8)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pupil-detection") if asynchronous else None
         self._pending = None
         self._closed = False
@@ -128,42 +124,41 @@ class PupilDilation:
         if self.enabled:
             self.socket.sendto(PACKET.pack(b"QPPD", 1, int(valid), 0, *values), ("127.0.0.1", 27279))
 
-    def handle_key(self, key):
-        if key.lower() == "c":
-            if self._pending is not None:
-                self._pending.result()
-                self._pending = None
-            self.phase = 0
-            self.level = 0.
-            self.result = "running"
-            self.samples = []
-            self.started = self.last_pair = time.monotonic()
-            self.profile = None
-            self.filtered = None
-            self.last_valid = -1
-            self.message = "Look at the circle. Keep your head still and blink normally."
-            self.send(False)
+    def calibrate(self):
+        if self._pending is not None:
+            self._pending.result()
+            self._pending = None
+        self.phase = 0
+        self.level = 0.
+        self.result = "running"
+        self.samples = []
+        self.started = self.last_pair = time.monotonic()
+        self.profile = None
+        self.filtered = None
+        self.last_valid = -1
+        self.message = "Look at the circle. Keep your head still and blink normally."
+        self.send(False)
 
     def update(self, strip, *, preview=False):
         if strip.shape != (400, 2000):
             raise ValueError("Pupil dilation requires all five cameras")
         if self._closed:
-            return self.image
+            return
         if self._pending is not None:
             if not self._pending.done():
-                return self.image
+                return
             self._pending.result()
             self._pending = None
-        if not (self.enabled or self.render or preview or self.phase is not None):
-            return self.image
+        if not (self.enabled or preview or self.phase is not None):
+            return
         now = time.monotonic()
         if now-self.last_detection < .125:
-            return self.image
+            return
         self.last_detection = now
-        if self._executor is not None and self.phase is None and not self.render:
+        if self._executor is not None and self.phase is None:
             self._pending = self._executor.submit(self._update, strip.copy())
-            return self.image
-        return self._update(strip)
+        else:
+            self._update(strip)
 
     def _update(self, strip):
         now = time.monotonic()
@@ -212,7 +207,7 @@ class PupilDilation:
                     pending.replace(self.path)
                     self.profile = profile
                     self.result = "passed"
-                    self.message = "Calibration passed and saved. Relative dilation " + ("OUTPUT ON." if self.enabled else "preview only.")
+                    self.message = "Calibration passed and saved."
                     print("PUPIL_CALIBRATION_SAVED " + str(self.path.resolve()), flush=True)
                 except (ValueError, OSError) as error:
                     self.result = "failed"
@@ -228,32 +223,6 @@ class PupilDilation:
         else:
             self.filtered = None
             self.send(False)
-        if not self.render and self.phase is None:
-            return self.image
-        gray = round(18+self.level*217)
-        self.image = np.full((800, 1200, 3), gray, np.uint8)
-        color = (25, 25, 25) if self.level > .5 else (220, 220, 220)
-        def text(message, y, size=.6):
-            cv2.putText(self.image, message, (25, y), cv2.FONT_HERSHEY_SIMPLEX, size, color, 1, cv2.LINE_AA)
-        text("Quest Pro relative pupil dilation", 35, .8)
-        text(self.message[:125], 75, .52)
-        if self.phase is not None:
-            text(f"{STAGES[self.phase]} - {max(0, DURATION-(now-self.started)):.0f}s left", 115)
-        else:
-            text("C: calibrate    Q: stop tracking    Relative size only; not millimetres", 115, .55)
-            if self.filtered is not None:
-                text(f"Left {self.filtered[0]:.2f}    Right {self.filtered[1]:.2f}    " +
-                     ("OUTPUT ON" if self.enabled else "PREVIEW ONLY"), 160)
-            else:
-                text("Awaiting calibration / a clear pupil; output is neutral.", 160)
-        cv2.circle(self.image, (600, 350), 14, color, 2, cv2.LINE_AA)
-        cv2.circle(self.image, (600, 350), 3, color, -1, cv2.LINE_AA)
-        for side, pupil in enumerate(pupils):
-            panel = cv2.cvtColor(strip[:, side*400:(side+1)*400], cv2.COLOR_GRAY2BGR)
-            if pupil:
-                cv2.ellipse(panel, pupil.ellipse, (0, 220, 100), 2)
-            self.image[535:775, 350+side*250:590+side*250] = cv2.resize(panel, (240, 240))
-        return self.image
 
     def close(self):
         if self._closed:

@@ -1,5 +1,3 @@
-//========= Copyright Valve Corporation ============//
-
 #include <winsock2.h>
 #include <windows.h>
 
@@ -44,11 +42,6 @@ struct Slide {
     float position = 0, curl = 0;
     uint64_t received = 0;
 } g_slides[2];
-float g_slideTouchCurl = 0.95f;
-bool g_slideReversed = false;
-float g_range[4] = {0, 255, 0, 255};
-float g_mouseSpeed = 1200;
-float g_rotation[2] = {-20, 20};
 Tuning g_tuning;
 Mode g_mode = Mode::Native;
 uint64_t g_settingsRead = 0;
@@ -71,15 +64,14 @@ float Setting(const char *key, float fallback) {
     return error == VRSettingsError_None ? value : fallback;
 }
 
+constexpr const char *kModes[] = {"native", "joystick", "swipe", "mouse"};
+
 Mode ReadMode() {
-    char text[32] = "native";
+    char text[32] = "";
     EVRSettingsError error = VRSettingsError_None;
     VRSettings()->GetString(kSection, "mode", text, sizeof(text), &error);
-    std::string mode = error == VRSettingsError_None ? text : "native";
-    if (mode == "joystick") return Mode::Joystick;
-    if (mode == "swipe") return Mode::Swipe;
-    if (mode == "mouse") return Mode::Mouse;
-    if (mode == "off") return Mode::Off;
+    for (int i = 0; error == VRSettingsError_None && i < 4; i++)
+        if (std::strcmp(text, kModes[i]) == 0) return static_cast<Mode>(i);
     return Mode::Native;
 }
 
@@ -102,18 +94,22 @@ void ReadSettings() {
     k.railAngle = Setting("railAngle", d.railAngle);
     k.railStart = Setting("railStart", d.railStart);
     k.railRelease = Setting("railRelease", d.railRelease);
-    if (k.forceHigh <= k.forceLow || k.forceCurve <= 0 || k.joystickRange <= 0 || k.swipeDecayMs <= 0) k = d;
-    float range[4] = {Setting("trackpadXMin", 0), Setting("trackpadXMax", 255), Setting("trackpadYMin", 0), Setting("trackpadYMax", 255)};
+    k.xMin = Setting("trackpadXMin", d.xMin);
+    k.xMax = Setting("trackpadXMax", d.xMax);
+    k.yMin = Setting("trackpadYMin", d.yMin);
+    k.yMax = Setting("trackpadYMax", d.yMax);
+    k.rotation[0] = Setting("leftRotation", d.rotation[0]);
+    k.rotation[1] = Setting("rightRotation", d.rotation[1]);
+    k.mouseSpeed = Setting("mouseSpeed", d.mouseSpeed);
+    k.slideTouchCurl = Setting("triggerTouchCurl", d.slideTouchCurl);
+    k.slideReversed = Setting("triggerSlideReversed", d.slideReversed) != 0;
+    if (k.forceHigh <= k.forceLow || k.forceCurve <= 0 || k.joystickRange <= 0 || k.swipeDecayMs <= 0 ||
+        k.xMax <= k.xMin || k.yMax <= k.yMin)
+        k = d;
     Mode mode = ReadMode();
     std::lock_guard<std::mutex> hold(g_lock);
     g_tuning = k;
-    if (range[1] > range[0] && range[3] > range[2]) std::copy(range, range + 4, g_range);
-    g_mouseSpeed = Setting("mouseSpeed", 1200);
-    g_slideTouchCurl = Setting("triggerTouchCurl", 0.95f);
-    g_slideReversed = Setting("triggerSlideReversed", 0) != 0;
-    g_rotation[0] = Setting("leftRotation", -20);
-    g_rotation[1] = Setting("rightRotation", 20);
-    if (mode != g_mode) Log(std::string("thumbrest mode ") + (mode == Mode::Native ? "native" : mode == Mode::Joystick ? "joystick" : mode == Mode::Swipe ? "swipe" : mode == Mode::Mouse ? "mouse" : "off"));
+    if (mode != g_mode) Log(std::string("thumbrest mode ") + kModes[static_cast<int>(mode)]);
     g_mode = mode;
 }
 
@@ -205,9 +201,9 @@ void Store(const char *packet) {
     pad.state = static_cast<uint8_t>(packet[1]);
     pad.received = Now();
     std::lock_guard<std::mutex> hold(g_lock);
-    pad.x = Axis(x, g_range[0], g_range[1]);
-    pad.y = Axis(y, g_range[2], g_range[3]);
-    Rotate(g_rotation[packet[0]], pad.x, pad.y);
+    pad.x = Axis(x, g_tuning.xMin, g_tuning.xMax);
+    pad.y = Axis(y, g_tuning.yMin, g_tuning.yMax);
+    Rotate(g_tuning.rotation[packet[0]], pad.x, pad.y);
     Classify(pad, g_pads[packet[0]], g_tuning);
     g_pads[packet[0]] = pad;
 }
@@ -266,8 +262,8 @@ void MoveCursor(Cursor &cursor, const Pad &pad, bool active) {
         return;
     }
     if (cursor.tracking) {
-        cursor.carryX += (pad.x - cursor.x) / 2 * g_mouseSpeed;
-        cursor.carryY -= (pad.y - cursor.y) / 2 * g_mouseSpeed;
+        cursor.carryX += (pad.x - cursor.x) / 2 * g_tuning.mouseSpeed;
+        cursor.carryY -= (pad.y - cursor.y) / 2 * g_tuning.mouseSpeed;
         LONG dx = static_cast<LONG>(cursor.carryX), dy = static_cast<LONG>(cursor.carryY);
         cursor.carryX -= dx;
         cursor.carryY -= dy;
@@ -285,10 +281,6 @@ public:
     EVRInitError Init(IVRDriverContext *context) override {
         VR_INIT_SERVER_DRIVER_CONTEXT(context);
         ReadSettings();
-        if (g_mode == Mode::Off) {
-            Log("off in settings");
-            return VRInitError_None;
-        }
         if (!Hook()) {
             Log("could not hook controller creation");
             return VRInitError_None;
@@ -329,11 +321,11 @@ public:
             input->UpdateScalarComponent(t.force, r.force, 0);
             input->UpdateBooleanComponent(t.click, r.click, 0);
             const Slide &s = g_slides[side];
-            bool onTrigger = now - s.received < kStaleUs && s.curl >= g_slideTouchCurl;
+            bool onTrigger = now - s.received < kStaleUs && s.curl >= g_tuning.slideTouchCurl;
             float along = std::clamp(s.position, 0.0f, 1.0f) * 2 - 1;
             input->UpdateBooleanComponent(t.slideTouch, onTrigger, 0);
             input->UpdateScalarComponent(t.slideX, 0, 0);
-            input->UpdateScalarComponent(t.slideY, onTrigger ? (g_slideReversed ? -along : along) : 0, 0);
+            input->UpdateScalarComponent(t.slideY, onTrigger ? (g_tuning.slideReversed ? -along : along) : 0, 0);
         }
     }
     bool ShouldBlockStandbyMode() override { return false; }

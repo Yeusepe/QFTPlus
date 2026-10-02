@@ -1,50 +1,28 @@
-#!/usr/bin/env python3
+"""Factory (Meta) expression samples forwarded over UDP by the label bridge, for live fusion and calibration."""
 
 from __future__ import annotations
 
-import argparse
 import collections
 import json
 import math
 import socket
 import threading
 import time
-from pathlib import Path
 
 
 class LabelSidecarRecorder:
-    def __init__(self, path: str | Path | None, port: int = 27274, *, append: bool = False) -> None:
-        self.path = Path(path).resolve() if path is not None else None
-        if self.path is not None:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.port = port
+    def __init__(self, port: int = 27274) -> None:
         self.sample_count = 0
         self.invalid_count = 0
         self.schema_names: list[str] = []
-        self.last_sample_monotonic_ns: int | None = None
-        self.source_change_sequence = 0
-        self.source_unchanged_ms: float | None = None
         self._recent_lock = threading.Lock()
         self._recent_samples: collections.deque[dict[str, object]] = (
             collections.deque(maxlen=512)
-        )
-        self._file = (
-            self.path.open("a" if append else "x", encoding="utf-8", buffering=1024 * 1024)
-            if self.path is not None else None
         )
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("127.0.0.1", port))
         self._socket.settimeout(0.2)
         self._running = True
-        self._write(
-            {
-                "type": "file",
-                "version": 1,
-                "createdWallNs": time.time_ns(),
-                "createdMonotonicNs": time.monotonic_ns(),
-                "udpPort": port,
-            }
-        )
         self._thread = threading.Thread(
             target=self._receive_loop,
             name="vrcft-label-receiver",
@@ -52,14 +30,7 @@ class LabelSidecarRecorder:
         )
         self._thread.start()
 
-    def _write(self, value: dict[str, object]) -> None:
-        if self._file is None:
-            return
-        self._file.write(json.dumps(value, separators=(",", ":"), allow_nan=False))
-        self._file.write("\n")
-
     def _receive_loop(self) -> None:
-        last_flush = time.monotonic()
         while self._running:
             try:
                 data, address = self._socket.recvfrom(65507)
@@ -85,14 +56,6 @@ class LabelSidecarRecorder:
                                    for name in names)):
                         raise ValueError("invalid schema")
                     self.schema_names = names
-                    self._write(
-                        {
-                            "type": "schema",
-                            "arrivalMonotonicNs": arrival_monotonic_ns,
-                            "arrivalWallNs": arrival_wall_ns,
-                            "names": names,
-                        }
-                    )
                 elif message_type == "sample":
                     values = message.get("values")
                     if (not isinstance(values, list)
@@ -161,39 +124,13 @@ class LabelSidecarRecorder:
                     )
                     if any(not math.isfinite(value) for value in numeric_metadata):
                         raise ValueError("non-finite eye confidence")
-                    self._write(sample_record)
                     self.sample_count += 1
-                    self.last_sample_monotonic_ns = arrival_monotonic_ns
-                    self.source_change_sequence = source_change_sequence
-                    self.source_unchanged_ms = source_unchanged_ms
                     with self._recent_lock:
                         self._recent_samples.append(sample_record)
                 else:
                     raise ValueError("unknown message type")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 self.invalid_count += 1
-            now = time.monotonic()
-            if now - last_flush >= 1.0 and self._file is not None:
-                self._file.flush()
-                last_flush = now
-
-    def label_age_seconds(self) -> float | None:
-        if self.last_sample_monotonic_ns is None:
-            return None
-        return (time.monotonic_ns() - self.last_sample_monotonic_ns) / 1_000_000_000
-
-    def source_is_live(
-        self, minimum_changes: int = 3, maximum_unchanged_seconds: float = 3.0
-    ) -> bool:
-        label_age = self.label_age_seconds()
-        return bool(
-            self.source_change_sequence >= minimum_changes
-            and self.source_unchanged_ms is not None
-            and 0.0 <= self.source_unchanged_ms
-            <= maximum_unchanged_seconds * 1000.0
-            and label_age is not None
-            and label_age <= 1.0
-        )
 
     def nearest_sample(self, monotonic_ns: int) -> dict[str, object] | None:
         with self._recent_lock:
@@ -213,82 +150,3 @@ class LabelSidecarRecorder:
         self._running = False
         self._socket.close()
         self._thread.join(timeout=1.0)
-        if self._file is not None:
-            self._write(
-                {
-                    "type": "end",
-                    "completedWallNs": time.time_ns(),
-                    "samples": self.sample_count,
-                    "invalidDatagrams": self.invalid_count,
-                }
-            )
-            self._file.flush()
-            self._file.close()
-
-
-def inspect_sidecar(path: str | Path) -> dict[str, object]:
-    sidecar_path = Path(path).resolve()
-    schemas = 0
-    samples = 0
-    invalid_lines = 0
-    completed = False
-    first_arrival: int | None = None
-    last_arrival: int | None = None
-    names: list[str] = []
-    with sidecar_path.open("r", encoding="utf-8") as sidecar:
-        for line in sidecar:
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                invalid_lines += 1
-                continue
-            record_type = record.get("type")
-            if record_type == "schema":
-                schemas += 1
-                names = record.get("names", [])
-            elif record_type == "sample":
-                samples += 1
-                arrival = int(record["arrivalMonotonicNs"])
-                first_arrival = arrival if first_arrival is None else first_arrival
-                last_arrival = arrival
-            elif record_type == "end":
-                completed = True
-    duration = (
-        (last_arrival - first_arrival) / 1_000_000_000
-        if first_arrival is not None and last_arrival is not None and samples > 1
-        else 0.0
-    )
-    return {
-        "path": sidecar_path,
-        "schemas": schemas,
-        "samples": samples,
-        "expressions": len(names),
-        "invalid_lines": invalid_lines,
-        "completed": completed,
-        "duration_seconds": duration,
-        "average_hz": ((samples - 1) / duration if duration > 0 else 0.0),
-    }
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Inspect a Qpro Virtual Desktop label sidecar"
-    )
-    parser.add_argument("sidecar")
-    arguments = parser.parse_args()
-    summary = inspect_sidecar(arguments.sidecar)
-    print(f"Labels: {summary['path']}")
-    print(f"Complete: {summary['completed']}; invalid lines: {summary['invalid_lines']}")
-    print(
-        f"Samples: {summary['samples']} at {summary['average_hz']:.2f} Hz; "
-        f"duration: {summary['duration_seconds']:.3f} s"
-    )
-    print(
-        f"Schemas: {summary['schemas']}; "
-        f"Factory expressions: {summary['expressions']}"
-    )
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

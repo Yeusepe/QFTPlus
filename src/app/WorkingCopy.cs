@@ -1,12 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
-using Microsoft.Win32;
-using QproFaceTracking.Hub;
 using Velopack.Locators;
 
 namespace QFTPlus;
@@ -27,7 +21,7 @@ internal static class WorkingCopy
 
     internal static string Prepare(string content)
     {
-        if (!Directory.Exists(Folder)) Adopt();
+        Directory.CreateDirectory(Folder);
         if (Mirror(content, Folder) && Settings() is { } settings && settings["steamvrDriver"]?.GetValue<bool>() == true)
             try { SteamVrDriver.Register(Path.Combine(Folder, "steamvr", "qftplus")); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException) { }
@@ -55,33 +49,6 @@ internal static class WorkingCopy
         if (File.Exists(Path.Combine(folder, Exe))) try { File.Delete(Path.Combine(folder, Exe)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         File.Copy(sums, marker, true);
         return true;
-    }
-
-    static void Adopt()
-    {
-        var apps = Path.Combine(Home, "apps");
-        var old = Directory.Exists(apps) ? Directory.GetDirectories(apps, "QFT-Plus-*").Where(d => File.Exists(Path.Combine(d, "release-manifest.json")))
-            .OrderByDescending(Directory.GetLastWriteTimeUtc).FirstOrDefault() : null;
-        if (old is null) { Directory.CreateDirectory(Folder); return; }
-        AdbServer.Stop();
-        Directory.Move(old, Folder);
-        if (Settings() is { } settings)
-        {
-            Rewrite(settings, old, Folder);
-            settings["studioApp"] = Environment.ProcessPath;
-            File.WriteAllText(SetupService.AutoPath + ".tmp", settings.ToJsonString(new() { WriteIndented = true }));
-            File.Move(SetupService.AutoPath + ".tmp", SetupService.AutoPath, true);
-        }
-        Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\QFTPlus", false);
-        if (!Directory.EnumerateFileSystemEntries(apps).Any()) Directory.Delete(apps);
-    }
-
-    static void Rewrite(JsonNode? node, string from, string to)
-    {
-        if (node is JsonObject item) foreach (var key in item.Select(p => p.Key).ToList())
-            if (item[key] is JsonValue value && value.TryGetValue<string>(out var text) && text.StartsWith(from, Ignore)) item[key] = to + text[from.Length..];
-            else Rewrite(item[key], from, to);
-        else if (node is JsonArray list) foreach (var entry in list) Rewrite(entry, from, to);
     }
 
     static JsonObject? Settings()

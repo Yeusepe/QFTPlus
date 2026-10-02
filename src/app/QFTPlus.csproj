@@ -2,11 +2,11 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
-    <Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>QFTPlus</AssemblyName><StartupObject>QFTPlus.Program</StartupObject><ApplicationIcon>QFTPlus.ico</ApplicationIcon>
     <Product>QFT+</Product><Title>QFT+</Title><Description>Quest Pro face tracking</Description>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../setup/QproFaceTracking.Hub.csproj" /></ItemGroup>
+  <ItemGroup><Using Remove="System.Windows.Forms" /><Using Remove="System.Drawing" /><Using Include="System.IO" /><Using Include="System.Net.Http" /></ItemGroup>
   <ItemGroup>
     <Compile Include="../bridges/vrcft/OutputAdjustments.cs" Link="OutputAdjustments.cs" />
     <Compile Include="../bridges/vrcft/ExtraFaceState.cs" Link="ExtraFaceState.cs" />
