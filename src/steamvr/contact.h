@@ -1,5 +1,7 @@
 #pragma once
 
+//========= Copyright Valve Corporation ============//
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>

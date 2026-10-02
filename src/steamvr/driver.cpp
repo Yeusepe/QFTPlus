@@ -1,3 +1,5 @@
+//========= Copyright Valve Corporation ============//
+
 #include <winsock2.h>
 #include <windows.h>
 

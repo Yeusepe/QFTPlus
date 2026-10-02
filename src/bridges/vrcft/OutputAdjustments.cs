@@ -30,21 +30,26 @@ internal sealed class OutputAdjustments
         if (directory != root) { root = directory; polled = tick - 100; filtered.Clear(); }
         if (tick - polled < 100) return;
         polled = tick;
-        var next = Read(Path.Combine(directory, "output-settings.json"));
-        if (!JsonNode.DeepEquals(settings, next)) filtered.Clear();
-        settings = next;
-        var lease = Read(Path.Combine(directory, "manual-output.json"));
-        expires = Number(lease, "expires", 0);
-        manual = expires > utcSeconds && expires <= utcSeconds + 3 ? lease["values"] as JsonObject ?? new() : new();
+        if (Read(Path.Combine(directory, "output-settings.json")) is { } next)
+        {
+            if (!JsonNode.DeepEquals(settings, next)) filtered.Clear();
+            settings = next;
+        }
+        if (Read(Path.Combine(directory, "manual-output.json")) is { } lease)
+        {
+            expires = Number(lease, "expires", 0);
+            manual = expires > utcSeconds && expires <= utcSeconds + 3 ? lease["values"] as JsonObject ?? new() : new();
+        }
     }
-    static JsonObject Read(string path)
+    static JsonObject? Read(string path)
     {
         try
         {
             using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
             return JsonNode.Parse(file) as JsonObject ?? new();
         }
-        catch (Exception e) when (e is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return new(); }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return new(); }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return null; }
     }
     internal static double Number(JsonObject? node, string key, double fallback)
         => node?[key] is JsonValue value && value.TryGetValue<double>(out var n) && double.IsFinite(n) ? n : fallback;

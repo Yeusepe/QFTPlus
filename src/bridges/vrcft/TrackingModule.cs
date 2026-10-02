@@ -19,6 +19,8 @@ namespace Qpro.GazeBridge;
 public sealed class TrackingModule : ExtTrackingModule
 {
     private const string MapName = "VirtualDesktop.BodyState";
+    private const string FrameEventName = "VirtualDesktop.BodyStateEvent";
+    private const int WaitMs = 10;
     private const int StateBytes = 360;
     private const int ExpressionOffset = 4;
     private const int ExpressionCount = 70;
@@ -94,6 +96,15 @@ public sealed class TrackingModule : ExtTrackingModule
         .Where(p => p.Partner is not null && Enum.IsDefined(typeof(UnifiedExpressions), p.Partner))
         .ToDictionary(p => p.Shape, p => (int)Enum.Parse<UnifiedExpressions>(p.Partner!));
     private float[] _shapeInputs = [];
+    private const int ShapeCount = (int)UnifiedExpressions.Max + 1;
+    private readonly float[] _shapes = new float[ShapeCount];
+    private readonly bool[] _owned = new bool[ShapeCount];
+    private readonly float[] _eyes = new float[8], _rawEyes = new float[8], _eyeBaselineStore = new float[8];
+    private bool _eyesOwned;
+    private static readonly (int Index, string Name)[] Shapes = Enum.GetValues<UnifiedExpressions>()
+        .Where(e => e.ToString() != "Max" && (int)e >= 0 && (int)e < ShapeCount).Select(e => ((int)e, e.ToString())).ToArray();
+    private static readonly (string Left, string Right, int LeftIndex, int RightIndex)[] SharePairs = ExtraFaceState.SharePairs
+        .Select(p => (p + "Left", p + "Right", (int)Enum.Parse<UnifiedExpressions>(p + "Left"), (int)Enum.Parse<UnifiedExpressions>(p + "Right"))).ToArray();
     private readonly OutputAdjustments _adjustments = new();
     private readonly Dictionary<int, float> _outputBaseline = new();
     private float[]? _eyeBaseline;
@@ -102,6 +113,12 @@ public sealed class TrackingModule : ExtTrackingModule
     private string? _settingsConfigPath;
     private long _settingsConfigTick, _outputStatusTick;
     private bool _outputStatusFailed;
+    private readonly ManualResetEvent _packetSignal = new(false);
+    private EventWaitHandle? _frameSignal;
+    private WaitHandle[] _wakeSignals = [];
+    [DllImport("ws2_32.dll", SetLastError = true)]
+    private static extern int WSAEventSelect(IntPtr socket, IntPtr eventHandle, int networkEvents);
+    private const int FdRead = 1;
 
     public override (bool SupportsEye, bool SupportsExpression) Supported => (true, true);
 
@@ -123,6 +140,7 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             _steamLinkSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, SteamLinkState.Port));
             _steamLinkSocket.Client.Blocking = false;
+            WakeOnPackets(_steamLinkSocket);
             _steamLinkSocket.Client.ReceiveBufferSize = 1024 * 1024;
             _steamLinkMap = MemoryMappedFile.CreateOrOpen(SteamLinkSharedState.MapName, SteamLinkSharedState.Bytes);
             _steamLinkView = _steamLinkMap.CreateViewAccessor();
@@ -148,6 +166,7 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             var socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
             socket.Client.Blocking = false;
+            WakeOnPackets(socket);
             return socket;
         }
         catch (SocketException error)
@@ -155,6 +174,13 @@ public sealed class TrackingModule : ExtTrackingModule
             Logger.Log(level, error, "Could not bind QFT+ {Feature} port {Port}; factory tracking remains available", feature, port);
             return null;
         }
+    }
+
+    private void WakeOnPackets(UdpClient socket)
+    {
+        if (WSAEventSelect(socket.Client.Handle, _packetSignal.SafeWaitHandle.DangerousGetHandle(), FdRead) != 0)
+            Logger.LogWarning("QFT+ socket wake-up unavailable ({Error}); packets are read on the {Wait} ms fallback", Marshal.GetLastWin32Error(), WaitMs);
+        _wakeSignals = _frameSignal is null ? [_packetSignal] : [_frameSignal, _packetSignal];
     }
 
     private static void Receive(UdpClient? socket, Action<byte[]> accept, int limit = 16)
@@ -173,6 +199,9 @@ public sealed class TrackingModule : ExtTrackingModule
 
     public override void Update()
     {
+        if (_wakeSignals.Length > 0) WaitHandle.WaitAny(_wakeSignals, WaitMs);
+        else Thread.Sleep(WaitMs);
+        _packetSignal.Reset();
         ReceiveGaze();
         ReceiveTongue();
         Receive(_extraFaceSocket, packet => _extraFace.Accept(packet, Environment.TickCount64));
@@ -188,27 +217,26 @@ public sealed class TrackingModule : ExtTrackingModule
         if (_needsExpression)
             UpdateMouth(expressions, _second[0]);
         var shares = _extraFace.CurrentShares(Environment.TickCount64);
-        foreach (var pair in ExtraFaceState.SharePairs)
+        foreach (var (leftName, rightName, left, right) in SharePairs)
         {
-            if (!shares.TryGetValue(pair + "Left", out float shareLeft) || !shares.TryGetValue(pair + "Right", out float shareRight)) continue;
-            int left = (int)Enum.Parse<UnifiedExpressions>(pair + "Left"), right = (int)Enum.Parse<UnifiedExpressions>(pair + "Right");
+            if (!shares.TryGetValue(leftName, out float shareLeft) || !shares.TryGetValue(rightName, out float shareRight)) continue;
             if (left <= 11 ? !_needsEye : !_needsExpression) continue;
-            float nativeLeft = UnifiedTracking.Data.Shapes[left].Weight, nativeRight = UnifiedTracking.Data.Shapes[right].Weight;
+            float nativeLeft = _shapes[left], nativeRight = _shapes[right];
             _extraBaseline.TryAdd(left, nativeLeft); _extraBaseline.TryAdd(right, nativeRight);
             var (fusedLeft, fusedRight) = ExtraFaceState.Split(nativeLeft, nativeRight, shareLeft, shareRight);
-            if (!_adjustments.Passthrough(pair + "Left")) Set(left, fusedLeft);
-            if (!_adjustments.Passthrough(pair + "Right")) Set(right, fusedRight);
+            if (!_adjustments.Passthrough(leftName)) Set(left, fusedLeft);
+            if (!_adjustments.Passthrough(rightName)) Set(right, fusedRight);
         }
         foreach (var entry in _extraFace.Current(Environment.TickCount64))
         {
             if (_adjustments.Passthrough(entry.Key) || !Enum.TryParse<UnifiedExpressions>(entry.Key, out var expression)) continue;
             int index = (int)expression;
             if (index <= 11 ? !_needsEye : !_needsExpression) continue;
-            _extraBaseline.TryAdd(index, UnifiedTracking.Data.Shapes[index].Weight);
+            _extraBaseline.TryAdd(index, _shapes[index]);
             Set(index, entry.Value);
         }
         AdjustOutput();
-        Thread.Sleep(5);
+        Publish();
     }
 
     public override void Teardown()
@@ -228,6 +256,10 @@ public sealed class TrackingModule : ExtTrackingModule
         _extraFaceSocket?.Dispose();
         _extraFaceSocket = null;
         RestoreExtraFaceBaseline();
+        Publish();
+        _wakeSignals = [];
+        _frameSignal?.Dispose();
+        _frameSignal = null;
         _view?.Dispose();
         _view = null;
         _map?.Dispose();
@@ -264,23 +296,24 @@ public sealed class TrackingModule : ExtTrackingModule
         }
     }
 
-    private float[] ReadEyes() => [UnifiedTracking.Data.Eye.Left.Gaze.x, UnifiedTracking.Data.Eye.Left.Gaze.y,
-        UnifiedTracking.Data.Eye.Right.Gaze.x, UnifiedTracking.Data.Eye.Right.Gaze.y,
-        UnifiedTracking.Data.Eye.Left.PupilDiameter_MM / 10, UnifiedTracking.Data.Eye.Right.PupilDiameter_MM / 10,
-        UnifiedTracking.Data.Eye.Left.Openness, UnifiedTracking.Data.Eye.Right.Openness];
     private static readonly string[] EyeKeys = ["GazeLeftX", "GazeLeftY", "GazeRightX", "GazeRightY", "PupilLeft", "PupilRight", "OpennessLeft", "OpennessRight"];
-    private void WriteEyes(float[] v)
+    private void Publish()
     {
-        UnifiedTracking.Data.Eye.Left.Gaze.x=v[0]; UnifiedTracking.Data.Eye.Left.Gaze.y=v[1];
-        UnifiedTracking.Data.Eye.Right.Gaze.x=v[2]; UnifiedTracking.Data.Eye.Right.Gaze.y=v[3];
-        UnifiedTracking.Data.Eye.Left.PupilDiameter_MM=v[4]*10; UnifiedTracking.Data.Eye.Right.PupilDiameter_MM=v[5]*10;
-        UnifiedTracking.Data.Eye.Left.Openness=v[6]; UnifiedTracking.Data.Eye.Right.Openness=v[7];
+        var shapes = UnifiedTracking.Data.Shapes;
+        for (int i = 0; i < ShapeCount && i < shapes.Length; i++)
+            if (_owned[i]) shapes[i].Weight = _shapes[i];
+        if (!_eyesOwned) return;
+        var eye = UnifiedTracking.Data.Eye;
+        eye.Left.Gaze.x = _eyes[0]; eye.Left.Gaze.y = _eyes[1]; eye.Right.Gaze.x = _eyes[2]; eye.Right.Gaze.y = _eyes[3];
+        eye.Left.PupilDiameter_MM = _eyes[4] * 10; eye.Right.PupilDiameter_MM = _eyes[5] * 10;
+        eye.Left.Openness = _eyes[6]; eye.Right.Openness = _eyes[7];
+        eye._minDilation = 0.0f; eye._maxDilation = 10.0f;
     }
     private void RestoreAdjustedOutput()
     {
         foreach (var entry in _outputBaseline) Set(entry.Key, entry.Value);
         _outputBaseline.Clear();
-        if (_eyeBaseline is not null) { WriteEyes(_eyeBaseline); _eyeBaseline=null; }
+        if (_eyeBaseline is not null) { Array.Copy(_eyeBaseline, _eyes, 8); _eyeBaseline=null; }
     }
     private void AdjustOutput()
     {
@@ -303,12 +336,11 @@ public sealed class TrackingModule : ExtTrackingModule
         _adjustments.Poll(_settingsRoot,tick,utc);
         var report = tick - _outputStatusTick >= 250;
         JsonObject? inputs = report ? new() : null, outputs = report ? new() : null;
-        if (_shapeInputs.Length != UnifiedTracking.Data.Shapes.Length) _shapeInputs = new float[UnifiedTracking.Data.Shapes.Length];
-        for (var i = 0; i < _shapeInputs.Length; i++) _shapeInputs[i] = UnifiedTracking.Data.Shapes[i].Weight;
-        foreach (var shape in Enum.GetValues<UnifiedExpressions>())
+        if (_shapeInputs.Length != ShapeCount) _shapeInputs = new float[ShapeCount];
+        Array.Copy(_shapes, _shapeInputs, ShapeCount);
+        foreach (var (index, name) in Shapes)
         {
-            var index=(int)shape; var name=shape.ToString();
-            if (name=="Max" || index<0 || index>=UnifiedTracking.Data.Shapes.Length || (index<=11?!_needsEye:!_needsExpression)) continue;
+            if (index<=11?!_needsEye:!_needsExpression) continue;
             var value=_shapeInputs[index];
             if (report) inputs![name] = float.IsFinite(value) ? value : 0;
             if (_adjustments.Enabled(name))
@@ -317,24 +349,23 @@ public sealed class TrackingModule : ExtTrackingModule
                 float? partner = ShapePartners.TryGetValue(index, out var other) && other < _shapeInputs.Length ? _shapeInputs[other] : null;
                 Set(index,_adjustments.Apply(name,value,0,0,1,dt,utc,partner));
             }
-            if (report) outputs![name] = float.IsFinite(UnifiedTracking.Data.Shapes[index].Weight) ? UnifiedTracking.Data.Shapes[index].Weight : 0;
+            if (report) outputs![name] = float.IsFinite(_shapes[index]) ? _shapes[index] : 0;
         }
         if (_needsEye)
         {
-            var raw=ReadEyes(); var eyes=(float[])raw.Clone(); var changed=false;
+            var raw=_rawEyes; Array.Copy(_eyes, raw, 8); var eyes=_eyes;
             for(var i=0;i<EyeKeys.Length;i++)
             {
                 var name=EyeKeys[i];
                 if (report) inputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
                 if (_adjustments.Enabled(name))
                 {
-                    _eyeBaseline??=raw; changed=true;
+                    if (_eyeBaseline is null) { _eyeBaseline = _eyeBaselineStore; Array.Copy(raw, _eyeBaseline, 8); }
                     var other=Array.IndexOf(EyeKeys,OutputAdjustments.Partner(name)??"");
                     eyes[i]=_adjustments.Apply(name,eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc,other<0?null:raw[other]);
                 }
                 if (report) outputs![name] = float.IsFinite(eyes[i]) ? eyes[i] : 0;
             }
-            if(changed)WriteEyes(eyes);
         }
         if (!report) return;
         _outputStatusTick = tick;
@@ -356,6 +387,11 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private void TryOpenMap()
     {
+        if (_frameSignal is null && EventWaitHandle.TryOpenExisting(FrameEventName, out var frame))
+        {
+            _frameSignal = frame;
+            _wakeSignals = [frame, _packetSignal];
+        }
         if (_view is not null)
             return;
         try
@@ -427,12 +463,10 @@ public sealed class TrackingModule : ExtTrackingModule
         }
     }
 
-    private static void ResetPupilDilation()
+    private void ResetPupilDilation()
     {
-        UnifiedTracking.Data.Eye.Left.PupilDiameter_MM = 5.0f;
-        UnifiedTracking.Data.Eye.Right.PupilDiameter_MM = 5.0f;
-        UnifiedTracking.Data.Eye._minDilation = 0.0f;
-        UnifiedTracking.Data.Eye._maxDilation = 10.0f;
+        _eyes[4] = _eyes[5] = .5f;
+        _eyesOwned = true;
     }
 
     private void ReceiveGaze() => Receive(_gazeSocket, packet =>
@@ -491,51 +525,51 @@ public sealed class TrackingModule : ExtTrackingModule
         bool rightX = _adjustments.Passthrough("GazeRightX"), rightY = _adjustments.Passthrough("GazeRightY");
         if (customFresh && (_gazeFlags & 1) != 0 && !(leftX && leftY))
         {
-            (float x, float y) = leftValid ? QuaternionToCartesian(_second, 296) : (UnifiedTracking.Data.Eye.Left.Gaze.x, UnifiedTracking.Data.Eye.Left.Gaze.y);
-            UnifiedTracking.Data.Eye.Left.Gaze.x = leftX ? x : _leftGazeX;
-            UnifiedTracking.Data.Eye.Left.Gaze.y = leftY ? y : _leftGazeY;
+            (float x, float y) = leftValid ? QuaternionToCartesian(_second, 296) : (_eyes[0], _eyes[1]);
+            _eyes[0] = leftX ? x : _leftGazeX;
+            _eyes[1] = leftY ? y : _leftGazeY;
             _leftGazeHeldTick = now;
         }
         else if (leftValid)
         {
             (float x, float y) = QuaternionToCartesian(_second, 296);
-            UnifiedTracking.Data.Eye.Left.Gaze.x = x;
-            UnifiedTracking.Data.Eye.Left.Gaze.y = y;
+            _eyes[0] = x;
+            _eyes[1] = y;
             _leftGazeHeldTick = now;
         }
-        else if (now - _leftGazeHeldTick > GazeHoldMs) { UnifiedTracking.Data.Eye.Left.Gaze.x = 0; UnifiedTracking.Data.Eye.Left.Gaze.y = 0; }
+        else if (now - _leftGazeHeldTick > GazeHoldMs) { _eyes[0] = 0; _eyes[1] = 0; }
 
         if (customFresh && (_gazeFlags & 2) != 0 && !(rightX && rightY))
         {
-            (float x, float y) = rightValid ? QuaternionToCartesian(_second, 324) : (UnifiedTracking.Data.Eye.Right.Gaze.x, UnifiedTracking.Data.Eye.Right.Gaze.y);
-            UnifiedTracking.Data.Eye.Right.Gaze.x = rightX ? x : _rightGazeX;
-            UnifiedTracking.Data.Eye.Right.Gaze.y = rightY ? y : _rightGazeY;
+            (float x, float y) = rightValid ? QuaternionToCartesian(_second, 324) : (_eyes[2], _eyes[3]);
+            _eyes[2] = rightX ? x : _rightGazeX;
+            _eyes[3] = rightY ? y : _rightGazeY;
             _rightGazeHeldTick = now;
         }
         else if (rightValid)
         {
             (float x, float y) = QuaternionToCartesian(_second, 324);
-            UnifiedTracking.Data.Eye.Right.Gaze.x = x;
-            UnifiedTracking.Data.Eye.Right.Gaze.y = y;
+            _eyes[2] = x;
+            _eyes[3] = y;
             _rightGazeHeldTick = now;
         }
-        else if (now - _rightGazeHeldTick > GazeHoldMs) { UnifiedTracking.Data.Eye.Right.Gaze.x = 0; UnifiedTracking.Data.Eye.Right.Gaze.y = 0; }
+        else if (now - _rightGazeHeldTick > GazeHoldMs) { _eyes[2] = 0; _eyes[3] = 0; }
 
-        UnifiedTracking.Data.Eye.Left.Openness = 1.0f - Math.Clamp(
+        _eyes[6] = 1.0f - Math.Clamp(
             values[12] + values[4] * values[28], 0.0f, 1.0f);
-        UnifiedTracking.Data.Eye.Right.Openness = 1.0f - Math.Clamp(
+        _eyes[7] = 1.0f - Math.Clamp(
             values[13] + values[5] * values[29], 0.0f, 1.0f);
         ResetPupilDilation();
         if (_pupil.Current(Environment.TickCount64) is { } pupil)
         {
-            if (!_adjustments.Passthrough("PupilLeft")) UnifiedTracking.Data.Eye.Left.PupilDiameter_MM = pupil.Left * 10;
-            if (!_adjustments.Passthrough("PupilRight")) UnifiedTracking.Data.Eye.Right.PupilDiameter_MM = pupil.Right * 10;
+            if (!_adjustments.Passthrough("PupilLeft")) _eyes[4] = pupil.Left;
+            if (!_adjustments.Passthrough("PupilRight")) _eyes[5] = pupil.Right;
         }
 
         UpdateEyeExpressions(values);
     }
 
-    private static void UpdateEyeExpressions(ReadOnlySpan<float> values)
+    private void UpdateEyeExpressions(ReadOnlySpan<float> values)
     {
         Set(5, values[0]); Set(7, values[0]);
         Set(4, values[1]); Set(6, values[1]);
@@ -582,14 +616,17 @@ public sealed class TrackingModule : ExtTrackingModule
         _tongueDirty = false;
     }
 
-    private static void SetStockTongue(int expression, float value, int mask)
+    private void SetStockTongue(int expression, float value, int mask)
     {
         int index = Array.IndexOf(TongueExpressions, expression);
         if (index < 0 || (mask & (1 << index)) == 0) Set(expression, value);
     }
 
-    private static void Set(int expression, float value) =>
-        UnifiedTracking.Data.Shapes[expression].Weight = value;
+    private void Set(int expression, float value)
+    {
+        _shapes[expression] = value;
+        _owned[expression] = true;
+    }
 
     private static float ReadFloat(byte[] bytes, int offset) =>
         BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(offset, 4));
