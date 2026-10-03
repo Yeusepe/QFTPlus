@@ -44,7 +44,7 @@ def package(prefix, tester, consent_version, consent_time, enrollment=None, vers
             z.write(labels, "labels.jsonl")
         if enrollment and Path(enrollment).is_file():
             with np.load(enrollment, allow_pickle=False) as e:
-                slots = {k: np.stack([small(f) for f in e[k]]) for k in e.files if k.startswith("slot_")}
+                slots = {k: np.stack([small(f) for f in e[k]]) for k in e.files if k.startswith(("slot_", "sweep_"))}
                 buffer = io.BytesIO(); np.savez_compressed(buffer, meta=e["meta"], **slots); z.writestr("enrollment.npz", buffer.getvalue())
         z.writestr("manifest.json", json.dumps({
             "format": FORMAT, "tester": tester, "consentVersion": consent_version, "consentTime": consent_time,

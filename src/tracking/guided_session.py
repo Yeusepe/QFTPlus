@@ -29,12 +29,12 @@ class Step:
 
 
 PUFF = {"both": {"CheekPuffLeft": 1., "CheekPuffRight": 1.}, "left": {"CheekPuffLeft": 1.}, "right": {"CheekPuffRight": 1.}}
-TONGUE = {"out": (0., 0.), "left": (-1., 0.), "right": (1., 0.), "up": (0., 1.), "down": (0., -1.)}
+TONGUE = {"out": (0., 0.), "left": (-1., 0.), "right": (1., 0.), "up": (0., 1.), "down": (0., -1.), "up left": (-.7, .7), "up right": (.7, .7)}
 TARGETS = ([(f"CheekPuff{s.title() if s != 'both' else 'Both'}", f"Puff {'both cheeks' if s == 'both' else f'your {s} cheek'}",
              "Fill with air and keep your lips sealed.", t) for s, t in PUFF.items()]
            + [("CheekSuck", "Suck in your cheeks", "Pull both cheeks in between your teeth.", {"CheekSuckLeft": 1., "CheekSuckRight": 1.})]
-           + [(f"Tongue{d.title()}", "Stick your tongue out" + ("" if d == "out" else f", pointing {d}"),
-               "Your left and right, as you feel it." if d in ("left", "right") else "Point it as far as feels comfortable.",
+           + [(f"Tongue{d.title().replace(' ', '')}", "Stick your tongue out" + ("" if d == "out" else f", pointing {d.replace(' ', ' and to the ')}"),
+               "Your left and right, as you feel it." if d.endswith(("left", "right")) else "Point it as far as feels comfortable.",
                {"visibility": 1., "extension": 1., "horizontal": h, "vertical": v})
               for d, (h, v) in TONGUE.items()]
            + [("NasalDilation", "Flare your nostrils", "If you can't flare them, breathe in slowly and deeply through your nose.",
@@ -74,8 +74,7 @@ LOOKALIKES = [("chewing", "Chew", "Chew slowly, as if you had gum, with your lip
               ("eye_squint", "Squint", "As if looking into bright sun."),
               ("look_up_down", "Look up and down", "With your eyes only; keep your head still."),
               ("blink", "Blink, then close your eyes", "Blink a few times, then keep your eyes closed for a moment.")]
-GUIDE = {"sweep:tongue": {"visibility": 1., "extension": .8, "horizontal": .7, "vertical": .4},
-         "sweep:jaw": {"MouthUpperLeft": 2., "MouthLowerLeft": 2.}, "speech:read": {"MouthOpen": .35}, "speech:talk": {"MouthOpen": .35},
+GUIDE = {"sweep:jaw": {"MouthUpperLeft": 2., "MouthLowerLeft": 2.}, "speech:read": {"MouthOpen": .35}, "speech:talk": {"MouthOpen": .35},
          "lookalike:tongue_bulge_left": {"TongueBulgeLeft": 1.5}, "lookalike:tongue_bulge_right": {"TongueBulgeRight": 1.5},
          "lookalike:lip_suck": {"LipSuck": 1.}, "lookalike:pout": {"LipPuckerLowerLeft": 1., "LipPuckerLowerRight": 1.},
          "lookalike:lip_shrug": {"LipPuckerLowerLeft": .6, "LipPuckerLowerRight": .6},
@@ -89,6 +88,7 @@ GUIDE = {"sweep:tongue": {"visibility": 1., "extension": .8, "horizontal": .7, "
 
 
 QUICK_TARGETS = {"CheekPuffBoth", "CheekPuffLeft", "CheekPuffRight", "CheekSuck", "TongueOut", "TongueLeft", "TongueRight",
+                 "TongueUp", "TongueUpLeft", "TongueUpRight",
                  "BrowRaiseBoth", "BrowRaiseLeft", "BrowRaiseRight", "BrowFrown"}
 QUICK_LOOKALIKES = {"chewing", "tongue_bulge_left", "tongue_bulge_right", "lip_suck", "pout", "smile", "swallow", "eye_squint"}
 
@@ -208,11 +208,15 @@ RELAX = Step("Relax", "Let your face go loose.", 1., "relax")
 
 
 def enrollment_steps(pace=1.):
-    """About 50 s (slow mode: pace=SLOW, about 100 s): neutral, seven ramp-and-hold anchors (1 s in, 2 s hold, 1 s relax),
-    two sweeps, optional reading. The one-cheek puffs replace the old puff sweep, whose frames nothing read."""
-    def anchor(slot, title, instruction, targets=None, native=None, soft=False):
+    """About 56 s (slow mode: pace=SLOW, about 112 s): neutral, seven ramp-and-hold anchors (1 s in, 2 s hold, 1 s relax),
+    four tongue directions held right after the straight-out one (no relax between: the tongue stays out), a jaw sweep,
+    optional reading. The tongue directions calibrate how this person's tongue reads each way (universal_face)."""
+    def anchor(slot, title, instruction, targets=None, native=None, soft=False, relax=True):
         return [Step(title, instruction, 3., f"anchor:{slot}", targets or {}, ramp=1., slot=slot, record_hz=4.,
-                     native=native or {}, soft=soft), RELAX]
+                     native=native or {}, soft=soft)] + ([RELAX] if relax else [])
+    def tongue(slot, title, instruction, horizontal, vertical, relax=False):
+        return anchor(slot, title, instruction, {"visibility": 1., "extension": 1., "horizontal": horizontal, "vertical": vertical},
+                      native={"TongueOut": .5}, relax=relax)
     steps = ([Step("Relax and look ahead", "Keep your face still and relaxed.", 3., "neutral", slot="neutral", record_hz=4.)]
             + anchor("jaw_open", "Open your mouth wide", "As wide as is comfortable.", native={"JawDrop": .4})
             + anchor("pucker", "Kiss", "Push your lips forward into a kiss.",
@@ -223,12 +227,14 @@ def enrollment_steps(pace=1.):
                      native={"CheekPuffL": .2}, soft=True)
             + anchor("puff_right", "Puff only your right cheek", "Move the air into your right cheek, lips sealed.", {"CheekPuffRight": 1.},
                      native={"CheekPuffR": .2}, soft=True)
-            + anchor("tongue_out", "Stick your tongue out", "Straight out, as far as is comfortable.",
-                     {"visibility": 1., "extension": 1., "horizontal": 0., "vertical": 0.}, native={"TongueOut": .5})
+            + tongue("tongue_out", "Stick your tongue out", "Straight out, as far as is comfortable.", 0., 0.)
+            + tongue("tongue_up", "Point your tongue up", "Keep it out, tip up toward your nose.", 0., 1.)
+            + tongue("tongue_down", "Point your tongue down", "Keep it out, tip down toward your chin.", 0., -1.)
+            + tongue("tongue_left", "Point your tongue left", "Keep it out. Your left, as you feel it.", -1., 0.)
+            + tongue("tongue_right", "Point your tongue right", "Keep it out. Your right, as you feel it.", 1., 0., relax=True)
             + anchor("suck", "Suck in your cheeks", "Pull both cheeks in between your teeth.", {"CheekSuckLeft": 1., "CheekSuckRight": 1.},
                      native={"CheekSuck": .2}, soft=True)
-            + [Step("Tongue in a circle", "Slowly circle your tongue outside your lips.", 6., "sweep:tongue", record_hz=2.),
-               Step("Jaw side to side", "Slowly, teeth apart.", 6., "sweep:jaw", record_hz=2.),
+            + [Step("Jaw side to side", "Slowly, teeth apart.", 6., "sweep:jaw", record_hz=2.),
                Step("Read this out loud", READ[0], 9., "speech:read", record_hz=2., optional=True)])
     return [paced(s, pace) for s in steps]
 
@@ -335,9 +341,9 @@ def check(prefix):
                 held = [f[0] for f in step.get("frames", []) if f[2]]
                 if step["gate"]["passed"] and held and slot not in slots:
                     arrays["slot_" + slot] = frames(held); slots[slot] = len(held)
-        sweep = [f[0] for s in session["steps"] if s["condition"].startswith("sweep:") for f in s.get("frames", [])]
-        if sweep:
-            arrays["sweep"] = np.stack([frames([i])[0] for i in sweep])
+        for s in session["steps"]:
+            if s["condition"].startswith("sweep:") and s.get("frames"):
+                arrays["sweep_" + s["condition"].split(":", 1)[1]] = frames([f[0] for f in s["frames"]])
     if "neutral" not in slots:
         raise ValueError("The relaxed-face part didn't record cleanly. Run the face setup again.")
     meta = {"schema": "face-enrollment-v1", "slots": sorted(slots), "missing": sorted(set(gates) - set(slots)), "gates": gates,

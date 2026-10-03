@@ -29,6 +29,7 @@ MAX_UNMIX_COND = 10.
 CHEEKS = ["CheekPuffLeft", "CheekPuffRight", "CheekSuckLeft", "CheekSuckRight"]
 BROWS = [b + s for b in ("BrowInnerUp", "BrowOuterUp", "BrowLowerer", "BrowPinch") for s in ("Left", "Right")]
 FAMILIES = {"puff": CHEEKS, "brows": BROWS}
+NATIVE_PUFF = ("CheekPuffL", "CheekPuffR")
 NATIVE_RAISE = {"BrowInnerUp": ("InnerBrowRaiserL", "InnerBrowRaiserR"), "BrowOuterUp": ("OuterBrowRaiserL", "OuterBrowRaiserR")}
 SHARE_SECONDS = .15
 RAISES = [b + s for b in NATIVE_RAISE for s in ("Left", "Right")]
@@ -69,6 +70,34 @@ def head_forward(h, q, anchors, present):
 def puff_depth(q, neutral, axis):
     """Per mouth camera, how far q has moved from neutral toward the both-cheeks puff (1 = all the way) -> (2,)"""
     return np.clip(((q.reshape(2, -1) - neutral) * axis).sum(1), 0., None)
+
+
+TONGUE_DIRECTION = {"tongue_out": (0., 0.), "tongue_up": (0., 1.), "tongue_down": (0., -1.), "tongue_left": (-1., 0.), "tongue_right": (1., 0.)}
+TONGUE_HOLDS = [s for s in TONGUE_DIRECTION if s != "tongue_out"]
+RIDGE, TONGUE_REACH, TONGUE_GAIN = 2., .15, 2.
+
+
+def tongue_map(holds):
+    """{slot: mouth embeddings (k, 512)} of the held tongue poses -> (mean, scale, weights (512, 2), gains (left, right,
+    down, up)), or None unless all five poses are there."""
+    if not set(TONGUE_DIRECTION) <= set(holds):
+        return None
+    x = np.concatenate([holds[s] for s in TONGUE_DIRECTION]).astype(np.float64)
+    y = np.concatenate([np.tile(TONGUE_DIRECTION[s], (len(holds[s]), 1)) for s in TONGUE_DIRECTION])
+    mean, scale = x.mean(0), x.std(0) + 1e-3
+    xn = (x - mean) / scale
+    weights = xn.T @ np.linalg.solve(xn @ xn.T + RIDGE * x.shape[1] * np.eye(len(x)), y)
+    held = {s: np.median(((holds[s] - mean) / scale) @ weights, 0) for s in TONGUE_DIRECTION}
+    gain = lambda reach: min(1. / reach, TONGUE_GAIN) if reach >= TONGUE_REACH else 1.
+    gains = (gain(-held["tongue_left"][0]), gain(held["tongue_right"][0]), gain(-held["tongue_down"][1]), gain(held["tongue_up"][1]))
+    return mean.astype(np.float32), scale.astype(np.float32), weights.astype(np.float32), gains
+
+
+def tongue_direction(q, mapping):
+    """Mouth embedding (512,) -> (horizontal, vertical) in -1..1, + = the wearer's right, up."""
+    mean, scale, weights, (left, right, down, up) = mapping
+    h, v = ((q - mean) / scale) @ weights
+    return float(np.clip(h * (right if h > 0 else left), -1., 1.)), float(np.clip(v * (up if v > 0 else down), -1., 1.))
 
 
 def brow_forward(h, w, neutral, present):
@@ -117,11 +146,18 @@ class UniversalFace:
                 mix = np.stack([puff_depth(sides[s], n, axis) for s in SIDES], 1)
                 unmix = np.linalg.inv(mix) if np.linalg.cond(mix) < MAX_UNMIX_COND else None
             self.puff_axis = (n, axis, unmix)
-            full = head_forward(self.head, self.anchors[3], self.anchors, self.present)[[self.names.index(c) for c in CHEEKS[:2]]].max()
-            reach = dict.fromkeys(CHEEKS[:2], float(full)) if full >= .3 else {}
+        cheek_rest = {}
+        if self.present[0]:
+            level = lambda slot, cheeks: float(head_forward(self.head, self.anchors[slot], self.anchors, self.present)[
+                [self.names.index(c) for c in cheeks]].max())
+            cheek_rest = {**dict.fromkeys(CHEEKS[:2], level(0, CHEEKS[:2])), **dict.fromkeys(CHEEKS[2:], level(0, CHEEKS[2:]))}
+            for slot, cheeks in ((3, CHEEKS[:2]), (5, CHEEKS[2:])):
+                if self.present[slot] and (full := level(slot, cheeks)) - cheek_rest[cheeks[0]] >= .2:
+                    reach.update(dict.fromkeys(cheeks, full))
         brow_rest = {k: v for k, v in brow_rest.items() if not k.startswith(tuple(NATIVE_RAISE))}
         self.events = FaceEvents({"CheekPuffLeft": PUFF, "CheekPuffRight": PUFF, "CheekSuckLeft": SUCK, "CheekSuckRight": SUCK,
-                                  "TongueOut": TONGUE, **dict.fromkeys(BROWS, BROW)}, neutral=brow_rest, reach=reach, bias=bias, log=log)
+                                  "TongueOut": TONGUE, **dict.fromkeys(BROWS, BROW)}, neutral={**brow_rest, **cheek_rest}, reach=reach,
+                                 bias=bias, log=log)
         self.sent = [n for f in families if f in FAMILIES for n in FAMILIES[f] if n not in RAISES]
         self.send_shares = "brows" in families
         self.share, self.share_ns = {}, None
@@ -143,7 +179,9 @@ class UniversalFace:
 
     def encode_enrollment(self, enrollment):
         """Face setup file -> mouth anchors (6, 512) + presence (6,), the one-cheek puff embeddings {side: (512,)}, brow
-        neutral embedding (480,) + presence, and the brows' resting outputs (face_events' starting neutral). Runs once, at load."""
+        neutral embedding (480,) + presence, and the brows' resting outputs (face_events' starting neutral); sets the
+        wearer's tongue direction mapping from the held tongue poses. Runs once, at load."""
+        self.tongue_map, holds = None, {}
         anchors, present = np.zeros((6, 512), np.float32), np.zeros(6, np.float32)
         sides, brow_neutral, brow_present, rest = {}, np.zeros(480, np.float32), 0., {}
         if not enrollment or not Path(enrollment).is_file():
@@ -151,9 +189,13 @@ class UniversalFace:
         with np.load(enrollment, allow_pickle=False) as z:
             if json.loads(str(z["meta"]))["schema"] != "face-enrollment-v1":
                 return anchors, present, sides, (brow_neutral, brow_present), rest
-            for slot in SLOTS + SIDES:
+            for slot in SLOTS + SIDES + TONGUE_HOLDS:
                 if f"slot_{slot}" in z:
-                    q, _, w = (np.stack(x) for x in zip(*(self.run(f) for f in z[f"slot_{slot}"])))
+                    q, t, w = (np.stack(x) for x in zip(*(self.run(f) for f in z[f"slot_{slot}"])))
+                    if slot in TONGUE_DIRECTION:
+                        holds[slot] = q
+                        if slot in TONGUE_HOLDS:
+                            continue
                     if slot in SIDES:
                         sides[slot] = q.mean(0)
                         continue
@@ -161,13 +203,17 @@ class UniversalFace:
                     if slot == "neutral":
                         brow_neutral, brow_present = w.mean(0), 1.
                         rest = dict(zip(BROWS, np.median([brow_forward(self.brow_head, r, brow_neutral, 1.) for r in w], 0).tolist()))
+            self.tongue_map = tongue_map(holds)
         return anchors, present, sides, (brow_neutral, brow_present), rest
 
     def update(self, strip, native=None, native_names=(), now_ns=0):
         q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
-        horizontal, vertical = np.tanh(t[1:3])
+        horizontal, vertical = tongue_direction(q, self.tongue_map) if self.tongue_map else np.tanh(t[1:3])
+        fresh = fresh_values(native, native_names, now_ns)
+        nv = fresh or {}
+        native_puff = [nv.get(n, 0.) for n in NATIVE_PUFF]
         if self.puff_axis is not None:
             n, axis, unmix = self.puff_axis
             d = puff_depth(q, n, axis)
@@ -176,10 +222,10 @@ class UniversalFace:
             else:
                 d = np.clip(unmix @ d, 0., None)
                 share = d / max(float(d.max()), 1e-6)
-            amount = max(p["CheekPuffLeft"], p["CheekPuffRight"])
+            amount = max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff)
             p["CheekPuffLeft"], p["CheekPuffRight"] = amount * float(share[0]), amount * float(share[1])
-        fresh = fresh_values(native, native_names, now_ns)
-        nv = fresh or {}
+        else:
+            p["CheekPuffLeft"], p["CheekPuffRight"] = max(p["CheekPuffLeft"], native_puff[0]), max(p["CheekPuffRight"], native_puff[1])
         dt = 0. if self.share_ns is None else max(0., (now_ns - self.share_ns) / 1e9)
         self.share_ns = now_ns
         for base, (left, right) in NATIVE_RAISE.items():
