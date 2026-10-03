@@ -1,29 +1,75 @@
-<Window x:Class="QFTPlus.StudioWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="QFT+" Width="980" Height="740" MinWidth="800" MinHeight="610" WindowStartupLocation="CenterScreen" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True">
+<Window x:Class="QFTPlus.StudioWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:local="clr-namespace:QFTPlus" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="QFT+" Width="980" Height="740" MinWidth="800" MinHeight="610" WindowStartupLocation="CenterScreen" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True">
  <Window.Resources>
   <SolidColorBrush x:Key="Canvas" Color="#F5F5F7"/><SolidColorBrush x:Key="Surface" Color="#FFFFFF"/><SolidColorBrush x:Key="Sidebar" Color="#EBEBEF"/><SolidColorBrush x:Key="Ink" Color="#202127"/><SolidColorBrush x:Key="Muted" Color="#626570"/><SolidColorBrush x:Key="Line" Color="#E1E2E7"/><SolidColorBrush x:Key="Accent" Color="#0067D9"/>
-  <CornerRadius x:Key="CardRadius">12</CornerRadius>
   <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
   <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="16,8"/><Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/></Style>
-  <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}"><Setter Property="Padding" Value="16,8"/><Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/></Style>
-  <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Setter Property="Margin" Value="0,2"/><Setter Property="MinHeight" Value="44"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}"><Setter Property="Padding" Value="16,8"/><Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/></Style>
+  <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+   <Setter Property="Margin" Value="0,2"/><Setter Property="MinHeight" Value="44"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="AutomationProperties.Name" Value="{Binding Content, RelativeSource={RelativeSource Self}}"/>
+   <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+   <Setter Property="Minimum" Value="0"/><Setter Property="Maximum" Value="100"/><Setter Property="Height" Value="5"/><Setter Property="Foreground" Value="{DynamicResource Accent}"/>
+  </Style>
+  <Style x:Key="SectionHeading" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+   <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="AutomationProperties.HeadingLevel" Value="Level2"/>
+  </Style>
+  <Style TargetType="ui:Card" BasedOn="{StaticResource {x:Type ui:Card}}"><Setter Property="Padding" Value="20"/><Setter Property="Margin" Value="0,0,0,16"/><Setter Property="Background" Value="{DynamicResource Surface}"/></Style>
+  <Style x:Key="Choice" TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+   <Setter Property="Margin" Value="0,4"/><Setter Property="VerticalContentAlignment" Value="Top"/>
+   <Setter Property="AutomationProperties.Name" Value="{Binding Content.Title, RelativeSource={RelativeSource Self}}"/>
+   <Setter Property="AutomationProperties.HelpText" Value="{Binding Content.About, RelativeSource={RelativeSource Self}}"/>
+   <Setter Property="ContentTemplate"><Setter.Value><DataTemplate>
+    <StackPanel><TextBlock Text="{Binding Title}" TextWrapping="Wrap"/><TextBlock Text="{Binding About}" TextWrapping="Wrap" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/></StackPanel>
+   </DataTemplate></Setter.Value></Setter>
+  </Style>
   <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="MinHeight" Value="40"/><Setter Property="Padding" Value="10,7"/><Setter Property="HorizontalAlignment" Value="Stretch"/></Style>
   <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="MinHeight" Value="40"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
-  <Style x:Key="ListRow" TargetType="Button">
-   <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="BorderBrush" Value="Transparent"/>
-   <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="12,10"/><Setter Property="MinHeight" Value="48"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="2" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Border>
-    <ControlTemplate.Triggers>
-     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Line}"/></Trigger>
-     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.7"/></Trigger>
-     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
-    </ControlTemplate.Triggers>
-   </ControlTemplate></Setter.Value></Setter>
-  </Style>
   <Style x:Key="SelectableText" TargetType="TextBox"><Setter Property="IsReadOnly" Value="True"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="0"/>
    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"/></ControlTemplate></Setter.Value></Setter>
   </Style>
-  <Style x:Key="NavigationItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="MinHeight" Value="44"/><Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0"/><Setter Property="Border.CornerRadius" Value="{DynamicResource ControlCornerRadius}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style x:Key="NavigationItem" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+   <Setter Property="MinHeight" Value="44"/><Setter Property="FontSize" Value="{DynamicResource Font14}"/><Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0"/><Setter Property="Border.CornerRadius" Value="{DynamicResource ControlCornerRadius}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></Trigger></Style.Triggers>
+  </Style>
+  <DataTemplate x:Key="SetupStatusRow">
+   <DockPanel Margin="0,6" AutomationProperties.Name="{Binding Name}">
+    <TextBlock x:Name="Symbol" Text="{Binding Glyph}" Foreground="{DynamicResource Muted}" FontFamily="Segoe UI Symbol" Width="28" Margin="0,1,0,0"/>
+    <StackPanel>
+     <TextBlock Text="{Binding Title}" FontWeight="{Binding Weight}" TextWrapping="Wrap" Margin="0,0,0,2"/>
+     <TextBlock x:Name="Detail" Text="{Binding Detail}" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource Font13}" TextWrapping="Wrap" Margin="0,0,0,2"/>
+    </StackPanel>
+   </DockPanel>
+   <DataTemplate.Triggers>
+    <DataTrigger Binding="{Binding Brush}" Value="Ink"><Setter TargetName="Symbol" Property="Foreground" Value="{DynamicResource Ink}"/></DataTrigger>
+    <DataTrigger Binding="{Binding Brush}" Value="Accent"><Setter TargetName="Symbol" Property="Foreground" Value="{DynamicResource Accent}"/></DataTrigger>
+    <DataTrigger Binding="{Binding Muted}" Value="False"><Setter TargetName="Detail" Property="Foreground" Value="{DynamicResource Ink}"/></DataTrigger>
+   </DataTemplate.Triggers>
+  </DataTemplate>
+  <DataTemplate x:Key="HeadsetPanel">
+   <ui:Card>
+    <StackPanel>
+     <DockPanel Margin="0,0,0,4">
+      <Button x:Name="Search" Content="Search again" DockPanel.Dock="Right" AutomationProperties.HelpText="Looks for headsets over USB and Wi-Fi."/>
+      <TextBlock Text="Headset" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+     </DockPanel>
+     <TextBlock x:Name="Caption" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+     <ProgressBar x:Name="Activity" IsIndeterminate="True" Height="3" Margin="0,0,0,8"/>
+     <StackPanel x:Name="Headsets"/>
+    </StackPanel>
+   </ui:Card>
+  </DataTemplate>
+  <DataTemplate x:Key="SetupStepsPanel">
+   <ui:Card>
+    <StackPanel>
+     <TextBlock Text="Setup steps" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+     <TextBlock x:Name="Status" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
+     <ProgressBar x:Name="Progress" Margin="0,4,0,12"/>
+     <StackPanel x:Name="Steps"/>
+    </StackPanel>
+   </ui:Card>
+  </DataTemplate>
  </Window.Resources>
  <Grid x:Name="Shell" Background="{DynamicResource Canvas}">
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="196"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -41,28 +87,106 @@
   <Grid Grid.Column="1" Margin="32,28,32,24" MaxWidth="900" HorizontalAlignment="Stretch">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Margin="0,0,0,24"><TextBlock x:Name="PageTitle" FontSize="{DynamicResource Font30}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/><TextBlock x:Name="Subtitle" Visibility="Collapsed" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/></StackPanel>
-   <Border x:Name="NoticeBox" Grid.Row="1" Background="{DynamicResource Surface}" CornerRadius="{StaticResource CardRadius}" Padding="16" Margin="0,0,0,16" Visibility="Collapsed"><StackPanel><TextBox x:Name="Notice" Style="{StaticResource SelectableText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Message"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></Border>
+   <ui:Card x:Name="NoticeBox" Grid.Row="1" Visibility="Collapsed"><StackPanel><TextBox x:Name="Notice" Style="{StaticResource SelectableText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Message"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></ui:Card>
    <ScrollViewer x:Name="PageScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
     <StackPanel>
-     <Border x:Name="UpdateBanner" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="{StaticResource CardRadius}" Padding="20" Margin="0,0,0,16" Visibility="Collapsed">
-      <StackPanel>
-       <TextBlock Text="Update available" FontSize="{DynamicResource Font18}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" Margin="0,0,0,8"/>
-       <TextBlock x:Name="UpdateMessage" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,12"/>
-       <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Height="5" Margin="0,0,0,12" Foreground="{DynamicResource Accent}" Visibility="Collapsed" AutomationProperties.Name="Update download"/>
-       <WrapPanel><Button x:Name="InstallUpdateButton" Content="Install update" Click="InstallUpdateClick" Visibility="Collapsed" Margin="0,0,8,8"/><Button Content="View update" Click="ViewUpdate" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissUpdate" AutomationProperties.Name="Dismiss this update notice" Margin="0,0,0,8"/></WrapPanel>
+     <StackPanel x:Name="UpdateBanner" Margin="0,0,0,16" Visibility="Collapsed">
+      <ui:InfoBar x:Name="UpdateMessage" Title="Update available" IsOpen="True" IsClosable="False" AutomationProperties.LiveSetting="Polite"/>
+      <ProgressBar x:Name="UpdateProgress" Margin="0,8,0,0" Visibility="Collapsed" AutomationProperties.Name="Update download"/>
+      <WrapPanel Margin="0,8,0,0"><Button x:Name="InstallUpdateButton" Content="Install update" Click="InstallUpdateClick" Visibility="Collapsed" Margin="0,0,8,8"/><Button Content="View update" Click="ViewUpdate" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissUpdate" AutomationProperties.Name="Dismiss this update notice" Margin="0,0,0,8"/></WrapPanel>
+     </StackPanel>
+     <StackPanel x:Name="FeedbackBanner" Margin="0,0,0,16" Visibility="Collapsed">
+      <ui:InfoBar Title="Help improve tracking" Message="Share what tracks well and what doesn’t. Feedback from many different faces makes tracking better for everyone." IsOpen="True" IsClosable="False"/>
+      <WrapPanel Margin="0,8,0,0"><Button Content="Share recordings" Click="ShareRecordings" Margin="0,0,8,8"/><Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissFeedback" AutomationProperties.Name="Dismiss this feedback request" Margin="0,0,0,8"/></WrapPanel>
+     </StackPanel>
+     <StackPanel x:Name="Page">
+     <local:LogViewer x:Name="LogView"/>
+     <StackPanel x:Name="TrackingOverview" Margin="0,0,0,16">
+      <ui:InfoBar x:Name="TrackingStatus" IsOpen="True" IsClosable="False" AutomationProperties.LiveSetting="Polite"/>
+      <ProgressBar x:Name="TrackingProgress" Margin="0,8,0,0"/>
+      <WrapPanel Margin="0,12,0,-8">
+       <ui:Button x:Name="TrackingAction" Click="TrackingActionClick" Margin="0,0,8,8"/>
+       <Button x:Name="ViewCamerasButton" Content="View cameras" Click="ViewCameras" Margin="0,0,8,8"/>
+       <Button x:Name="TrackingHelp" Click="HelpClick" Margin="0,0,8,8"/>
+       <Button x:Name="TrackingLogs" Content="View logs" Click="ViewTrackingLog" Margin="0,0,8,8"/>
+      </WrapPanel>
+     </StackPanel>
+     <TextBlock x:Name="CalibrationAreaLabel" Text="Tracking area" Margin="0,0,0,8"/>
+     <ComboBox x:Name="calibrationModes" Margin="0,0,0,16" AutomationProperties.Name="Tracking area" AutomationProperties.LabeledBy="{Binding ElementName=CalibrationAreaLabel}"/>
+     <ui:Card x:Name="CalibrationCard">
+      <StackPanel x:Name="CalibrationGuide">
+       <TextBlock x:Name="poseTitle" FontSize="{DynamicResource Font23}" TextAlignment="Center" Margin="0,0,0,8"/>
+       <TextBlock x:Name="poseDetail" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
+       <TextBlock x:Name="cue" FontSize="{DynamicResource Font25}" FontWeight="SemiBold" TextAlignment="Center" Margin="0,4,0,0"/>
+       <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><local:FaceGuide x:Name="face" Width="360" Height="250" Foreground="{DynamicResource Ink}" Accent="{DynamicResource Accent}" Focusable="False"/></Viewbox>
+       <ProgressBar x:Name="progress" Margin="0,16,0,10"/>
+       <TextBlock x:Name="count" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
       </StackPanel>
-     </Border>
-     <Border x:Name="FeedbackBanner" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="{StaticResource CardRadius}" Padding="20" Margin="0,0,0,16" Visibility="Collapsed">
-      <StackPanel>
-       <TextBlock Text="Help improve tracking" FontSize="{DynamicResource Font18}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" Margin="0,0,0,8"/>
-       <TextBlock Text="Share what tracks well and what doesn’t. Feedback from many different faces makes tracking better for everyone." TextWrapping="Wrap" Margin="0,0,0,12"/>
-       <WrapPanel><Button Content="Share recordings" Click="ShareRecordings" Margin="0,0,8,8"/><Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissFeedback" AutomationProperties.Name="Dismiss this feedback request" Margin="0,0,0,8"/></WrapPanel>
+     </ui:Card>
+     <StackPanel x:Name="CalibrationResultPanel">
+      <TextBlock x:Name="ResultTitle" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font23}" Margin="0,0,0,8" AutomationProperties.LiveSetting="Polite"/>
+      <TextBlock x:Name="ResultDetail" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+      <TextBlock x:Name="ResultError" FontSize="{DynamicResource Font14}" Margin="0,0,0,8"/>
+      <StackPanel x:Name="ResultDetailsHost">
+       <Expander x:Name="ResultFindings" MinHeight="44" HorizontalContentAlignment="Stretch" Margin="0,8,0,0">
+        <Expander.Header><TextBlock Text="What needs attention" FontSize="{DynamicResource Font14}" TextWrapping="Wrap"/></Expander.Header>
+        <ItemsControl x:Name="ResultLines" Margin="0,12,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" FontSize="{DynamicResource Font14}" TextWrapping="Wrap" Margin="0,0,0,8"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+       </Expander>
       </StackPanel>
-     </Border>
-     <StackPanel x:Name="Page"/>
+      <WrapPanel x:Name="ResultFiles" Margin="0,12,0,0">
+       <ui:Button Content="Show file" Click="ShowBenchmarkFile" Appearance="Primary" Margin="0,0,8,8"/>
+       <Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/>
+      </WrapPanel>
+     </StackPanel>
+     <CheckBox x:Name="slowMode" Content="More time for each pose" Click="SlowModeClick" Margin="0,12,0,0"/>
+     <ui:Card x:Name="FaceCalibrationOptions">
+      <StackPanel>
+       <TextBlock Text="Face calibration" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+       <TextBlock Text="Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+       <CheckBox x:Name="FaceLogCheck" Content="Save face-tracking logs on this PC (numbers only, no images)" Click="FaceLogClick" Margin="0,8,0,0"/>
+      </StackPanel>
+     </ui:Card>
+     <ui:Card x:Name="testerCard">
+      <StackPanel>
+       <TextBlock Text="Help improve tracking" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+       <StackPanel>
+        <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+        <TextBlock Text="{Binding Id, StringFormat=You’re a tester. Your tester ID is {0}.}" AutomationProperties.Name="{Binding Id, StringFormat=Tester ID {0}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <TextBlock Text="Record a benchmark, then send the file it makes to the QFT+ developer directly. Use your tester ID to ask for your recordings to be deleted." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <WrapPanel Margin="0,8,0,0">
+         <ui:Button Content="Record a benchmark" Click="RecordBenchmark" Appearance="Primary" Margin="0,0,8,8"/>
+         <Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/>
+         <Button Content="Stop being a tester" Click="LeaveTesting" AutomationProperties.HelpText="Benchmark is removed from Calibration. Recordings already on this PC stay there." Margin="0,0,8,8"/>
+        </WrapPanel>
+       </StackPanel>
+       <StackPanel>
+        <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+        <TextBlock Text="Record a short session and send it to the QFT+ developer. Recordings from many different faces make tracking better for everyone." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <Expander Header="What’s shared" IsExpanded="True" Margin="0,8,0,0">
+         <StackPanel>
+          <StackPanel.Resources><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="{DynamicResource Font13}"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="Margin" Value="0,0,0,8"/></Style></StackPanel.Resources>
+          <TextBlock Text="• Small infrared images of your eyes, brows and mouth from the headset’s face cameras, and the expression values the headset reports."/>
+          <TextBlock Text="• No audio, no color camera, and no name or account. Each recording carries a random tester ID instead."/>
+          <TextBlock Text="• Recordings are used only to test and improve QFT+ face tracking."/>
+          <TextBlock Text="• Nothing is sent automatically. You send recordings yourself, directly to the developer."/>
+          <TextBlock Text="• You can ask for your recordings to be deleted at any time with your tester ID."/>
+         </StackPanel>
+        </Expander>
+        <CheckBox x:Name="TesterConsent" Content="I agree to share the recordings I send" Margin="0,8,0,0"/>
+        <ui:Button Content="Become a tester" Click="JoinTesting" IsEnabled="{Binding IsChecked, ElementName=TesterConsent}" Appearance="Primary" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+       </StackPanel>
+      </StackPanel>
+     </ui:Card>
+     </StackPanel>
     </StackPanel>
    </ScrollViewer>
-   <WrapPanel x:Name="Actions" Grid.Row="3" Margin="0,16,0,0"/>
+   <WrapPanel x:Name="Actions" Grid.Row="3" Margin="0,16,0,0">
+    <ui:Button x:Name="begin" Content="Start calibration" Click="BeginCalibration" Appearance="Primary"/>
+    <Button x:Name="pause" Content="Pause" Tag="pause" Click="GuideCommand"/>
+    <Button x:Name="skip" Content="Skip pose" Tag="skip" Click="GuideCommand" Margin="8,0,0,0"/>
+    <Button x:Name="cancel" Content="Cancel" Click="CancelCalibration" Margin="12,0,0,0"/>
+    <Button x:Name="review" Content="Review video" Click="ReviewCalibration" Margin="12,0,0,0"/>
+   </WrapPanel>
   </Grid>
  </Grid>
 </Window>

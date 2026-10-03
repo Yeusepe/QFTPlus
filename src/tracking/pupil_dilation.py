@@ -80,10 +80,8 @@ def relative_values(pupils, profile):
         return None
     small, large = np.asarray(profile["small"]), np.asarray(profile["large"])
     span = large-small
-    values = np.full(2, np.nan)
-    for i, pupil in enumerate(pupils):
-        if pupil is not None and small[i]-.35*span[i] <= pupil.diameter_px <= large[i]+.35*span[i]:
-            values[i] = (pupil.diameter_px-small[i])/span[i]
+    d = np.array([np.nan if p is None else p.diameter_px for p in pupils])
+    values = np.where((d >= small - .35 * span) & (d <= large + .35 * span), (d - small) / span, np.nan)
     if np.isnan(values).all():
         return None
     return np.clip(np.where(np.isnan(values), np.nanmean(values), values), 0, 1)
@@ -152,7 +150,7 @@ class PupilDilation:
         if now-self.last_detection < .125:
             return
         self.last_detection = now
-        if self._executor is not None and self.phase is None:
+        if self._executor is not None:
             self._pending = self._executor.submit(self._update, strip)
         else:
             self._update(strip)

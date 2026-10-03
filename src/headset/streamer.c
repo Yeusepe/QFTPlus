@@ -264,7 +264,7 @@ static void *stream_worker(void *unused) {
             uint64_t interval = UINT64_C(1000000000) / max_fps;
             if (next_capture_at && now < next_capture_at) {
                 uint64_t remaining_us = (next_capture_at - now) / 1000;
-                usleep((useconds_t)(remaining_us > 2000 ? 2000 : remaining_us));
+                usleep((useconds_t)(remaining_us > 20000 ? 20000 : remaining_us));
                 continue;
             }
             next_capture_at = now + interval;

@@ -10,18 +10,18 @@ public partial class StudioWindow
     bool installingUpdate;
     readonly CancellationTokenSource updateLifetime = new();
     Velopack.SemanticVersion? installedVersion;
-    Velopack.UpdateInfo? availableUpdate;
+    internal Velopack.UpdateInfo? availableUpdate;
     string? AvailableVersion => availableUpdate?.TargetFullRelease.Version.ToString();
-    string? dismissedUpdate;
-    string updateStatus = "";
-    bool checkingUpdates;
+    internal string? dismissedUpdate;
+    internal string updateStatus = "";
+    internal bool checkingUpdates;
     int updatePercent = -1;
-    DateTime lastUpdateAttempt = DateTime.MinValue;
+    internal DateTime lastUpdateAttempt = DateTime.MinValue;
     Action? updateRefresh;
 
     void InitializeUpdates()
     {
-        installedVersion = Updates.Installed(session.Root);
+        installedVersion = Updates.Installed();
         if (!preview && installedVersion is not null) updater = Updates.Manager(installedVersion);
         dismissedUpdate = session.Config["dismissedUpdate"]?.GetValue<string>();
         async Task CheckIfDue()
@@ -54,11 +54,11 @@ public partial class StudioWindow
         finally { checkingUpdates = false; if (!updateLifetime.IsCancellationRequested) RefreshUpdates(); }
     }
 
-    void RefreshUpdates()
+    internal void RefreshUpdates()
     {
         UpdateBanner.Visibility = page == "Tracking" && availableUpdate is not null && AvailableVersion != dismissedUpdate
             ? Visibility.Visible : Visibility.Collapsed;
-        UpdateMessage.Text = availableUpdate is null ? "" : installingUpdate ? updateStatus
+        UpdateMessage.Message = availableUpdate is null ? "" : installingUpdate ? updateStatus
             : $"QFT+ {AvailableVersion} is available. Installing takes a few minutes"
               + (session.Running ? " and stops tracking until it’s done" : "") + ". Your settings, calibrations, and recordings stay.";
         InstallUpdateButton.Visibility = availableUpdate is null ? Visibility.Collapsed : Visibility.Visible;
@@ -176,7 +176,7 @@ public partial class StudioWindow
         var install = AsyncButton("Install update", InstallUpdate);
         var view = Button("View releases", OpenUpdate);
         foreach (var button in new[] { install, check, view }) { button.Margin = new(0, 0, 8, 8); actions.Children.Add(button); }
-        var automatic = new CheckBox { Content = new TextBlock { Text = "Check for updates automatically" }, IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
+        var automatic = new CheckBox { Content = "Check for updates automatically", IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
         automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
         panel.Children.Add(automatic);
         panel.Children.Add(Text(updater is null ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."

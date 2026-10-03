@@ -233,7 +233,7 @@ def main() -> int:
             if pupils is not None:
                 pupils.update(strip, preview=time.monotonic() - shared.pupil_requested_at < 1.)
             if face is not None:
-                face.update(strip, labels.nearest_sample(now_ns), labels.schema_names, now_ns)
+                face.update(strip, labels.latest, labels.schema_names, now_ns)
     except ReceiverStopped:
         pass
     finally:

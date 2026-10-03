@@ -124,7 +124,7 @@ function restore(fallback=false) {
 }
 function renew(seconds) {
     if(!Number.isFinite(seconds) || seconds<1 || seconds>60 ||
-        (state!=='starting' && state!=='running'))throw new Error('Invalid lease');
+        (state!=='starting' && state!=='applying' && state!=='running'))throw new Error('Invalid lease');
     if(deadline!==null)clearTimeout(deadline);
     deadline=setTimeout(requestRestore,seconds*1000);
 }

@@ -31,6 +31,9 @@ internal static class PythonRuntime
         {
             if (!File.Exists(archive) || !Directory.Exists(wheels)) throw new IOException("Bundled components are missing. Reinstall QFT+.");
             if (WorkingCopy.Hash(archive) != ArchiveHash) throw new IOException("The Python archive failed verification. Reinstall QFT+.");
+            try { if (Directory.Exists(runtime)) Directory.Delete(runtime, true); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { throw new IOException("The previous PC components are still in use. Wait a moment, then try again.", error); }
             Directory.CreateDirectory(runtime);
             ZipFile.ExtractToDirectory(archive, runtime, true);
             WritePythonPath(runtime);
@@ -38,7 +41,7 @@ internal static class PythonRuntime
             if (!File.Exists(pip) || WorkingCopy.Hash(pip) != pipHash) throw new IOException("The package installer failed verification. Reinstall QFT+.");
         }, token);
         if (await RunAsync(Exe(root), ["-c", "import sys,runpy; sys.path.insert(0,sys.argv.pop(1)); runpy.run_module('pip',run_name='__main__')", pip,
-                "install", "--require-hashes", "--no-deps", "--no-index", "--no-compile", "--disable-pip-version-check", "--upgrade",
+                "install", "--require-hashes", "--no-deps", "--no-index", "--no-compile", "--no-cache-dir", "--disable-pip-version-check", "--upgrade",
                 "--find-links", wheels, "--target", Path.Combine(runtime, "Lib", "site-packages"), "-r", requirements], token) != 0)
             throw new IOException("Package installation failed. The Setup log has the details.");
         if (await RunAsync(Exe(root), ["-c", Check], token) != 0) throw new IOException("The PC components didn’t install correctly. The Setup log has the details.");
@@ -50,8 +53,11 @@ internal static class PythonRuntime
 
     internal static async Task<int> RunAsync(string exe, string[] args, CancellationToken token)
     {
-        var (code, text) = await Processes.RunAsync(exe, args, token, 1800);
-        if (text.Trim().Length > 0) Session.Log(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(exe))!, "setup.log"), $"{DateTimeOffset.Now:O} {text.Trim()}");
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(exe))!;
+        var info = Processes.Info(exe, args);
+        info.Environment["TEMP"] = info.Environment["TMP"] = Directory.CreateDirectory(Path.Combine(Session.Temp(root), "setup")).FullName;
+        var (code, text) = await Processes.RunAsync(info, token, 1800);
+        if (text.Trim().Length > 0) Session.Log(Path.Combine(root, "setup.log"), $"{DateTimeOffset.Now:O} {text.Trim()}");
         return code;
     }
 }

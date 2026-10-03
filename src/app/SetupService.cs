@@ -328,30 +328,11 @@ internal sealed class SetupService(string root)
     private Task<(int Code, string Text)> ProbeAsync(string[] args, CancellationToken token, int seconds = 4, string? successPrefix = null) =>
         Processes.RunAsync(adb, args, token, seconds, successPrefix);
 
-    internal static string? SteamApp(string id)
-    {
-        var steam = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-        steam ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam");
-        var libraries = new List<string> { steam };
-        var vdf = Path.Combine(steam, "steamapps/libraryfolders.vdf");
-        if (File.Exists(vdf)) libraries.AddRange(Regex.Matches(File.ReadAllText(vdf), "\"path\"\\s+\"([^\"]+)\"").Select(m => m.Groups[1].Value.Replace(@"\\", @"\")));
-        foreach (var library in libraries.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            var manifest = Path.Combine(library, "steamapps", $"appmanifest_{id}.acf");
-            if (!File.Exists(manifest)) continue;
-            var match = Regex.Match(File.ReadAllText(manifest), "\"installdir\"\\s+\"([^\"]+)\"");
-            if (match.Success)
-            {
-                var path = Path.GetFullPath(Path.Combine(library, "steamapps/common", match.Groups[1].Value));
-                if (Directory.Exists(path) && File.Exists(Path.Combine(path, id == "3329480" ? "VRCFaceTracking.exe" : "bin/win64/vrserver.exe"))) return path;
-            }
-        }
-        return null;
-    }
+    internal static bool SteamAppInstalled(string id) => Registry.GetValue($@"HKEY_CURRENT_USER\Software\Valve\Steam\Apps\{id}", "Installed", 0) is 1;
 
     private async Task WaitForSteamAppAsync(string id, string name, CancellationToken token)
     {
-        while (SteamApp(id) is null)
+        while (!SteamAppInstalled(id))
         {
             var steam = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
             if (steam is null || !File.Exists(Path.Combine(steam, "steam.exe")))

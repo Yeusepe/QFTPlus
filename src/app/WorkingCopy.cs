@@ -12,6 +12,21 @@ internal static class WorkingCopy
     const string Sums = "SHA256SUMS.txt", Exe = "QproFaceTracking.exe";
     const StringComparison Ignore = StringComparison.OrdinalIgnoreCase;
 
+    internal static string InstanceName(string directory) => "Local\\QFTPlus." + Convert.ToHexString(SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(directory).TrimEnd('\\', '/').ToUpperInvariant())));
+
+    internal static string SelectRoot(string? installed, string? requested, string fallback) =>
+        Path.GetFullPath(installed ?? requested ?? fallback);
+
+    internal static void RememberApp(string configPath, string executable)
+    {
+        if (!File.Exists(configPath)) return;
+        var settings = CalibrationSettings.ReadJson(configPath);
+        if (string.Equals(settings["studioApp"]?.GetValue<string>(), executable, Ignore)) return;
+        settings["studioApp"] = executable;
+        CalibrationSettings.WriteJson(configPath, settings);
+    }
+
     internal static string? Installed()
     {
         if (!VelopackLocator.IsCurrentSet || VelopackLocator.Current is not { IsPortable: false, AppContentDir: { } content, UpdateExePath: { } update }

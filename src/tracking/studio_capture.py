@@ -72,7 +72,7 @@ class StudioCapture:
                 self.label_sequence = self.label_schema = None
                 self.open_video()
             else:
-                self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False)
+                self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False, asynchronous=True)
                 self.pupil.calibrate()
         elif action == 'cancel':
             self.finish(False)
@@ -144,7 +144,7 @@ class StudioCapture:
                     guided.note_frame(self.writer.frame_count, monotonic_ns)
                 self.writer.write(header, payload, monotonic_ns, time.time_ns())
                 self.last_record = now
-            label = labels.nearest_sample(monotonic_ns) if labels else None
+            label = labels.latest if labels else None
             if isinstance(guided, EnrollmentSession):
                 fingerprint = zlib.crc32(payload)
                 guided.observe(strip, fresh_values(label, labels.schema_names, monotonic_ns), fingerprint == self.last_hash)

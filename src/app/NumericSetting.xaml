@@ -1,0 +1,10 @@
+<UserControl x:Class="QFTPlus.NumericSetting" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+ <StackPanel Margin="0,0,0,16">
+  <DockPanel>
+   <TextBlock x:Name="Unit" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0"/>
+   <ui:NumberBox x:Name="Number" DockPanel.Dock="Right" MinWidth="150" Margin="16,0,0,0" ClearButtonEnabled="False"/>
+   <TextBlock x:Name="Title" VerticalAlignment="Center"/>
+  </DockPanel>
+  <Slider x:Name="Track" MinHeight="40" AutomationProperties.Name="{Binding Text, ElementName=Title}" AutomationProperties.HelpText="{Binding ToolTip, ElementName=Number}"/>
+ </StackPanel>
+</UserControl>

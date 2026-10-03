@@ -1,0 +1,15 @@
+<UserControl x:Class="QFTPlus.LogViewer" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+   <ui:CardExpander x:Name="LogExpander" Expanded="RefreshLog" Header="Diagnostics" Margin="0,0,0,16">
+    <StackPanel>
+     <TextBlock x:Name="LogLabel" Text="Log" Margin="0,0,0,8"/>
+     <ComboBox x:Name="LogPicker" SelectionChanged="SelectLog" Margin="0,0,0,8" AutomationProperties.Name="Log" AutomationProperties.LabeledBy="{Binding ElementName=LogLabel}"/>
+     <TextBlock x:Name="LogCaption" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
+     <TextBox x:Name="LogText" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="True" Height="300" TextWrapping="Wrap" VerticalContentAlignment="Top" FontFamily="Cascadia Mono, Consolas" FontSize="{DynamicResource Font12}" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="Log contents"/>
+     <WrapPanel Margin="0,12,0,0">
+      <Button x:Name="CopyLogButton" Click="CopyLog" Content="Copy log" Margin="0,0,8,8"/>
+      <Button x:Name="OpenLogButton" Click="OpenLog" Content="Open in editor" Margin="0,0,8,8"/>
+      <Button x:Name="RecordingsButton" Click="OpenRecordings" Content="Open recordings" Margin="0,0,8,8"/>
+     </WrapPanel>
+    </StackPanel>
+   </ui:CardExpander>
+</UserControl>

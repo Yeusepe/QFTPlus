@@ -9,17 +9,18 @@ namespace QFTPlus;
 internal sealed class Session
 {
     internal readonly string Root;
-    internal readonly string ConfigPath;
+    internal string ConfigPath;
     internal event Action<string>? Changed;
     internal Process? Hybrid;
-    Tracking? tracking;
+    internal Tracking? tracking;
     bool attempted;
-    SetupService? setup;
+    internal SetupService? setup;
     CancellationTokenSource cancelStart = new();
-    Task? hybridRestart;
-    (Task<HeadsetCleanup?> Started, string Target)? thumbrest;
-    DateTime hybridRetry;
-    bool handsSession, hybridReady, hybridPending, stopping;
+    internal Task? hybridRestart;
+    internal (Task<HeadsetCleanup?> Started, string Target)? thumbrest;
+    internal DateTime hybridRetry;
+    internal bool handsSession;
+    bool hybridReady, hybridPending, stopping;
     const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
     internal string HybridProblem = "";
     string? hybridIncompatible;
@@ -257,8 +258,11 @@ internal sealed class Session
         var info = Info(exe,args);
         info.RedirectStandardInput = info.RedirectStandardOutput = info.RedirectStandardError = true;
         foreach (var (key, value) in variables) info.Environment[key] = value;
+        var temp = OwnTemp(info);
         Rotate(Path.Combine(Root,log), clear: true);
-        var process = Process.Start(info) ?? throw new IOException("Could not start "+Path.GetFileName(exe));
+        var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+        process.Exited += (_, _) => _ = DeleteTemp(temp);
+        if (!process.Start()) throw new IOException("Could not start "+Path.GetFileName(exe));
         _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
         async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(Path.Combine(Root,log),text); } }
         return process;
@@ -281,6 +285,27 @@ internal sealed class Session
             try { if (new FileInfo(path) is { Exists: true, Length: > 4 << 20 }) File.Move(path, path + ".old", true); if (clear) File.WriteAllText(path, ""); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
+    internal static string Temp(string root) => Path.Combine(root, "temp");
+    string OwnTemp(ProcessStartInfo info)
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(Temp(Root), Guid.NewGuid().ToString("N")[..8])).FullName;
+        info.Environment["TEMP"] = info.Environment["TMP"] = folder;
+        return folder;
+    }
+    static async Task DeleteTemp(string folder)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, true); return; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { await Task.Delay(1000); }
+        }
+    }
+    internal static void ClearTemp(string root)
+    {
+        if (!Directory.Exists(Temp(root))) return;
+        foreach (var folder in Directory.GetDirectories(Temp(root)))
+            try { Directory.Delete(folder, true); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
     internal ProcessStartInfo Info(string exe, string[] args)
     {
         var info = Processes.Info(exe,args); info.WorkingDirectory=Root;
@@ -293,7 +318,9 @@ internal sealed class Session
     }
     internal async Task<(int Code,string Output)> Run(string exe,string[] args,bool allowFailure=false,int seconds=600)
     {
-        var (code,text)=await Processes.RunAsync(Info(exe,args),default,seconds);
+        var info = Info(exe,args); var temp = OwnTemp(info);
+        var (code,text)=await Processes.RunAsync(info,default,seconds);
+        _ = DeleteTemp(temp);
         Rotate(Path.Combine(Root,"studio.log")); Log(Path.Combine(Root,"studio.log"),text);
         if(code!=0&&!allowFailure) throw new IOException("Couldn’t finish this step. The Components log in Settings has the details.");
         return (code,text);

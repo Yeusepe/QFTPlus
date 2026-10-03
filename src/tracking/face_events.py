@@ -161,17 +161,20 @@ class FaceEvents:
         return out
 
     def _log(self, now_ns, values, out, sample, fresh):
-        if self.log_file is None or self.log_file.tell() > self.log_max:
+        if self.log_file is None or self.log_bytes > self.log_max:
             if self.log_file is not None:
                 self.log_file.close(); self.log_part += 1
             path = self.log_path if not self.log_part else self.log_path.with_name(f"{self.log_path.stem}.{self.log_part}{self.log_path.suffix}")
             path.parent.mkdir(parents=True, exist_ok=True)
             self.log_file = path.open("a", encoding="utf-8", buffering=1 << 16)
+            self.log_bytes = self.log_file.tell()
         r = lambda d: {k: round(float(d[k]), 4) for k in self.config if k in d}
-        self.log_file.write(json.dumps({"t": now_ns, "raw": r(values), "out": r(out), "on": [k for k in self.config if self.on[k]],
-                                        "speaking": bool(self.speaking), "native": bool(fresh),
-                                        "seq": sample.get("sourceSequence") if sample else None,
-                                        "neutral": {k: round(v, 4) for k, v in self.neutral.items() if v}}) + "\n")
+        line = json.dumps({"t": now_ns, "raw": r(values), "out": r(out), "on": [k for k in self.config if self.on[k]],
+                           "speaking": bool(self.speaking), "native": bool(fresh),
+                           "seq": sample.get("sourceSequence") if sample else None,
+                           "neutral": {k: round(v, 4) for k, v in self.neutral.items() if v}}) + "\n"
+        self.log_file.write(line)
+        self.log_bytes += len(line)
 
     def close(self):
         if self.log_file is not None:

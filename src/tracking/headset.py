@@ -25,9 +25,11 @@ DONE = "__QPRO_ROOT_DONE_"
 def stop_event() -> threading.Event:
     """Set once QFT+ closes this process's stdin."""
     stopped = threading.Event()
+    stdin_fd = sys.stdin.fileno()
     def wait():
         try:
-            sys.stdin.buffer.read()
+            while os.read(stdin_fd, 4096):
+                pass
         finally:
             stopped.set()
     threading.Thread(target=wait, name="stop-on-stdin-close", daemon=True).start()

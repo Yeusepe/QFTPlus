@@ -13,12 +13,7 @@ internal static class Processes
         return processes.Length > 0;
     }
 
-    internal static ProcessStartInfo Info(string exe, IEnumerable<string> args)
-    {
-        var info = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true };
-        foreach (var arg in args) info.ArgumentList.Add(arg);
-        return info;
-    }
+    internal static ProcessStartInfo Info(string exe, IEnumerable<string> args) => new(exe, args) { CreateNoWindow = true };
 
     internal static Task<(int Code, string Text)> RunAsync(string exe, IEnumerable<string> args, CancellationToken token = default, int seconds = 15, string? successPrefix = null) =>
         RunAsync(Info(exe, args), token, seconds, successPrefix);

@@ -70,7 +70,7 @@ def wait_for_hand_frames(quest, keep_alive, timeout=30):
         state = quest.exports_sync.status()
         if state['state'] == 'running' and state.get('frames', 0) > 0:
             return
-        if state['state'] not in ('starting', 'running'):
+        if state['state'] not in ('starting', 'applying', 'running'):
             raise RuntimeError(state.get('reason') or 'Headset hook stopped before tracking began')
         if time.monotonic() >= end:
             raise RuntimeError('No headset tracking frames received. Wear the headset and connect Virtual Desktop.')
@@ -253,7 +253,7 @@ def main():
             """Every hook must still be active; then all three leases are extended. Returns the PC and controller status."""
             keep_alive()
             state = quest.exports_sync.status()
-            if state['state'] not in ('starting', 'running'):
+            if state['state'] not in ('starting', 'applying', 'running'):
                 raise RuntimeError(state.get('reason') or 'Headset hook stopped ' + when)
             pc_state = pc.exports_sync.status()
             if not pc_state['running']:

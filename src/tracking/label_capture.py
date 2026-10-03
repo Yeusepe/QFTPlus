@@ -1,5 +1,4 @@
 """Factory (Meta) expression samples forwarded over UDP by the label bridge, for live fusion and calibration."""
-
 from __future__ import annotations
 
 import json
@@ -9,135 +8,74 @@ import threading
 import time
 
 FRESH_NS = 100_000_000
+EYES = {"leftEyeOrientation": 4, "leftEyePosition": 3, "rightEyeOrientation": 4, "rightEyePosition": 3}
 
 
-def fresh_values(sample: dict[str, object] | None, names: list[str], now_ns: int) -> dict[str, float] | None:
+def fresh_values(sample: dict | None, names: list[str], now_ns: int) -> dict[str, float] | None:
     """{name: value} of a native sample at most FRESH_NS from now_ns, else None."""
     if sample is None or not names or abs(int(sample["arrivalMonotonicNs"]) - now_ns) > FRESH_NS:
         return None
     return dict(zip(names, map(float, sample["values"])))
 
 
+def floats(value, count: int | None = None) -> list[float]:
+    if not isinstance(value, list) or len(value) > 512 or count is not None and len(value) != count:
+        raise ValueError("invalid list")
+    value = [float(v) for v in value]
+    if not all(map(math.isfinite, value)):
+        raise ValueError("non-finite value")
+    return value
+
+
+def sample_record(m: dict, names: list[str]) -> dict:
+    """A bridge sample as recorded: its timing renamed source*, eye fields defaulted, everything checked finite."""
+    record = {"type": "sample", "source": str(m.get("source", "Virtual Desktop")), "sourceSequence": int(m["sequence"]),
+              "sourceQpc": int(m["qpc"]), "sourceQpcFrequency": int(m["qpcFrequency"]), "sourceUtcUnixMs": int(m["utcUnixMs"]),
+              "sourceChangeSequence": int(m.get("sourceChangeSequence", 0)),
+              "sourceUnchangedMs": float(m.get("sourceUnchangedMs", -1.)),
+              "values": floats(m["values"], len(names) or None), "faceFlags": int(m.get("faceFlags", 0)),
+              **{k: bool(m.get(k, False)) for k in ("isEyeFollowingBlendshapesValid", "leftEyeIsValid", "rightEyeIsValid")},
+              **{k: float(m.get(k, 0.)) for k in ("leftEyeConfidence", "rightEyeConfidence")},
+              **{k: floats(m.get(k, [0.] * n), n) for k, n in EYES.items()}}
+    if (record["sourceSequence"] <= 0 or record["sourceQpc"] < 0 or record["sourceQpcFrequency"] <= 0
+            or record["sourceChangeSequence"] < 0 or record["sourceUnchangedMs"] < -1
+            or not math.isfinite(record["leftEyeConfidence"] + record["rightEyeConfidence"])):
+        raise ValueError("invalid sample")
+    return record
+
+
 class LabelSidecarRecorder:
     def __init__(self, port: int = 27274) -> None:
         self.schema_names: list[str] = []
-        self._latest: dict[str, object] | None = None
+        self.latest: dict | None = None
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("127.0.0.1", port))
         self._socket.settimeout(0.2)
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._receive_loop,
-            name="vrcft-label-receiver",
-            daemon=True,
-        )
+        self._thread = threading.Thread(target=self._receive, name="vrcft-label-receiver", daemon=True)
         self._thread.start()
 
-    def _receive_loop(self) -> None:
-        while self._running:
+    def _receive(self) -> None:
+        while self._socket.fileno() != -1:
             try:
                 data = self._socket.recv(65507)
             except socket.timeout:
                 continue
             except OSError:
-                break
-            arrival_monotonic_ns = time.monotonic_ns()
-            arrival_wall_ns = time.time_ns()
+                return
+            arrival = {"arrivalMonotonicNs": time.monotonic_ns(), "arrivalWallNs": time.time_ns()}
             try:
                 message = json.loads(data)
-                if not isinstance(message, dict) or message.get("v") != 1:
-                    raise ValueError("unsupported message")
-                message_type = message.get("type")
-                if message_type == "schema":
-                    names = message.get("names")
-                    if (not isinstance(names, list) or not names
-                            or len(names) > 512
-                            or any(not isinstance(name, str) or not name
-                                   for name in names)):
-                        raise ValueError("invalid schema")
-                    self.schema_names = names
-                elif message_type == "sample":
-                    values = message.get("values")
-                    if (not isinstance(values, list)
-                            or len(values) > 512
-                            or (self.schema_names
-                                and len(values) != len(self.schema_names))):
-                        raise ValueError("invalid values")
-                    numeric_values = [float(value) for value in values]
-                    if any(not math.isfinite(value) for value in numeric_values):
-                        raise ValueError("non-finite value")
-                    sequence = int(message["sequence"])
-                    qpc = int(message["qpc"])
-                    qpc_frequency = int(message["qpcFrequency"])
-                    if sequence <= 0 or qpc < 0 or qpc_frequency <= 0:
-                        raise ValueError("invalid timing")
-                    source_change_sequence = int(
-                        message.get("sourceChangeSequence", 0)
-                    )
-                    source_unchanged_ms = float(
-                        message.get("sourceUnchangedMs", -1.0)
-                    )
-                    if source_change_sequence < 0 or source_unchanged_ms < -1.0:
-                        raise ValueError("invalid source freshness")
-                    sample_record: dict[str, object] = {
-                        "type": "sample",
-                        "source": str(message.get("source", "Virtual Desktop")),
-                        "arrivalMonotonicNs": arrival_monotonic_ns,
-                        "arrivalWallNs": arrival_wall_ns,
-                        "sourceSequence": sequence,
-                        "sourceQpc": qpc,
-                        "sourceQpcFrequency": qpc_frequency,
-                        "sourceUtcUnixMs": int(message["utcUnixMs"]),
-                        "sourceChangeSequence": source_change_sequence,
-                        "sourceUnchangedMs": source_unchanged_ms,
-                        "values": numeric_values,
-                        "faceFlags": int(message.get("faceFlags", 0)),
-                        "isEyeFollowingBlendshapesValid": bool(
-                            message.get("isEyeFollowingBlendshapesValid", False)
-                        ),
-                        "leftEyeIsValid": bool(message.get("leftEyeIsValid", False)),
-                        "rightEyeIsValid": bool(message.get("rightEyeIsValid", False)),
-                        "leftEyeConfidence": float(
-                            message.get("leftEyeConfidence", 0.0)
-                        ),
-                        "rightEyeConfidence": float(
-                            message.get("rightEyeConfidence", 0.0)
-                        ),
-                    }
-                    for field_name, expected_count in (
-                        ("leftEyeOrientation", 4),
-                        ("leftEyePosition", 3),
-                        ("rightEyeOrientation", 4),
-                        ("rightEyePosition", 3),
-                    ):
-                        source_values = message.get(field_name, [0.0] * expected_count)
-                        if (not isinstance(source_values, list)
-                                or len(source_values) != expected_count):
-                            raise ValueError(f"invalid {field_name}")
-                        converted = [float(value) for value in source_values]
-                        if any(not math.isfinite(value) for value in converted):
-                            raise ValueError(f"non-finite {field_name}")
-                        sample_record[field_name] = converted
-                    numeric_metadata = (
-                        float(sample_record["leftEyeConfidence"]),
-                        float(sample_record["rightEyeConfidence"]),
-                    )
-                    if any(not math.isfinite(value) for value in numeric_metadata):
-                        raise ValueError("non-finite eye confidence")
-                    self._latest = sample_record
-                else:
-                    raise ValueError("unknown message type")
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                if message["v"] != 1:
+                    continue
+                if message["type"] == "schema":
+                    names = message["names"]
+                    if isinstance(names, list) and 0 < len(names) <= 512 and all(isinstance(n, str) and n for n in names):
+                        self.schema_names = names
+                elif message["type"] == "sample":
+                    self.latest = {**sample_record(message, self.schema_names), **arrival}
+            except (KeyError, TypeError, ValueError):
                 pass
 
-    def nearest_sample(self, monotonic_ns: int) -> dict[str, object] | None:
-        """ponytail: every caller asks for "now", and nothing is newer than the latest sample, so it is the nearest.
-        Records are never changed once stored."""
-        return self._latest
-
     def close(self) -> None:
-        if not self._running:
-            return
-        self._running = False
         self._socket.close()
         self._thread.join(timeout=1.0)

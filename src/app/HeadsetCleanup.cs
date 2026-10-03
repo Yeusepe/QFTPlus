@@ -6,7 +6,7 @@ namespace QFTPlus;
 internal sealed class HeadsetCleanup
 {
     readonly Process shell;
-    readonly TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously), done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal readonly TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously), done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     HeadsetCleanup(Session session, string target, string restore, string log)
     {

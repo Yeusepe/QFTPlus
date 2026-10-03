@@ -40,9 +40,8 @@ internal static class Uninstall
     {
         var script = $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue; foreach ($attempt in 1..10) {{ try {{ " +
             "[IO.Directory]::Delete($env:QFT_REMOVE, $true); break } catch { Start-Sleep 2 } }";
-        var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell/v1.0/powershell.exe"))
-        { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath(), Environment = { ["QFT_REMOVE"] = folder } };
-        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", script }) info.ArgumentList.Add(argument);
+        var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell/v1.0/powershell.exe"), ["-NoProfile", "-NonInteractive", "-Command", script])
+        { CreateNoWindow = true, WorkingDirectory = Path.GetTempPath(), Environment = { ["QFT_REMOVE"] = folder } };
         using var process = Process.Start(info) ?? throw new IOException("Windows PowerShell didn’t start.");
     }
 
@@ -79,6 +78,7 @@ internal static class Uninstall
         var links = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var runtime = Path.Combine(root, "runtime");
         if (Directory.Exists(runtime)) Gone(() => Directory.Delete(runtime, true));
+        if (Directory.Exists(Session.Temp(root))) Gone(() => Directory.Delete(Session.Temp(root), true));
         foreach (var cache in Directory.GetDirectories(root, "__pycache__", links)) Gone(() => Directory.Delete(cache, true));
         foreach (var file in Directory.GetFiles(root, "*", links))
             if (Path.GetFileName(file) is var name && (name.StartsWith(".qpro-", Ignore) || name.EndsWith(".pyc", Ignore) || name.Contains(".replaced-", Ignore)))

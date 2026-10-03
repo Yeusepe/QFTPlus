@@ -1,0 +1,22 @@
+<UserControl x:Class="QFTPlus.ThumbrestSettings" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <StackPanel>
+  <TextBlock Text="Thumbrest and trigger" FontWeight="SemiBold" FontSize="{DynamicResource Font16}" AutomationProperties.HeadingLevel="Level2" Margin="0,0,0,8"/>
+  <TextBlock Text="How the Quest Pro controllers’ thumbrests act in SteamVR. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+  <Button x:Name="Driver" Click="ToggleDriver" HorizontalAlignment="Left" Margin="0,12,0,8" AutomationProperties.HelpText="The QFT+ driver adds the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers."/>
+  <StackPanel x:Name="Options">
+   <TextBlock x:Name="ModeLabel" Text="Thumbrest mode" Margin="0,0,0,8"/>
+   <ComboBox x:Name="Mode" DisplayMemberPath="Title" SelectedValuePath="Id" AutomationProperties.Name="Thumbrest mode" AutomationProperties.LabeledBy="{Binding ElementName=ModeLabel}"/>
+   <TextBlock Text="{Binding SelectedItem.About, ElementName=Mode}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8,0,12"/>
+   <StackPanel x:Name="Angles"/>
+   <TextBlock Text="Turn until a straight up-and-down swipe reads as straight, like Steam Input’s trackpad rotation." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+   <StackPanel x:Name="Sensitivity"/>
+   <CheckBox x:Name="Resting" Content="Ignore a resting thumb" Tag="restingSize" Click="ToggleOption" Margin="0,0,0,8"/>
+   <CheckBox x:Name="Straighten" Content="Straighten scrolling" Tag="railAngle" Click="ToggleOption" Margin="0,0,0,16"/>
+   <CheckBox x:Name="Reversed" Content="Reverse trigger slide (normally, sliding toward the tip is up)" Tag="triggerSlideReversed" Click="ToggleOption" Margin="0,0,0,16"/>
+   <StackPanel x:Name="Joystick"/>
+   <StackPanel x:Name="Swipe"/>
+   <StackPanel x:Name="Mouse"/>
+  </StackPanel>
+  <TextBlock x:Name="Status" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+ </StackPanel>
+</UserControl>

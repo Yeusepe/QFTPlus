@@ -69,11 +69,9 @@ float Setting(const char *key, float fallback) {
 constexpr const char *kModes[] = {"native", "joystick", "swipe", "mouse"};
 
 Mode ReadMode() {
-    char text[32] = "";
-    EVRSettingsError error = VRSettingsError_None;
-    VRSettings()->GetString(kSection, "mode", text, sizeof(text), &error);
-    for (int i = 0; error == VRSettingsError_None && i < 4; i++)
-        if (std::strcmp(text, kModes[i]) == 0) return static_cast<Mode>(i);
+    std::string text = CVRSettingHelper(VRSettings()).GetString(kSection, "mode");
+    for (int i = 0; i < 4; i++)
+        if (text == kModes[i]) return static_cast<Mode>(i);
     return Mode::Native;
 }
 
@@ -186,7 +184,7 @@ bool Patch(void *target) {
 }
 
 bool Hook() {
-    auto *host = static_cast<IVRServerDriverHost *>(VRDriverContext()->GetGenericInterface(IVRServerDriverHost_Version));
+    IVRServerDriverHost *host = VRServerDriverHost();
     if (host == nullptr) return false;
     g_slot = *reinterpret_cast<void ***>(host);
     g_added = reinterpret_cast<AddedFn>(g_slot[0]);

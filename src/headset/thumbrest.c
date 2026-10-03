@@ -142,16 +142,18 @@ static void stream(int client, Source *source) {
             checked = monotonic_nanoseconds();
             if (!ensure_source(source)) memset(have, 0, sizeof have);
         }
+        uint8_t packets[4 * PACKET_BYTES];
+        size_t used = 0;
         for (int side = 0; side < 2 && source->pages[side] != NULL; side++) {
             for (int kind = 0; kind < 2; kind++) {
                 uint32_t seq;
-                uint8_t packet[PACKET_BYTES];
-                if (!read_packet(source->pages[side], kind, side, &seq, packet) || (have[kind][side] && seq == sent[kind][side])) continue;
-                if (!send_all(client, packet, sizeof packet)) return;
+                if (!read_packet(source->pages[side], kind, side, &seq, packets + used) || (have[kind][side] && seq == sent[kind][side])) continue;
+                used += PACKET_BYTES;
                 sent[kind][side] = seq;
                 have[kind][side] = 1;
             }
         }
+        if (used && !send_all(client, packets, used)) return;
         int ready = poll(&watch, 1, 1);
         if (ready < 0 && errno != EINTR) return;
         if (ready > 0) {

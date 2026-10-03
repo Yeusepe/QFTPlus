@@ -9,16 +9,17 @@ internal static class Program
     VelopackApp.Build().OnBeforeUninstallFastCallback(_=>Uninstall.Run(WorkingCopy.Folder)).Run();
     System.Windows.Forms.Application.EnableVisualStyles();
     var rootIndex=Array.IndexOf(args,"--root");
-    using var mutex=new Mutex(true, "Local\\QFTPlus",out var first);
-    using var show=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\QFTPlus.Show");
+    var instance = WorkingCopy.InstanceName(AppContext.BaseDirectory);
+    using var mutex = new Mutex(true, instance, out var first);
+    using var show = new EventWaitHandle(false, EventResetMode.AutoReset, instance + ".Show");
     if(!first) { if(!args.Contains("--from-vrcft")) show.Set(); return; }
     string root;
     try
     {
         var installed=WorkingCopy.Installed();
         var working=installed is null?null:WorkingCopy.Prepare(installed);
-        root=Path.GetFullPath(rootIndex>=0?args[rootIndex+1]:working
-            ??(File.Exists(Path.Combine(AppContext.BaseDirectory,"release-manifest.json"))?AppContext.BaseDirectory:Directory.GetCurrentDirectory()));
+        root = WorkingCopy.SelectRoot(working, rootIndex >= 0 ? args[rootIndex + 1] : null, File.Exists(Path.Combine(AppContext.BaseDirectory, "release-manifest.json")) ? AppContext.BaseDirectory : Directory.GetCurrentDirectory());
+        if (installed is not null) WorkingCopy.RememberApp(SetupService.AutoPath, Environment.ProcessPath!);
     }
     catch(Exception error) when(error is IOException or UnauthorizedAccessException)
     {
@@ -26,12 +27,12 @@ internal static class Program
             Text=(SteamVrDriver.Loaded()?"SteamVR is using the QFT+ driver from it. Close SteamVR, then open QFT+ again.":"Close other QFT+ windows, then open QFT+ again.")+"\n\n"+error.Message});
         return;
     }
+    Session.ClearTemp(root);
     try{CalibrationSettings.RemoveLegacy(root,SetupService.AutoPath);}
     catch(Exception error) when(error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException){System.Diagnostics.Trace.WriteLine("Removing older calibrations: "+error.Message);}
     var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
-#pragma warning disable WPF0001
-    app.ThemeMode=ThemeMode.System;
-#pragma warning restore WPF0001
+    app.Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ThemesDictionary());
+    app.Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ControlsDictionary());
     var window=new StudioWindow(root);
     app.MainWindow=window;
     var registration=ThreadPool.RegisterWaitForSingleObject(show,(_,_)=>window.Dispatcher.BeginInvoke(()=>{window.Show();window.WindowState=WindowState.Normal;window.Activate();}),null,-1,false);

@@ -91,7 +91,7 @@ class UniversalFace:
                 or set(brow_head) != BROW_HEAD or meta["slots"] != SLOTS or meta["browNames"] != BROWS
                 or hashlib.sha256(graph).hexdigest() != meta["graphSha256"]):
             raise ValueError("Not a universal face model: " + path.name)
-        if enabled and meta["approvedForOutput"] is not True:
+        if (enabled or (tongue is not None and tongue.enabled)) and meta["approvedForOutput"] is not True:
             raise ValueError("Universal face model has not been approved for output: " + path.name)
         self.names = list(meta["names"])
         if not set(CHEEKS) <= set(self.names):
@@ -198,8 +198,8 @@ class UniversalFace:
             if self.send_shares:
                 packet["shares"] = {b + side: round(float(v), 4) for b, sh in self.share.items() for side, v in (("Left", sh), ("Right", 1 - sh))}
             self.socket.sendto(json.dumps(packet).encode(), ("127.0.0.1", 27275))
-            if self.tongue is not None:
-                self.tongue.send(max(0.4, tongue_native), horizontal, vertical, self.events.on["TongueOut"])
+        if self.tongue is not None:
+            self.tongue.send(max(0.4, tongue_native), horizontal, vertical, self.events.on["TongueOut"])
 
     def close(self):
         with GPU_LOCK:

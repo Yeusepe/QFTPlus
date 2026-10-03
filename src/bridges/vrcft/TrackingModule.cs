@@ -42,7 +42,10 @@ public sealed class TrackingModule : ExtTrackingModule
         (44, [33]), (46, [32]), (48, [71]), (49, [70]),
         (50, [29]), (51, [51]), (52, [50]), (53, [53, 55]),
         (54, [52, 54]), (55, [49]), (56, [48]),
-        (61, [45, 47]), (62, [44, 46])
+        (61, [45, 47]), (62, [44, 46]),
+        (0, [5, 7]), (1, [4, 6]), (22, [9]), (23, [8]),
+        (28, [1]), (29, [0]), (57, [11]), (58, [10]),
+        (59, [3]), (60, [2])
     ];
 
     private readonly byte[] _first = new byte[StateBytes];
@@ -68,14 +71,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private bool _needsEye;
     private bool _needsExpression;
     private long _lastGazeTick;
-    private long _leftGazeHeldTick;
-    private long _rightGazeHeldTick;
-    private long _leftBlinkTick;
-    private long _rightBlinkTick;
-    private float _leftGazeX;
-    private float _leftGazeY;
-    private float _rightGazeX;
-    private float _rightGazeY;
+    private readonly float[] _gaze = new float[4];
+    private readonly long[] _blinkTick = new long[2], _heldTick = new long[2];
     private byte _gazeFlags;
     private readonly float[] _tongueValues = new float[12];
     private ushort _tongueMask = 0xFFF;
@@ -204,12 +201,15 @@ public sealed class TrackingModule : ExtTrackingModule
                 UpdateEyes(expressions);
             if (_needsExpression)
                 UpdateMouth(expressions, _second[0]);
+            foreach (var (source, targets) in ExpressionMap)
+                foreach (int target in targets)
+                    if (Wanted(target)) Set(target, expressions[source]);
             _shapes.CopyTo(_input, 0);
             var shares = _extraFace.CurrentShares(now);
             foreach (var (leftName, rightName, left, right) in SharePairs)
             {
                 if (!shares.TryGetValue(leftName, out float shareLeft) || !shares.TryGetValue(rightName, out float shareRight)) continue;
-                if (left <= 11 ? !_needsEye : !_needsExpression) continue;
+                if (!Wanted(left)) continue;
                 var (fusedLeft, fusedRight) = ExtraFaceState.Split(_shapes[left], _shapes[right], shareLeft, shareRight);
                 if (!_adjustments.Passthrough(leftName)) Set(_input, left, fusedLeft);
                 if (!_adjustments.Passthrough(rightName)) Set(_input, right, fusedRight);
@@ -217,7 +217,7 @@ public sealed class TrackingModule : ExtTrackingModule
             foreach (var entry in _extraFace.Current(now))
             {
                 if (_adjustments.Passthrough(entry.Key) || !ShapeIndices.TryGetValue(entry.Key, out int index)) continue;
-                if (index <= 11 ? !_needsEye : !_needsExpression) continue;
+                if (!Wanted(index)) continue;
                 Set(_input, index, entry.Value);
             }
             AdjustOutput(now);
@@ -240,6 +240,8 @@ public sealed class TrackingModule : ExtTrackingModule
             _map?.Dispose();
         }
     }
+
+    private bool Wanted(int shape) => shape <= 11 ? _needsEye : _needsExpression;
 
     private void StartLocalRuntime()
     {
@@ -309,30 +311,22 @@ public sealed class TrackingModule : ExtTrackingModule
             try { report = DateTime.UtcNow - File.GetLastWriteTimeUtc(Path.Combine(_settingsRoot, "output-status.lease")) <= TimeSpan.FromSeconds(3); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { report = false; }
         }
-        JsonObject? inputs = report ? new() : null, outputs = report ? new() : null;
-        foreach (var (index, name) in Shapes)
+        JsonObject inputs = new(), outputs = new();
+        void Adjust(string name, float[] from, float[] to, int index, float neutral, float minimum, float maximum, int partner)
         {
-            if (index<=11?!_needsEye:!_needsExpression) continue;
-            var value=_input[index];
-            if (report) inputs![name] = float.IsFinite(value) ? value : 0;
             if (_adjustments.Enabled(name))
             {
-                float? partner = ShapePartners.TryGetValue(index, out var other) ? _input[other] : null;
-                Set(_output,index,_adjustments.Apply(name,value,0,0,1,dt,utc,partner));
+                to[index] = _adjustments.Apply(name, from[index], neutral, minimum, maximum, dt, utc, partner < 0 ? null : from[partner]);
+                if (to == _output) _owned[index] = true;
             }
-            if (report) outputs![name] = float.IsFinite(_output[index]) ? _output[index] : 0;
+            if (!report) return;
+            inputs[name] = float.IsFinite(from[index]) ? from[index] : 0;
+            outputs[name] = float.IsFinite(to[index]) ? to[index] : 0;
         }
-        if (_needsEye)
-        {
-            for(var i=0;i<EyeKeys.Length;i++)
-            {
-                var name=EyeKeys[i];
-                if (report) inputs![name] = float.IsFinite(_eyes[i]) ? _eyes[i] : 0;
-                if (_adjustments.Enabled(name))
-                    _eyeOutput[i]=_adjustments.Apply(name,_eyes[i],i is 4 or 5?.5f:i>=6?1:0,i<4?-1.2f:0,i<4?1.2f:1,dt,utc,EyePartners[i]<0?null:_eyes[EyePartners[i]]);
-                if (report) outputs![name] = float.IsFinite(_eyeOutput[i]) ? _eyeOutput[i] : 0;
-            }
-        }
+        foreach (var (index, name) in Shapes)
+            if (Wanted(index)) Adjust(name, _input, _output, index, 0, 0, 1, ShapePartners.GetValueOrDefault(index, -1));
+        for (int i = 0; _needsEye && i < EyeKeys.Length; i++)
+            Adjust(EyeKeys[i], _eyes, _eyeOutput, i, i is 4 or 5 ? .5f : i >= 6 ? 1 : 0, i < 4 ? -1.2f : 0, i < 4 ? 1.2f : 1, EyePartners[i]);
         if (!report) return;
         try
         {
@@ -457,7 +451,7 @@ public sealed class TrackingModule : ExtTrackingModule
         var gaze = MemoryMarshal.Cast<byte, float>(packet[8..]);
         foreach (float value in gaze) if (!float.IsFinite(value)) return false;
         _gazeFlags = packet[5];
-        (_leftGazeX, _leftGazeY, _rightGazeX, _rightGazeY) = (gaze[0], gaze[1], gaze[2], gaze[3]);
+        gaze.CopyTo(_gaze);
         _lastGazeTick = now;
         return true;
     }
@@ -465,14 +459,9 @@ public sealed class TrackingModule : ExtTrackingModule
     private bool AcceptTongue(ReadOnlySpan<byte> packet, long now)
     {
         if (!Packets.Header(packet, "QPTO"u8, 3, 56)) return false;
-        Span<float> values = stackalloc float[12];
         var raw = MemoryMarshal.Cast<byte, float>(packet[8..]);
-        for (int index = 0; index < values.Length; index++)
-        {
-            if (!float.IsFinite(raw[index])) return false;
-            values[index] = Math.Clamp(raw[index], 0.0f, 1.0f);
-        }
-        values.CopyTo(_tongueValues);
+        foreach (float value in raw) if (!float.IsFinite(value)) return false;
+        for (int index = 0; index < _tongueValues.Length; index++) _tongueValues[index] = Math.Clamp(raw[index], 0.0f, 1.0f);
         _tongueMask = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(packet[6..]) & 0xFFF);
         _tongueEnabled = (packet[5] & 1) != 0;
         _tongueDirty = true;
@@ -482,48 +471,33 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private void UpdateEyes(ReadOnlySpan<float> values)
     {
-        bool leftValid = _second[292] != 0;
-        bool rightValid = _second[293] != 0;
         long now = Environment.TickCount64;
         bool customFresh = Packets.Fresh(_lastGazeTick, now, GazeTimeoutMs);
-        if (values[12] > BlinkClosed) _leftBlinkTick = now;
-        if (values[13] > BlinkClosed) _rightBlinkTick = now;
-
-        bool leftX = _adjustments.Passthrough("GazeLeftX"), leftY = _adjustments.Passthrough("GazeLeftY");
-        bool rightX = _adjustments.Passthrough("GazeRightX"), rightY = _adjustments.Passthrough("GazeRightY");
-        if (now - _leftBlinkTick <= BlinkSettleMs) _leftGazeHeldTick = now;
-        else if (customFresh && (_gazeFlags & 1) != 0 && !(leftX && leftY))
+        for (int side = 0; side < 2; side++)
         {
-            (float x, float y) = leftValid ? QuaternionToCartesian(_second, 296) : (_eyes[0], _eyes[1]);
-            _eyes[0] = leftX ? x : _leftGazeX;
-            _eyes[1] = leftY ? y : _leftGazeY;
-            _leftGazeHeldTick = now;
+            if (values[12 + side] > BlinkClosed) _blinkTick[side] = now;
+            if (now - _blinkTick[side] <= BlinkSettleMs)
+            {
+                _heldTick[side] = now;
+                continue;
+            }
+            var eye = _eyes.AsSpan(side * 2, 2);
+            bool valid = _second[292 + side] != 0;
+            bool nativeX = _adjustments.Passthrough(EyeKeys[side * 2]), nativeY = _adjustments.Passthrough(EyeKeys[side * 2 + 1]);
+            if (customFresh && (_gazeFlags & (1 << side)) != 0 && !(nativeX && nativeY))
+            {
+                (float x, float y) = valid ? QuaternionToCartesian(_second, 296 + side * 28) : (eye[0], eye[1]);
+                eye[0] = nativeX ? x : _gaze[side * 2];
+                eye[1] = nativeY ? y : _gaze[side * 2 + 1];
+            }
+            else if (valid) (eye[0], eye[1]) = QuaternionToCartesian(_second, 296 + side * 28);
+            else
+            {
+                if (now - _heldTick[side] > GazeHoldMs) eye.Clear();
+                continue;
+            }
+            _heldTick[side] = now;
         }
-        else if (leftValid)
-        {
-            (float x, float y) = QuaternionToCartesian(_second, 296);
-            _eyes[0] = x;
-            _eyes[1] = y;
-            _leftGazeHeldTick = now;
-        }
-        else if (now - _leftGazeHeldTick > GazeHoldMs) { _eyes[0] = 0; _eyes[1] = 0; }
-
-        if (now - _rightBlinkTick <= BlinkSettleMs) _rightGazeHeldTick = now;
-        else if (customFresh && (_gazeFlags & 2) != 0 && !(rightX && rightY))
-        {
-            (float x, float y) = rightValid ? QuaternionToCartesian(_second, 324) : (_eyes[2], _eyes[3]);
-            _eyes[2] = rightX ? x : _rightGazeX;
-            _eyes[3] = rightY ? y : _rightGazeY;
-            _rightGazeHeldTick = now;
-        }
-        else if (rightValid)
-        {
-            (float x, float y) = QuaternionToCartesian(_second, 324);
-            _eyes[2] = x;
-            _eyes[3] = y;
-            _rightGazeHeldTick = now;
-        }
-        else if (now - _rightGazeHeldTick > GazeHoldMs) { _eyes[2] = 0; _eyes[3] = 0; }
 
         _eyes[6] = 1.0f - Math.Clamp(
             values[12] + values[4] * values[28], 0.0f, 1.0f);
@@ -535,26 +509,10 @@ public sealed class TrackingModule : ExtTrackingModule
             if (!_adjustments.Passthrough("PupilLeft")) _eyes[4] = pupil.Left;
             if (!_adjustments.Passthrough("PupilRight")) _eyes[5] = pupil.Right;
         }
-
-        UpdateEyeExpressions(values);
-    }
-
-    private void UpdateEyeExpressions(ReadOnlySpan<float> values)
-    {
-        Set(5, values[0]); Set(7, values[0]);
-        Set(4, values[1]); Set(6, values[1]);
-        Set(9, values[22]); Set(8, values[23]);
-        Set(1, values[28]); Set(0, values[29]);
-        Set(11, values[57]); Set(10, values[58]);
-        Set(3, values[59]); Set(2, values[60]);
     }
 
     private void UpdateMouth(ReadOnlySpan<float> values, byte faceFlags)
     {
-        foreach ((int source, int[] targets) in ExpressionMap)
-            foreach (int target in targets)
-                Set(target, values[source]);
-
         Set(31, Math.Min(1.0f - MathF.Pow(values[61], 1.0f / 6.0f), values[45]));
         Set(30, Math.Min(1.0f - MathF.Pow(values[62], 1.0f / 6.0f), values[47]));
 

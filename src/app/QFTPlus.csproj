@@ -11,5 +11,5 @@
     <Compile Include="../bridges/vrcft/OutputAdjustments.cs" Link="OutputAdjustments.cs" />
     <Compile Include="../bridges/vrcft/ExtraFaceState.cs" Link="ExtraFaceState.cs" />
   </ItemGroup>
-  <ItemGroup><PackageReference Include="Velopack" Version="1.2.161" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Velopack" Version="1.2.161" /><PackageReference Include="Vortice.DXGI" Version="3.8.3" /><PackageReference Include="WPF-UI" Version="4.3.0" /></ItemGroup>
 </Project>

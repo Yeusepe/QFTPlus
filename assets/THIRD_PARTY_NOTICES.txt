@@ -12,6 +12,9 @@ and are installed in runtime/Lib/site-packages. Pinned versions, source URLs,
 and SHA-256 hashes are in requirements-runtime.lock.txt and the development release-assets.json.
 ONNX Runtime uses MIT; OpenCV uses Apache-2.0; NumPy uses BSD-3-Clause.
 Consult each wheel for full terms.
+.NET libraries (MIT): Velopack (https://github.com/velopack/velopack), WPF-UI (https://github.com/lepoco/wpfui), Vortice.DXGI,
+Vortice.DirectX and Vortice.Mathematics (https://github.com/amerkoleci/Vortice.Windows),
+SharpGen.Runtime (https://github.com/SharpGenTools/SharpGenTools).
 
 VRCFaceTracking, SteamVR, and Virtual Desktop are installed separately.
 Their SDK and driver binaries are not redistributed with QFT+.

@@ -30,21 +30,15 @@ internal sealed class SteamLinkState
         "TongueTipInterdental", "TongueTipAlveolar", "TongueFrontDorsalPalate",
         "TongueMidDorsalPalate", "TongueBackDorsalVelar", "TongueOut", "TongueRetreat"
     ];
-    private static readonly Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> Indices = BuildIndices().GetAlternateLookup<ReadOnlySpan<char>>();
+    private static readonly Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> Indices = ExpressionNames.Index()
+        .Select(p => KeyValuePair.Create(p.Item, p.Index))
+        .Concat([new("ToungeTipInterdental", 63), new("ToungeTipAlveolar", 64), new("FrontDorsalPalate", 65),
+            new("MidDorsalPalate", 66), new("BackDorsalVelar", 67), new("ToungeOut", 68), new("ToungeRetreat", 69)])
+        .ToDictionary(StringComparer.OrdinalIgnoreCase).GetAlternateLookup<ReadOnlySpan<char>>();
     private readonly float[] _values = new float[70];
     private readonly long[] _ticks = new long[70];
     private long _gazeTick;
     private Quaternion _gaze;
-
-    private static Dictionary<string, int> BuildIndices()
-    {
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < ExpressionNames.Length; i++) result[ExpressionNames[i]] = i;
-        result["ToungeTipInterdental"] = 63; result["ToungeTipAlveolar"] = 64;
-        result["FrontDorsalPalate"] = 65; result["MidDorsalPalate"] = 66;
-        result["BackDorsalVelar"] = 67; result["ToungeOut"] = 68; result["ToungeRetreat"] = 69;
-        return result;
-    }
 
     internal void Accept(ReadOnlySpan<byte> packet, long tick, int depth = 0)
     {
