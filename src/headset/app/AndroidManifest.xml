@@ -1,0 +1,46 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:metavr="http://schemas.meta.com/metavr-sdk" package="com.qftplus.headset" android:versionCode="1" android:versionName="0.1-experimental">
+    <metavr:uses-metavr-sdk metavr:minSdkVersion="69" metavr:targetSdkVersion="69" />
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <uses-permission android:name="com.oculus.permission.FACE_TRACKING" />
+    <uses-permission android:name="com.oculus.permission.EYE_TRACKING" />
+    <uses-feature android:name="oculus.software.face_tracking" android:required="true" />
+    <uses-feature android:name="oculus.software.eye_tracking" android:required="true" />
+    <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
+    <uses-feature android:name="oculus.software.handtracking" android:required="false" />
+    <queries><package android:name="com.oculus.panelapp.settings" /></queries>
+    <application android:label="QFT+ Headset" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:extractNativeLibs="true" android:supportsRtl="true" android:usesCleartextTraffic="true">
+        <meta-data android:name="com.oculus.supportedDevices" android:value="questpro" />
+        <activity android:name=".MainActivity" android:exported="true" android:resizeableActivity="true">
+            <layout android:defaultWidth="1024dp" android:defaultHeight="640dp" android:minWidth="360dp" android:minHeight="225dp" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="com.oculus.intent.category.2D" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".CalibrationActivity" android:exported="false" android:screenOrientation="landscape" android:taskAffinity="com.qftplus.headset.calibration" android:configChanges="orientation|screenSize|keyboardHidden" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+            <meta-data android:name="com.oculus.vr.focusaware" android:value="true" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+        </activity>
+        <service android:name=".TrackingService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-enabled local face and pupil tracking for VR avatars, with direct OSC output" />
+        </service>
+        <receiver android:name=".BootReceiver" android:exported="false">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".SetupReceiver" android:exported="true" android:permission="android.permission.DUMP" />
+        <receiver android:name=".ControlReceiver" android:exported="true" android:permission="android.permission.DUMP" />
+    </application>
+</manifest>
