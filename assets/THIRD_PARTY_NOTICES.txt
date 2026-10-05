@@ -12,6 +12,17 @@ and are installed in runtime/Lib/site-packages. Pinned versions, source URLs,
 and SHA-256 hashes are in requirements-runtime.lock.txt and the development release-assets.json.
 ONNX Runtime uses MIT; OpenCV uses Apache-2.0; NumPy uses BSD-3-Clause.
 Consult each wheel for full terms.
+The optional headset model experiment includes ONNX Runtime Android 1.24.3
+(MIT); see headset-model/LICENSE.txt and headset-model/ThirdPartyNotices.txt.
+It also includes OpenCV Android 5.0.0 and the Android NDK C++ runtime; see
+headset-model/opencv-LICENSE.txt, headset-model/opencv-licenses/ and headset-model/libcxx-NOTICE.txt.
+Its model files are converted from the
+same universal-face-v2 weights and retain the model license described below.
+QFT+ Headset loads OCUI from the user's installed Meta Horizon OS Settings app
+at runtime. No OCUI code, fonts, icons or resources are redistributed or covered
+by this project's source license. AndroidX/Compose and Kotlin use Apache-2.0.
+Icons the headset has no glyph for are Material Symbols Rounded by Google
+(https://github.com/google/material-design-icons), used under Apache-2.0.
 .NET libraries (MIT): Velopack (https://github.com/velopack/velopack), WPF-UI (https://github.com/lepoco/wpfui), Vortice.DXGI,
 Vortice.DirectX and Vortice.Mathematics (https://github.com/amerkoleci/Vortice.Windows),
 SharpGen.Runtime (https://github.com/SharpGenTools/SharpGenTools).
@@ -19,10 +30,17 @@ SharpGen.Runtime (https://github.com/SharpGenTools/SharpGenTools).
 VRCFaceTracking, SteamVR, and Virtual Desktop are installed separately.
 Their SDK and driver binaries are not redistributed with QFT+.
 Personal calibration stays local.
+Face calibration on the headset runs the Meta Avatars SDK 40.0.1 (libovravatar2 and its
+core asset package) and shows one of its Quest preset avatars from Meta Avatars SDK Sample
+Assets 40.0.1, unmodified. Both are used under the Meta Platform Technologies SDK License
+Agreement; APK assets/calibration/Meta-Avatars-LICENSE.txt and Meta-Avatars-NOTICE.txt.
+The calibration space is read at runtime from the headset's own setup environment
+(Meta Horizon OS system app); none of it is included with QFT+. The Khronos OpenXR 1.1.49 loader and headers are used under Apache-2.0; their
+license is in the same asset directory.
 models/universal-face-v2.* include a mouth-camera encoder QFT+ trained on the
 Ava-256 dataset by Meta Platforms (https://github.com/facebookresearch/ava-256).
 They are licensed under CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/),
 not under LICENSE: non-commercial use only. Changes: new weights learned from
 the dataset; no Ava-256 images are included.
-No stock Meta model or firmware is included. The eye patcher uses a compatible
+No stock Meta tracking model or firmware is included. The eye patcher uses a compatible
 model from the user's own headset; generated models/eye files are private.

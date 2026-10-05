@@ -1,0 +1,10 @@
+QFT+ face calibration avatar
+
+Meta Avatars SDK 40.0.1 (com.meta.xr.sdk.avatars): Plugins/Android64/libovravatar2.so and
+CoreAssets/Oculus/OvrAvatar2Assets.avpkg, unmodified.
+Meta Avatars SDK Sample Assets 40.0.1 (com.meta.xr.sdk.avatars.sample.assets):
+SampleAssets/PresetAvatars_Quest/*_quest.glb, unmodified.
+Copyright (c) Meta Platform Technologies, LLC and its affiliates. All rights reserved.
+Used under the accompanying Meta Platform Technologies SDK License Agreement (Meta-Avatars-LICENSE.txt).
+
+The SDK loads and animates the preset on the headset; QFT+ only draws what it returns.
