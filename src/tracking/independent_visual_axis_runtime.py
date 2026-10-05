@@ -123,7 +123,7 @@ def main() -> int:
     vergence = VergenceControl(arguments.vergence_gain)
     print(f"vergence gain = {arguments.vergence_gain:.2f} (live on udp/{CONTROL_PORT})", flush=True)
     reader = RawTraceEyeReader()
-    eye_filter = IndependentEyeFilter(2, min_cutoff_hz=4.0, beta=0.15, derivative_cutoff_hz=1.5)
+    eye_filter = IndependentEyeFilter(2)
     output = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         reader.start()

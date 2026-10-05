@@ -170,6 +170,16 @@ class PupilDilation:
                 small, large = self.profile["small"][i], self.profile["large"][i]
                 options = {"diameter_range": (small-(large-small)*.35, large+(large-small)*.35)}
             pupil = detect_pupil(strip[:, i*400:(i+1)*400], **options)
+            pupils.append(pupil)
+        self.update_measurements(pupils, now=now)
+
+    def update_measurements(self, measurements, *, now=None):
+        """Apply the same calibration and continuity checks to native detector results."""
+        if self._closed:
+            return
+        now = time.monotonic() if now is None else now
+        pupils = []
+        for i, pupil in enumerate(measurements):
             if pupil is not None:
                 last, seen = self.last_pupils[i], self.last_pupil_time[i]
                 self.last_pupils[i], self.last_pupil_time[i] = pupil.diameter_px, now

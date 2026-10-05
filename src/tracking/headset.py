@@ -91,14 +91,17 @@ class RootShell:
                 if self._process.poll() is not None:
                     raise RuntimeError("The headset root shell exited")
                 continue
-            if not line.startswith(marker):
+            if marker not in line:
                 if line.startswith(DONE):
                     output.clear()
                 else:
                     output.append(line)
                 continue
+            tail, result = line.rsplit(marker, 1)
+            if tail:
+                output.append(tail)
             text = "\n".join(output)
-            if line[len(marker):] == "0":
+            if result == "0":
                 return text
             if check:
                 raise RuntimeError(f"Headset root command failed: {command}" + (f"\nHeadset response: {text}" if text else ""))

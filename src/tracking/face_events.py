@@ -1,12 +1,12 @@
 """Runtime layer between model outputs and the VRCFT bridges. Pure numpy; private/dev/universal/harness.py runs it offline.
 
 Per frame, for each configured channel, in this order:
-  1. neutral-anchored offset and bounded gain: clip((raw - neutral) * gain, 0, 1), gain = 1/(reach - neutral) in .7..1.5
+  1. neutral-anchored offset and bounded gain: clip((raw - neutral) * gain, 0, 1), gain = 1/(reach - neutral) in .7..gain_max (1.5; puffs 2.5)
   2. soft gates from Meta's native outputs (puff/suck need sealed lips and no tongue); stale or missing native passes
   3. mutually exclusive shapes (puff vs suck): the weaker one cannot fire
   4. speech-aware threshold raise / longer onset (speech = 2-7 Hz jaw motion in native JawDrop over 1 s; no microphone)
   5. event state machine: on above `on` held `hold_on` seconds, off below `off` held `hold_off` seconds
-  6. One Euro smoothing (min cutoff 1.5 Hz, beta .5) of the intensity while on; 0 while off
+  6. the intensity while on, 0 while off; unsmoothed (each area's Smoothing setting in the bridge does that, 0 = raw)
 Neutral refreshes slowly on quiet frames and resets after a donning gap. Unconfigured channels pass through unchanged.
 Continuous channels (brows) skip 3-5: offset, gain, then smoothing on every frame; their neutral refreshes when Meta's native
 brows are quiet (and the offset value is below .5).
@@ -17,7 +17,6 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 
-from eye_signal_filter import OneEuroVectorFilter
 
 DONNING_GAP_NS = 2_000_000_000
 NEUTRAL_SECONDS = 20.
@@ -38,17 +37,16 @@ class Event:
     exclusive: str | None = None
     continuous: bool = False
     quiet: tuple = LOWER_FACE
+    gain_max: float = 1.5
+    instant: float | None = None
+    rise: bool = False
 
 
-PUFF = Event(.5, .35, .12, .15, speech_raise=.2, gate="sealed", exclusive="CheekSuck")
+PUFF = Event(.5, .35, 0., .15, speech_raise=.2, gate="sealed", exclusive="CheekSuck", gain_max=2.5)
 SUCK = Event(.5, .35, .12, .15, speech_raise=.2, gate="sealed", exclusive="CheekPuff")
-TONGUE = Event(.5, .42, .15, speech_hold=.3)
+TONGUE = Event(.5, .42, .15, speech_hold=.3, instant=.9)
 BROW = Event(.5, .5, 0., continuous=True, quiet=NATIVE_BROWS)
 EVENTS = {"CheekPuffLeft": PUFF, "CheekPuffRight": PUFF, "CheekSuckLeft": SUCK, "CheekSuckRight": SUCK, "TongueOut": TONGUE}
-
-
-def smoother():
-    return OneEuroVectorFilter(1, min_cutoff_hz=1.5, beta=.5, derivative_cutoff_hz=1.)
 
 
 def ramp(value, low, high):
@@ -99,7 +97,6 @@ class FaceEvents:
         self.neutral = {n: self.anchor_neutral.get(n, 0.) for n in self.config}
         self.on = {n: False for n in self.config}
         self.since = {n: None for n in self.config}
-        self.filters = {n: smoother() for n in self.config}
 
     def step(self, values, sample=None, native=None, now_ns=0):
         """values {name: raw}; sample = latest native label sample, native = its values when fresh
@@ -124,7 +121,7 @@ class FaceEvents:
             if name not in self.config:
                 continue
             n = self.neutral[name]
-            gain = min(1.5, max(.7, 1. / max(self.reach.get(name, 1.) - n, 1e-3)))
+            gain = min(self.config[name].gain_max, max(.7, 1. / max(self.reach.get(name, 1.) - n, 1e-3)))
             v = min(1., max(0., (float(raw) - n) * gain))
             if self.config[name].gate == "sealed" and native is not None and {"JawDrop", "LipsToward", "TongueOut"} <= native.keys():
                 v *= 1. - max(ramp(native["JawDrop"] - native["LipsToward"], *LIPS_APART), ramp(native["TongueOut"], *TONGUE_OUT))
@@ -138,12 +135,12 @@ class FaceEvents:
         for name, v in post.items():
             e = self.config[name]
             if e.continuous:
-                out[name] = float(self.filters[name].update([v], now_ns / 1e9)[0])
+                out[name] = float(v)
                 continue
             if e.exclusive and v <= max((w for k, w in post.items() if k.startswith(e.exclusive)), default=-1.):
                 v = 0.
             raise_ = e.speech_raise if self.speaking else 0.
-            hold_on = max(e.hold_on, e.speech_hold) if self.speaking else e.hold_on
+            hold_on = max(e.hold_on, e.speech_hold) if self.speaking else 0. if e.instant is not None and v >= e.instant else e.hold_on
             on, off = e.on + raise_ + self.bias, e.off + raise_ + self.bias
             changing = v < off if self.on[name] else v >= on
             if not changing:
@@ -153,9 +150,9 @@ class FaceEvents:
             if changing and (now_ns - self.since[name]) / 1e9 >= (e.hold_off if self.on[name] else hold_on):
                 self.on[name] = not self.on[name]
                 self.since[name] = None
-                if not self.on[name]:
-                    self.filters[name] = smoother()
-            out[name] = float(self.filters[name].update([v], now_ns / 1e9)[0]) if self.on[name] else 0.
+            if e.rise:
+                v = min(1., max(0., (v - on) / (1. - on)))
+            out[name] = float(v) if self.on[name] else 0.
         if self.log_path is not None:
             self._log(now_ns, values, out, sample, native is not None)
         return out

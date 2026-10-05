@@ -15,9 +15,11 @@ import os
 import socket
 from pathlib import Path
 import numpy as np
+from dataclasses import replace
 from face_events import BROW, PUFF, SUCK, TONGUE, FaceEvents
 from gpu_lock import GPU_LOCK
-from label_capture import fresh_values
+from capture_format import scan_frames
+from label_capture import FRESH_NS, fresh_values
 
 SCHEMA = "universal-face-v2"
 META = {"schema", "names", "slots", "browNames", "imageSize", "approvedForOutput", "allowsNoEnrollment", "provenance", "graphSha256"}
@@ -25,7 +27,6 @@ HEAD = {"missing", "w1", "b1", "w2", "b2", "w3", "b3"}
 BROW_HEAD = {"missing", "w1", "b1", "w2", "b2"}
 SLOTS = ["neutral", "jaw_open", "pucker", "puff", "tongue_out", "suck"]
 SIDES = ["puff_left", "puff_right"]
-MAX_UNMIX_COND = 10.
 CHEEKS = ["CheekPuffLeft", "CheekPuffRight", "CheekSuckLeft", "CheekSuckRight"]
 BROWS = [b + s for b in ("BrowInnerUp", "BrowOuterUp", "BrowLowerer", "BrowPinch") for s in ("Left", "Right")]
 FAMILIES = {"puff": CHEEKS, "brows": BROWS}
@@ -67,23 +68,52 @@ def head_forward(h, q, anchors, present):
     return sigmoid(h["w3"] @ z + h["b3"])
 
 
-def puff_depth(q, neutral, axis):
-    """Per mouth camera, how far q has moved from neutral toward the both-cheeks puff (1 = all the way) -> (2,)"""
-    return np.clip(((q.reshape(2, -1) - neutral) * axis).sum(1), 0., None)
+def thumbnails(strip):
+    """400x2000 strip -> the lower-face cameras (strip cameras 2, 3) as 16x16 means of 25x25-pixel blocks, 0..1 (2, 256).
+    A puffed cheek brightens in its own camera. Same as tracking_model.cpp."""
+    s = np.asarray(strip)[:, 800:1600].reshape(16, 25, 2, 16, 25).sum((1, 4), dtype=np.int64)
+    return (s.transpose(1, 0, 2).reshape(2, 256) / 159375.).astype(np.float32)
+
+
+def puff_camera(holds):
+    """{slot: thumbnails (k, 2, 256)} of the face setup -> (rest (2, 256), per-side direction (2, 256), camera (2,),
+    on-level (2,)), or None without the rest and one-cheek holds. Per side: the camera that moves most for its own hold, the
+    direction from rest to its own and the both-cheek holds (1 at the hold), and an on-level above what every hold without
+    that side gives. Same as calibrate.cpp."""
+    if not {"neutral", *SIDES} <= holds.keys():
+        return None
+    rest = holds["neutral"].mean(0)
+    moved = {s: np.abs(holds[s].mean(0) - rest).sum(1) for s in SIDES}
+    camera, direction, level = [], [], []
+    for side, (own, other) in enumerate((SIDES, SIDES[::-1])):
+        c = int(np.argmax(moved[own] - moved[other]))
+        d = np.concatenate([holds[own]] + ([holds["puff"]] if "puff" in holds else []))[:, c].mean(0) - rest[c]
+        d = d / max(float(d @ d), 1e-9)
+        off = np.concatenate([np.clip((holds[s][:, c] - rest[c]) @ d, 0., 1.) for s in holds if s not in ("puff", own)])
+        camera.append(c); direction.append(d); level.append(float(np.clip(np.percentile(off, 99) + .1, .15, .5)))
+    return rest, np.stack(direction).astype(np.float32), np.array(camera, np.float32), np.array(level, np.float32)
 
 
 TONGUE_DIRECTION = {"tongue_out": (0., 0.), "tongue_up": (0., 1.), "tongue_down": (0., -1.), "tongue_left": (-1., 0.), "tongue_right": (1., 0.)}
 TONGUE_HOLDS = [s for s in TONGUE_DIRECTION if s != "tongue_out"]
-RIDGE, TONGUE_REACH, TONGUE_GAIN = 2., .15, 2.
+RIDGE, TONGUE_REACH, TONGUE_GAIN = 8., .15, 2.
+TONGUE_HISTORY = 4
+TONGUE_TARGET = {"Out": (0., 0.), "Left": (-1., 0.), "Right": (1., 0.), "Up": (0., 1.), "Down": (0., -1.),
+                 "UpLeft": (-.7071, .7071), "UpRight": (.7071, .7071)}
+TONGUE_BENCHMARKS, BENCHMARK_FRAMES, TRIM = 4, 300, 3
 
 
-def tongue_map(holds):
-    """{slot: mouth embeddings (k, 512)} of the held tongue poses -> (mean, scale, weights (512, 2), gains (left, right,
-    down, up)), or None unless all five poses are there."""
+def tongue_map(holds, extra=None):
+    """{slot: mouth embeddings (k, 512)} of the held tongue poses, optional extra (embeddings (n, 512), directions (n, 2))
+    from benchmarks -> (mean, scale, weights (512, 2), gains (left, right, down, up)), or None unless all five poses are
+    there. The holds weigh as much as the extra frames together; the gains come from the holds."""
     if not set(TONGUE_DIRECTION) <= set(holds):
         return None
     x = np.concatenate([holds[s] for s in TONGUE_DIRECTION]).astype(np.float64)
     y = np.concatenate([np.tile(TONGUE_DIRECTION[s], (len(holds[s]), 1)) for s in TONGUE_DIRECTION])
+    if extra is not None and len(extra[0]):
+        r = max(1, round(len(extra[0]) / len(x)))
+        x, y = np.concatenate([np.tile(x, (r, 1)), extra[0]]), np.concatenate([np.tile(y, (r, 1)), extra[1]])
     mean, scale = x.mean(0), x.std(0) + 1e-3
     xn = (x - mean) / scale
     weights = xn.T @ np.linalg.solve(xn @ xn.T + RIDGE * x.shape[1] * np.eye(len(x)), y)
@@ -107,8 +137,10 @@ def brow_forward(h, w, neutral, present):
 
 
 class UniversalFace:
-    def __init__(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), bias=0., log=None, tongue=None):
-        """path: MODEL.npz (MODEL.area.onnx next to it)."""
+    def __init__(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), bias=0., log=None, tongue=None, headset=False,
+                 history=(), benchmarks=()):
+        """path: MODEL.npz (MODEL.area.onnx next to it); history: earlier face setup files, newest first; benchmarks: recorded
+        benchmark prefixes (captures/benchmark-...), newest first."""
         path = Path(path).resolve()
         graph_path = path.with_suffix(".area.onnx")
         with np.load(path, allow_pickle=False) as z:
@@ -127,7 +159,7 @@ class UniversalFace:
             raise ValueError("Universal face model lacks required outputs: " + path.name)
         self.head = {k: v.astype(np.float32) for k, v in head.items()}
         self.brow_head = {k: v.astype(np.float32) for k, v in brow_head.items()}
-        self.graph = graph
+        self.graph, self.graph_sha = graph, meta["graphSha256"]
         self.model = session(graph)
         try:
             self.run(np.zeros((400, 2000), np.uint8))
@@ -135,18 +167,10 @@ class UniversalFace:
             print("INFERENCE_FALLBACK cpu: " + str(error), flush=True)
             self.model = session(graph, cpu=True)
         print("INFERENCE_BACKEND " + self.model.get_providers()[0] + " " + str(graph_path), flush=True)
-        self.anchors, self.present, sides, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment)
+        self.anchors, self.present, sides, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment, history, benchmarks)
         if not self.present.any() and meta["allowsNoEnrollment"] is not True:
             raise ValueError("Run the one-minute face setup first: this model needs it.")
-        self.puff_axis, reach = None, {}
-        if self.present[0] and self.present[3]:
-            n, d = self.anchors[0].reshape(2, -1), (self.anchors[3] - self.anchors[0]).reshape(2, -1)
-            axis, unmix = d / np.maximum((d * d).sum(1, keepdims=True), 1e-6), None
-            if len(sides) == 2:
-                mix = np.stack([puff_depth(sides[s], n, axis) for s in SIDES], 1)
-                unmix = np.linalg.inv(mix) if np.linalg.cond(mix) < MAX_UNMIX_COND else None
-            self.puff_axis = (n, axis, unmix)
-        cheek_rest = {}
+        reach, cheek_rest = {}, {}
         if self.present[0]:
             level = lambda slot, cheeks: float(head_forward(self.head, self.anchors[slot], self.anchors, self.present)[
                 [self.names.index(c) for c in cheeks]].max())
@@ -154,8 +178,19 @@ class UniversalFace:
             for slot, cheeks in ((3, CHEEKS[:2]), (5, CHEEKS[2:])):
                 if self.present[slot] and (full := level(slot, cheeks)) - cheek_rest[cheeks[0]] >= .2:
                     reach.update(dict.fromkeys(cheeks, full))
+            if not self.present[3] and sides:
+                full = max(float(head_forward(self.head, q, self.anchors, self.present)[[self.names.index(c) for c in CHEEKS[:2]]].max())
+                           for q in sides.values())
+                if full - cheek_rest[CHEEKS[0]] >= .2:
+                    reach.update(dict.fromkeys(CHEEKS[:2], full))
+        self.puff_camera = puff_camera(self.puff_holds)
+        if self.puff_camera is not None:
+            self.puff_amount = (cheek_rest[CHEEKS[0]], reach.get(CHEEKS[0], 1.))
+            cheek_rest.update(dict.fromkeys(CHEEKS[:2], 0.)); reach.update(dict.fromkeys(CHEEKS[:2], 1.))
+            self.puff_reference, self.puff_ns = self.puff_camera[0].copy(), None
         brow_rest = {k: v for k, v in brow_rest.items() if not k.startswith(tuple(NATIVE_RAISE))}
-        self.events = FaceEvents({"CheekPuffLeft": PUFF, "CheekPuffRight": PUFF, "CheekSuckLeft": SUCK, "CheekSuckRight": SUCK,
+        puff = PUFF if self.puff_camera is None else replace(PUFF, rise=True)
+        self.events = FaceEvents({"CheekPuffLeft": puff, "CheekPuffRight": puff, "CheekSuckLeft": SUCK, "CheekSuckRight": SUCK,
                                   "TongueOut": TONGUE, **dict.fromkeys(BROWS, BROW)}, neutral={**brow_rest, **cheek_rest}, reach=reach,
                                  bias=bias, log=log)
         self.sent = [n for f in families if f in FAMILIES for n in FAMILIES[f] if n not in RAISES]
@@ -163,9 +198,17 @@ class UniversalFace:
         self.share, self.share_ns = {}, None
         self.enabled, self.tongue = enabled, tongue
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.headset = headset
+        if headset:
+            self.model = None
+            if tongue is not None and tongue.enabled and self.tongue_map is None:
+                self.close()
+                raise ValueError('Complete face and tongue calibration before using Experimental on Headset Model.')
 
     def run(self, strip):
         """400x2000 uint8 strip -> mouth embedding (512,), tongue head (7,), brow embedding (480,)"""
+        if getattr(self, 'headset', False):
+            raise RuntimeError('Headset model results are required; PC inference fallback is disabled.')
         with GPU_LOCK:
             try:
                 q, t, w = self.model.run(None, {"cameras": np.ascontiguousarray(strip)})
@@ -177,11 +220,13 @@ class UniversalFace:
                 q, t, w = self.model.run(None, {"cameras": np.ascontiguousarray(strip)})
         return q[0], t[0], w[0]
 
-    def encode_enrollment(self, enrollment):
+    def encode_enrollment(self, enrollment, history=(), benchmarks=()):
         """Face setup file -> mouth anchors (6, 512) + presence (6,), the one-cheek puff embeddings {side: (512,)}, brow
         neutral embedding (480,) + presence, and the brows' resting outputs (face_events' starting neutral); sets the
-        wearer's tongue direction mapping from the held tongue poses. Runs once, at load."""
-        self.tongue_map, holds = None, {}
+        wearer's tongue direction mapping from the held tongue poses, pooled with complete earlier setups' (the newest counts
+        double: its session decides the offset, the earlier ones add how this person varies) and with recent benchmarks'
+        tongue prompts. Runs once, at load."""
+        self.tongue_map, self.puff_holds, holds = None, {}, {}
         anchors, present = np.zeros((6, 512), np.float32), np.zeros(6, np.float32)
         sides, brow_neutral, brow_present, rest = {}, np.zeros(480, np.float32), 0., {}
         if not enrollment or not Path(enrollment).is_file():
@@ -192,6 +237,7 @@ class UniversalFace:
             for slot in SLOTS + SIDES + TONGUE_HOLDS:
                 if f"slot_{slot}" in z:
                     q, t, w = (np.stack(x) for x in zip(*(self.run(f) for f in z[f"slot_{slot}"])))
+                    self.puff_holds[slot] = np.stack([thumbnails(f) for f in z[f"slot_{slot}"]])
                     if slot in TONGUE_DIRECTION:
                         holds[slot] = q
                         if slot in TONGUE_HOLDS:
@@ -203,27 +249,112 @@ class UniversalFace:
                     if slot == "neutral":
                         brow_neutral, brow_present = w.mean(0), 1.
                         rest = dict(zip(BROWS, np.median([brow_forward(self.brow_head, r, brow_neutral, 1.) for r in w], 0).tolist()))
-            self.tongue_map = tongue_map(holds)
+        if set(TONGUE_DIRECTION) <= set(holds):
+            earlier = [h for h in map(self.tongue_holds, list(history)[:TONGUE_HISTORY]) if set(TONGUE_DIRECTION) <= set(h)]
+            holds = {s: np.concatenate([holds[s], holds[s], *(h[s] for h in earlier)]) for s in TONGUE_DIRECTION}
+        extra = [e for e in map(self.benchmark_tongue, list(benchmarks)[:TONGUE_BENCHMARKS]) if len(e[0])]
+        self.tongue_map = tongue_map(holds, (np.concatenate([e[0] for e in extra]), np.concatenate([e[1] for e in extra])) if extra else None)
         return anchors, present, sides, (brow_neutral, brow_present), rest
 
-    def update(self, strip, native=None, native_names=(), now_ns=0):
-        q, t, w = self.run(strip)
+    def tongue_holds(self, enrollment):
+        """An earlier face setup file -> {tongue hold: mouth embeddings (k, 512)}; {} if it is gone or not a setup."""
+        try:
+            with np.load(enrollment, allow_pickle=False) as z:
+                if json.loads(str(z["meta"]))["schema"] != "face-enrollment-v1":
+                    return {}
+                return {s: np.stack([self.run(f)[0] for f in z[f"slot_{s}"]]) for s in TONGUE_DIRECTION
+                        if f"slot_{s}" in z and z[f"slot_{s}"].shape[1:] == (400, 2000)}
+        except (OSError, ValueError, KeyError):
+            return {}
+
+    def benchmark_tongue(self, prefix):
+        """A recorded benchmark -> mouth embeddings (k, 512) and prompted directions (k, 2) of its tongue prompts' frames where
+        Meta's TongueOut is above .5. Computed once per model and cached next to the recording; empty if unreadable."""
+        prefix, empty = Path(prefix), (np.zeros((0, 512), np.float32), np.zeros((0, 2)))
+        cache = prefix.with_name(prefix.name + ".tongue.npz")
+        try:
+            with np.load(cache, allow_pickle=False) as z:
+                if str(z["model"]) == self.graph_sha:
+                    return z["q"], z["y"]
+        except (OSError, KeyError, ValueError):
+            pass
+        try:
+            steps = json.loads(prefix.with_name(prefix.name + ".qpsession.json").read_text(encoding="utf-8"))["steps"]
+            names, nt, out = None, [], []
+            for line in prefix.with_name(prefix.name + ".qplabel.jsonl").open(encoding="utf-8"):
+                r = json.loads(line)
+                if r.get("type") == "schema":
+                    names = r["names"]
+                elif r.get("type") == "sample" and names and "TongueOut" in names:
+                    nt.append(int(r["arrivalMonotonicNs"])); out.append(float(r["values"][names.index("TongueOut")]))
+            capture = prefix.with_name(prefix.name + ".qpcap")
+            entries = scan_frames(capture, 0x1F)
+        except (OSError, ValueError, KeyError, TypeError):
+            return empty
+        if not nt:
+            return empty
+        t, nt, out = np.array([e[1] for e in entries], np.int64), np.array(nt, np.int64), np.array(out)
+        i = np.clip(np.searchsorted(nt, t, side="right") - 1, 0, None)
+        visible = (t >= nt[i]) & (t - nt[i] <= FRESH_NS) & (out[i] > .5)
+        visible &= np.array([(e[2], e[3]) == (2000, 400) for e in entries])
+        picks, y = [], []
+        for s in steps:
+            k = s.get("condition", "").removeprefix("target:Tongue")
+            if s.get("startNs") is None or not s["condition"].startswith("target:Tongue") or k not in TONGUE_TARGET:
+                continue
+            idx = np.flatnonzero((t >= s["startNs"]) & (t < s["endNs"]) & visible)[TRIM:-TRIM]
+            picks += idx.tolist(); y += [TONGUE_TARGET[k]] * len(idx)
+        if not picks:
+            return empty
+        keep = np.linspace(0, len(picks) - 1, min(len(picks), BENCHMARK_FRAMES)).astype(int)
+        picks, y = np.array(picks)[keep], np.array(y)[keep]
+        q = []
+        with capture.open("rb") as f:
+            for j in picks:
+                offset, _, width, height = entries[j]
+                f.seek(offset)
+                q.append(self.run(np.frombuffer(f.read(width * height), np.uint8).reshape(height, width))[0])
+        q = np.stack(q)
+        try:
+            with cache.with_suffix(".tmp").open("wb") as f:
+                np.savez(f, q=q, y=y, model=np.array(self.graph_sha))
+            cache.with_suffix(".tmp").replace(cache)
+        except OSError:
+            pass
+        return q, y
+
+    def puff_sides(self, thumbs, top, now_ns):
+        """Each side from its own camera against a rest image learned on quiet frames; the overall puff amount (head and Meta,
+        `top`, on its calibrated rest/reach) only fades it in as a veto. The calibrated on-level maps to .5 (face_events).
+        Same as tracking_model.cpp."""
+        rest, direction, camera, level = self.puff_camera
+        n, reach = self.puff_amount
+        amount = min(1., max(0., (top - n) * min(2.5, max(.7, 1. / max(reach - n, 1e-3)))))
+        gate = min(1., max(0., (amount - .03) / .07))
+        side = [min(1., max(0., float((thumbs[int(c)] - self.puff_reference[int(c)]) @ d))) for c, d in zip(camera, direction)]
+        values = [v * .5 / t if v < t else .5 + (v - t) * .5 / (1 - t) for v, t in zip((s * gate for s in side), map(float, level))]
+        dt = 0. if self.puff_ns is None else max(0., (now_ns - self.puff_ns) / 1e9)
+        self.puff_ns = now_ns
+        if amount < .05 and max(side) < .15:
+            self.puff_reference += np.float32(.03 * dt) * np.sign(thumbs - self.puff_reference)
+        return values
+
+    def update(self, strip, native=None, native_names=(), now_ns=0, *, features=None):
+        if self.headset:
+            if features is None or features.shape != (999,) or not np.isfinite(features).all():
+                raise ValueError('Invalid headset model output')
+            q, t, w = features[:512], features[512:519], features[519:]
+        else:
+            q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
         horizontal, vertical = tongue_direction(q, self.tongue_map) if self.tongue_map else np.tanh(t[1:3])
         fresh = fresh_values(native, native_names, now_ns)
         nv = fresh or {}
         native_puff = [nv.get(n, 0.) for n in NATIVE_PUFF]
-        if self.puff_axis is not None:
-            n, axis, unmix = self.puff_axis
-            d = puff_depth(q, n, axis)
-            if unmix is None:
-                share = (d / max(float(d.max()), 1e-6)) ** 2
-            else:
-                d = np.clip(unmix @ d, 0., None)
-                share = d / max(float(d.max()), 1e-6)
-            amount = max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff)
-            p["CheekPuffLeft"], p["CheekPuffRight"] = amount * float(share[0]), amount * float(share[1])
+        if self.puff_camera is not None and strip is not None:
+            p["CheekPuffLeft"], p["CheekPuffRight"] = self.puff_sides(
+                thumbnails(strip), max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff), now_ns)
         else:
             p["CheekPuffLeft"], p["CheekPuffRight"] = max(p["CheekPuffLeft"], native_puff[0]), max(p["CheekPuffRight"], native_puff[1])
         dt = 0. if self.share_ns is None else max(0., (now_ns - self.share_ns) / 1e9)

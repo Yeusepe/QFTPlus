@@ -85,7 +85,7 @@ class StudioCapture:
             if self.guided.completed:
                 self.finish(True)
 
-    def update(self, strip, header, payload, monotonic_ns, labels):
+    def poll(self, monotonic_ns):
         now = monotonic_ns / 1e9
         if now-self.last_poll >= .1:
             self.last_poll = now
@@ -99,28 +99,41 @@ class StudioCapture:
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     self.finish(False)
                     self.state['error'] = str(error)
+        if now-self.last_publish >= .2:
+            self.last_publish = now
+            publish(self.root/'studio.state.json', dict(self.state, runtimeId=self.runtime_id, ack=self.last_id, time=time.time()))
+
+    def update(self, strip, header, payload, monotonic_ns, labels, *, headset_pupils=False):
+        self.poll(monotonic_ns)
+        now = monotonic_ns / 1e9
         try:
-            if self.pupil:
-                if now-self.last_ui > 3:
-                    self.finish(False)
-                    self.state['error'] = 'Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.'
-                else:
-                    self.pupil.update(strip)
-                    phase = self.pupil.phase
-                    elapsed = min(DURATION, max(0, now-self.pupil.started))
-                    self.state.update(level=self.pupil.level, remaining=round(DURATION-elapsed), progress=elapsed/DURATION,
-                        index=phase or 0, total=len(STAGES), title=STAGES[phase or 0], instruction=self.pupil.message)
-                    if self.pupil.result in ('passed', 'failed'):
-                        self.state['error'] = '' if self.pupil.result == 'passed' else self.pupil.message
-                        self.finish(self.pupil.result == 'passed')
+            if self.pupil and not headset_pupils:
+                self.pupil.update(strip)
+                self.pupil_state(now)
             if self.guided:
                 self.update_guided(strip, header, payload, monotonic_ns, labels, now)
         except (OSError, ValueError, cv2.error) as error:
             self.finish(False)
             self.state['error'] = str(error)
-        if now-self.last_publish >= .2:
-            self.last_publish = now
-            publish(self.root/'studio.state.json', dict(self.state, runtimeId=self.runtime_id, ack=self.last_id, time=time.time()))
+
+    def update_pupils(self, measurements, monotonic_ns):
+        if self.pupil is not None:
+            now = monotonic_ns / 1e9
+            self.pupil.update_measurements(measurements, now=now)
+            self.pupil_state(now)
+
+    def pupil_state(self, now):
+        if now-self.last_ui > 3:
+            self.finish(False)
+            self.state['error'] = 'Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.'
+            return
+        phase = self.pupil.phase
+        elapsed = min(DURATION, max(0, now-self.pupil.started))
+        self.state.update(level=self.pupil.level, remaining=round(DURATION-elapsed), progress=elapsed/DURATION,
+            index=phase or 0, total=len(STAGES), title=STAGES[phase or 0], instruction=self.pupil.message)
+        if self.pupil.result in ('passed', 'failed'):
+            self.state['error'] = '' if self.pupil.result == 'passed' else self.pupil.message
+            self.finish(self.pupil.result == 'passed')
 
     def open_video(self):
         self.video = cv2.VideoWriter(str(self.prefix)+'.avi', cv2.VideoWriter_fourcc(*'MJPG'), 8., (1000, 200), True)

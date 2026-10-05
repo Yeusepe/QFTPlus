@@ -29,7 +29,7 @@ class ReceiverStopped(Exception):
     pass
 
 
-def receive_exact(connection: socket.socket, size: int, should_stop) -> bytearray:
+def receive_exact(connection: socket.socket, size: int, should_stop, tick=None) -> bytearray:
     """A new buffer per call: frames are shared with the preview and pupil threads, never reused or written."""
     output = bytearray(size)
     view = memoryview(output)
@@ -40,6 +40,8 @@ def receive_exact(connection: socket.socket, size: int, should_stop) -> bytearra
         try:
             amount = connection.recv_into(view[received:])
         except socket.timeout:
+            if tick is not None:
+                tick()
             continue
         if amount == 0:
             raise ConnectionError("The headset streamer disconnected")
@@ -55,6 +57,7 @@ class SharedPreview:
         self.images: dict[str, np.ndarray] = {}
         self.pupils = [None, None]
         self.pupil_requested_at = -float("inf")
+        self.requested_at = -float("inf")
 
     def update(self, strip: np.ndarray, pupils) -> None:
         images = {f"camera{i}": strip[:, i * 400:(i + 1) * 400] for i in range(5)}
@@ -64,6 +67,8 @@ class SharedPreview:
 
     def get_jpeg(self, key: str) -> bytes | None:
         with self.lock:
+            if key in ('camera0', 'camera1', 'camera2', 'camera3', 'camera4', 'pupil0', 'pupil1'):
+                self.requested_at = time.monotonic()
             if key in ("pupil0", "pupil1"):
                 self.pupil_requested_at = time.monotonic()
             image = self.images.get(key)
@@ -135,19 +140,39 @@ def face_log_path(config, kind):
     return str(root / 'sessions' / (time.strftime('%Y%m%d-%H%M%S') + f'-{kind}.facelog.jsonl'))
 
 
+def recent_benchmarks(count=4):
+    """Prefixes of the newest completed benchmark recordings, newest first: they refine the tongue mapping."""
+    found = []
+    for session in sorted((ROOT / 'captures').glob('benchmark*.qpsession.json'), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            if json.loads(session.read_text(encoding='utf-8')).get('completed'):
+                found.append(session.with_name(session.name.removesuffix('.qpsession.json')))
+        except (OSError, ValueError):
+            continue
+        if len(found) == count:
+            break
+    return found
+
+
 def load_models():
     """The settings' face model and pupil output; a face model that can't load is reported, not fatal."""
     from pupil_dilation import PupilDilation
     from tongue_output import TongueBroadcaster
     from universal_face import FAMILIES, UniversalFace
     config = studio_config()
+    if os.environ.get('QFT_HEADSET_MODEL') == '1':
+        from headset_outputs import HeadsetOutputs
+        face = HeadsetOutputs(config, ROOT, log=face_log_path(config, 'universal'))
+        return face, face.pupils, ''
     face, error = None, ''
     tongue = TongueBroadcaster(enabled=config.get('tongueOutput', True))
     try:
         face = UniversalFace(config.get('universalModelPath') or ROOT / 'models' / 'universal-face-v2.npz', config.get('faceEnrollment'),
             config.get('extraFaceOutput', True) is not False,
             families=[f for f in FAMILIES if config.get(f'extraFaceOutput-{f}', True) is not False],
-            bias=float(config.get('faceEventBias') or 0), log=face_log_path(config, 'universal'), tongue=tongue)
+            bias=float(config.get('faceEventBias') or 0), log=face_log_path(config, 'universal'), tongue=tongue,
+            history=config.get('faceEnrollmentHistory') or (),
+            benchmarks=recent_benchmarks())
     except Exception as failure:
         print('UNIVERSAL_FAILED ' + str(failure), flush=True)
         error = str(failure)
@@ -190,25 +215,66 @@ def main() -> int:
     loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="studio-reload")
     loading = None
     face = pupils = connection = None
+    headset = os.environ.get('QFT_HEADSET_MODEL') == '1'
+    def tick():
+        nonlocal loading, face, pupils
+        now_ns = time.monotonic_ns()
+        studio.poll(now_ns)
+        if studio.reload_requested and loading is None:
+            studio.reload_requested = False
+            loading = loader.submit(load_models)
+        if loading is not None and loading.done():
+            pending, loading = loading, None
+            try:
+                new_face, new_pupils, error = pending.result()
+                for old in (face, pupils):
+                    if old is not None:
+                        old.close()
+                face, pupils = new_face, new_pupils
+                studio.state['error'] = error
+            except Exception as error:
+                studio.state['error'] = 'Could not load calibration: ' + str(error)
+                if headset:
+                    raise RuntimeError(studio.state['error']) from error
+        if headset:
+            from headset_outputs import control_packet
+            now = now_ns / 1e9
+            fps = 24 if studio.writer is not None else 8 if now-shared.requested_at < 1. else 0
+            connection.sendall(control_packet(face, fps, labels.latest, labels.schema_names, now_ns,
+                preview=now-shared.pupil_requested_at < 1., calibrating=studio.pupil is not None))
+            if studio.pupil is not None and now-studio.last_ui > 3:
+                studio.pupil_state(now)
     try:
         connection = connect(should_stop)
         if connection is None:
             return 0
         print("CONNECTED", flush=True)
+        window_start, frames, waited = time.perf_counter(), 0, 0.
         while True:
-            raw_header = receive_exact(connection, HEADER.size, should_stop)
+            tick()
+            if not headset and (elapsed := time.perf_counter() - window_start) >= 5.:
+                print(f"STREAM_RATE {frames / elapsed:.1f} {1 - waited / elapsed:.2f}", flush=True)
+                window_start, frames, waited = time.perf_counter(), 0, 0.
+            started = time.perf_counter()
+            raw_header = receive_exact(connection, HEADER.size, should_stop, tick)
             (magic, version, header_size, _sequence, _timestamp_ns, width, height,
              stride, pixel_format, payload_size, camera_mask, _reserved) = HEADER.unpack(raw_header)
             if magic != MAGIC or version != 3 or header_size != HEADER.size:
                 raise ValueError("Unexpected live-stream header")
-            if camera_mask != 0x1F or (width, height, stride, pixel_format, payload_size) != (2000, 400, 2000, 1, 800_000):
+            is_result = headset and (width, height, stride, pixel_format, payload_size) == (66, 1, 66, 3, 264)
+            if camera_mask != 0x1F or not (is_result or (width, height, stride, pixel_format, payload_size) == (2000, 400, 2000, 1, 800_000)):
                 raise ValueError(f"Unsupported frame layout {width}x{height}, cameras 0x{camera_mask:x}, format {pixel_format}")
-            payload = receive_exact(connection, payload_size, should_stop)
+            payload = receive_exact(connection, payload_size, should_stop, tick)
+            frames, waited = frames + 1, waited + time.perf_counter() - started
             now_ns = time.monotonic_ns()
-            strip = np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
-            shared.update(strip, pupils.detected_pupils if pupils else (None, None))
+            strip = None if is_result else np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
+            if strip is not None:
+                shared.update(strip, pupils.detected_pupils if pupils else (None, None))
             try:
-                studio.update(strip, raw_header, payload, now_ns, labels)
+                if strip is None:
+                    studio.poll(now_ns)
+                else:
+                    studio.update(strip, raw_header, payload, now_ns, labels, headset_pupils=headset)
             except Exception as error:
                 print("STUDIO_CAPTURE_ERROR " + str(error), flush=True)
                 try:
@@ -216,24 +282,15 @@ def main() -> int:
                 except OSError:
                     pass
                 studio.state.update(phase="cancelled", completed=False, error=str(error))
-            if studio.reload_requested and loading is None:
-                studio.reload_requested = False
-                loading = loader.submit(load_models)
-            if loading is not None and loading.done():
-                try:
-                    new_face, new_pupils, error = loading.result()
-                    for old in (face, pupils):
-                        if old is not None:
-                            old.close()
-                    face, pupils = new_face, new_pupils
-                    studio.state['error'] = error
-                except Exception as error:
-                    studio.state['error'] = 'Could not load calibration: ' + str(error)
-                loading = None
-            if pupils is not None:
+            if pupils is not None and strip is not None and not headset:
                 pupils.update(strip, preview=time.monotonic() - shared.pupil_requested_at < 1.)
             if face is not None:
-                face.update(strip, labels.latest, labels.schema_names, now_ns)
+                if is_result:
+                    measurements = face.update(payload, labels.latest, now_ns)
+                    if measurements is not None:
+                        studio.update_pupils(measurements, now_ns)
+                elif not headset:
+                    face.update(strip, labels.latest, labels.schema_names, now_ns)
     except ReceiverStopped:
         pass
     finally:

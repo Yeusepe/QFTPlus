@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""One Euro filtering, used by the eye gaze runtime and the face event layer."""
+"""One Euro filtering of the gap between the eyes for independent gaze (convergence)."""
 
 from __future__ import annotations
 
-import collections
 import math
 
 import numpy as np
@@ -59,15 +58,16 @@ class OneEuroVectorFilter:
 
 
 class IndependentEyeFilter:
-    """Three-frame median, then One Euro over both eyes at once. Cutoffs are per component, so neither eye's
-    motion changes the other's smoothing."""
+    """Smooths only half the gap between the eyes, which convergence strength multiplies: it is mostly the eyes'
+    independent noise, while real convergence takes a few hundred ms (1 Hz halves its jitter for ~0.1 s convergence
+    lag). The shared direction passes raw; the Gaze Smoothing setting smooths it (0 = raw). Same as Convergence.java."""
 
-    def __init__(self, dimensions: int, **one_euro: float) -> None:
+    def __init__(self, dimensions: int) -> None:
         self.dimensions = dimensions
-        self.history: collections.deque[np.ndarray] = collections.deque(maxlen=3)
-        self.filter = OneEuroVectorFilter(2 * dimensions, **one_euro)
+        self.gap = OneEuroVectorFilter(dimensions, min_cutoff_hz=1.0, beta=0.03, derivative_cutoff_hz=0.5)
 
     def update(self, left, right, timestamp_s: float) -> tuple[np.ndarray, np.ndarray]:
-        self.history.append(np.concatenate([left, right]).astype(np.float64))
-        both = self.filter.update(np.median(self.history, axis=0), timestamp_s)
-        return both[: self.dimensions], both[self.dimensions :]
+        left, right = np.asarray(left, dtype=np.float64), np.asarray(right, dtype=np.float64)
+        shared = (left + right) / 2
+        gap = self.gap.update((left - right) / 2, timestamp_s)
+        return shared + gap, shared - gap
