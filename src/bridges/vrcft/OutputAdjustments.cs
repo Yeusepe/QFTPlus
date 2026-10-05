@@ -76,6 +76,7 @@ internal sealed class OutputAdjustments
     static double Option(double[] values, Key key, double fallback) => double.IsNaN(values[(int)key]) ? fallback : values[(int)key];
 
     internal bool Enabled(string name) => Resolve(name).Configured || manual.ContainsKey(name);
+    internal bool Smoothed(string name) => Default(name) > 0;
     internal bool Passthrough(string name) => Option(Resolve(name).Values, Key.Passthrough, 0) >= .5;
     internal float Apply(string name, float input, float neutral, float minimum, float maximum, double dt, double utcSeconds, float? partner = null)
     {
@@ -107,20 +108,22 @@ internal sealed class OutputAdjustments
         var outputHigh = Math.Clamp(Option(o, Key.OutputMax, maximum), outputLow, maximum);
         double Finish(double mapped) => Math.Clamp((invert ? minimum + maximum - mapped : mapped) + offset, outputLow, outputHigh);
         var value = (float)Finish(neutral + Math.Sign(delta) * amount * (delta < 0 ? neutral - minimum : maximum - neutral) * strength);
-        if (filtered.TryGetValue(name, out var previous))
+        if (filtered.TryGetValue(name, out var previous) && dt > 0)
         {
-            var smoothing = Option(o, Key.Smoothing, 0);
+            var smoothing = Option(o, Key.Smoothing, Default(name));
             var rest = Finish(neutral);
             if (Math.Abs(value - rest) < Math.Abs(previous - rest)) smoothing = Option(o, Key.Release, smoothing);
             smoothing = Math.Clamp(smoothing, 0, 100);
-            if (smoothing > 0)
-            {
-                var alpha = 1 - Math.Exp(-Math.Clamp(dt, 0, 1) / (.004 * smoothing));
-                value = (float)(previous + alpha * (value - previous));
-            }
+            dt = Math.Min(dt, 1);
+            if (smoothing > 0) value = (float)(previous + Alpha(Cutoff(smoothing, Math.Abs(value - previous) / dt), dt) * (value - previous));
         }
         value = (float)Math.Clamp(value, outputLow, outputHigh);
         filtered[name] = value;
         return value;
     }
+    internal static double Cutoff(double smoothing, double speed) => 1 / (2 * Math.PI * .004 * smoothing) * (1 + 5 * Math.Min(1, speed / 5));
+    internal static double DefaultSmoothing(string area) => area is "Gaze" or "Eyelids" or "Brows" or "Cheeks" ? 20 : 0;
+    readonly Dictionary<string, double> defaults = new();
+    double Default(string name) => defaults.TryGetValue(name, out var smoothing) ? smoothing : defaults[name] = DefaultSmoothing(Area(name));
+    static double Alpha(double cutoff, double dt) { var rate = 2 * Math.PI * cutoff * dt; return rate / (rate + 1); }
 }

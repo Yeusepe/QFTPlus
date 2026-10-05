@@ -27,8 +27,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private const int RuntimePort = 27275;
     private const long GazeTimeoutMs = 250;
     private const long GazeHoldMs = 1000;
-    private const float BlinkClosed = 0.5f;
-    private const long BlinkSettleMs = 100;
+    private const float BlinkClosingPerSecond = 3;
+    private const long BlinkSettleMs = 150;
     private const long TongueTimeoutMs = 300;
     private static readonly (int Source, int[] Targets)[] ExpressionMap =
     [
@@ -68,11 +68,14 @@ public sealed class TrackingModule : ExtTrackingModule
     private UdpClient? _runtimeSocket;
     private readonly PupilDilationState _pupil = new();
     private readonly ExtraFaceState _extraFace = new();
+    private readonly HeadsetState _headset = new();
     private bool _needsEye;
     private bool _needsExpression;
     private long _lastGazeTick;
     private readonly float[] _gaze = new float[4];
-    private readonly long[] _blinkTick = new long[2], _heldTick = new long[2];
+    private readonly long[] _heldTick = new long[2], _lidTicks = new long[2];
+    private readonly float[] _lids = new float[2];
+    private long _blinkTick;
     private byte _gazeFlags;
     private readonly float[] _tongueValues = new float[12];
     private ushort _tongueMask = 0xFFF;
@@ -97,6 +100,7 @@ public sealed class TrackingModule : ExtTrackingModule
     private readonly bool[] _owned = new bool[ShapeCount];
     private readonly float[] _eyes = new float[8], _eyeOutput = new float[8];
     private bool _eyesOwned;
+    private volatile bool _headsetDirect;
     private static readonly (int Index, string Name)[] Shapes = Enum.GetValues<UnifiedExpressions>()
         .Where(e => e.ToString() != "Max" && (int)e >= 0 && (int)e < ShapeCount).Select(e => ((int)e, e.ToString())).ToArray();
     private static readonly Dictionary<string, int> ShapeIndices = Shapes.ToDictionary(s => s.Name, s => s.Index);
@@ -107,7 +111,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private long _outputTick;
     private string? _settingsConfigPath;
     private DateTime _settingsConfigTime;
-    private long _settingsConfigTick, _outputStatusTick;
+    private long _settingsConfigTick, _outputStatusTick, _headsetAdjustTick;
+    private JsonObject? _outputStatus;
     private bool _outputStatusFailed;
     private readonly ManualResetEvent _packetSignal = new(false);
     private EventWaitHandle? _frameSignal;
@@ -193,6 +198,7 @@ public sealed class TrackingModule : ExtTrackingModule
             _packetSignal.Reset();
             long now = Environment.TickCount64;
             Receive(_runtimeSocket, 64, now);
+            if (_headset.Poll(now)) AcceptHeadset(now);
             if (!TryReadState(now)) Array.Clear(_second);
 
             var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));
@@ -221,6 +227,8 @@ public sealed class TrackingModule : ExtTrackingModule
                 Set(_input, index, entry.Value);
             }
             AdjustOutput(now);
+            if (_headset.AdjustRequest is { } request) AdjustFromHeadset(request, now);
+            if (_headsetDirect && !_headset.Fresh(now)) return;
             Publish(_output, _eyeOutput);
         }
     }
@@ -233,6 +241,7 @@ public sealed class TrackingModule : ExtTrackingModule
             _runtimeSocket?.Dispose();
             _steamLinkSocket?.Dispose();
             _labelSocket?.Dispose();
+            _headset.Dispose();
             if (_needsEye) ResetPupilDilation();
             Publish(_shapes, _eyes);
             _frameSignal?.Dispose();
@@ -253,6 +262,7 @@ public sealed class TrackingModule : ExtTrackingModule
             var config = ReadAutoStart() ?? throw new InvalidDataException("QproAutoStart.json is unreadable");
             if (config.Count == 0) return;
             string root = _settingsRoot ?? throw new InvalidDataException("QproAutoStart.json has no root");
+            if (config["headsetStandalone"]?.GetValue<bool>() == true) return;
             if (config["startWithVrcft"]?.GetValueKind() == JsonValueKind.False) return;
             string app = config["studioApp"]?.GetValue<string>() ?? Path.Combine(root, "QproFaceTracking.exe");
             if (!File.Exists(app)) throw new FileNotFoundException("QFT+ is missing", app);
@@ -289,6 +299,11 @@ public sealed class TrackingModule : ExtTrackingModule
     {
         var config = OutputAdjustments.Read(_settingsConfigPath!, ref _settingsConfigTime);
         if (config?["root"] is JsonValue folder && folder.TryGetValue(out string? root) && root.Length > 0) _settingsRoot = Path.GetFullPath(root);
+        if (config is not null)
+        {
+            _headset.Configure(config["headsetStandalone"]?.GetValue<bool>() == true && config["headsetReceiverEnabled"]?.GetValue<bool>() != false ? config["headsetPairKey"]?.GetValue<string>() ?? "" : "");
+            _headsetDirect = config["headsetStandalone"]?.GetValue<bool>() == true && config["headsetDirect"]?.GetValue<bool>() == true;
+        }
         return config;
     }
     private void AdjustOutput(long tick)
@@ -299,7 +314,7 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             _settingsConfigTick = tick;
             try { ReadAutoStart(); }
-            catch (ArgumentException) { }
+            catch (Exception error) when (error is ArgumentException or SocketException) { }
         }
         if (_settingsRoot is null) return;
         var dt=_outputTick==0?.005:(tick-_outputTick)/1000.0; _outputTick=tick;
@@ -310,16 +325,19 @@ public sealed class TrackingModule : ExtTrackingModule
             _outputStatusTick = tick;
             try { report = DateTime.UtcNow - File.GetLastWriteTimeUtc(Path.Combine(_settingsRoot, "output-status.lease")) <= TimeSpan.FromSeconds(3); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { report = false; }
+            report |= tick - _headsetAdjustTick < 3000;
         }
-        JsonObject inputs = new(), outputs = new();
+        JsonObject inputs = new(), outputs = new(); JsonArray parameters = new();
         void Adjust(string name, float[] from, float[] to, int index, float neutral, float minimum, float maximum, int partner)
         {
-            if (_adjustments.Enabled(name))
+            if (_adjustments.Enabled(name) || (to == _output ? _owned[index] : _eyesOwned) && _adjustments.Smoothed(name))
             {
                 to[index] = _adjustments.Apply(name, from[index], neutral, minimum, maximum, dt, utc, partner < 0 ? null : from[partner]);
                 if (to == _output) _owned[index] = true;
             }
             if (!report) return;
+            parameters.Add(new JsonObject { ["name"] = name, ["area"] = OutputAdjustments.Area(name), ["minimum"] = minimum, ["maximum"] = maximum,
+                ["neutral"] = neutral, ["modeled"] = OutputAdjustments.Modeled(name), ["partner"] = OutputAdjustments.Partner(name) });
             inputs[name] = float.IsFinite(from[index]) ? from[index] : 0;
             outputs[name] = float.IsFinite(to[index]) ? to[index] : 0;
         }
@@ -332,6 +350,8 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             var status = new JsonObject { ["updated"] = utc, ["settings"] = _adjustments.Settings.DeepClone(),
                 ["inputs"] = inputs, ["outputs"] = outputs, ["pupilTracking"] = _pupil.Current(tick) is not null };
+            _outputStatus = status.DeepClone().AsObject();
+            _outputStatus["parameters"] = parameters; _outputStatus["areas"] = new JsonArray(OutputAdjustments.Areas.Select(a => (JsonNode?)a).ToArray());
             var path = Path.Combine(_settingsRoot, "output-status.json");
             File.WriteAllText(path + ".tmp", status.ToJsonString());
             File.Move(path + ".tmp", path, true);
@@ -342,6 +362,27 @@ public sealed class TrackingModule : ExtTrackingModule
             if (!_outputStatusFailed) Logger?.LogWarning(error, "Could not publish QFT+ adjustment readout");
             _outputStatusFailed = true;
         }
+    }
+
+    private void AdjustFromHeadset(byte[] request, long now)
+    {
+        _headset.AdjustRequest = null; _headsetAdjustTick = now;
+        if (_settingsRoot is null) return;
+        if (request.Length > 0)
+        {
+            try
+            {
+                if (JsonNode.Parse(request) is not JsonObject settings) return;
+                var path = Path.Combine(_settingsRoot, "output-settings.json");
+                File.WriteAllText(path + ".tmp", settings.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(path + ".tmp", path, true);
+            }
+            catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException)
+            {
+                Logger?.LogWarning(error, "Could not save adjustments from the headset");
+            }
+        }
+        if (_outputStatus is not null) _headset.ReplyAdjustments(JsonSerializer.SerializeToUtf8Bytes(_outputStatus));
     }
 
     private void TryOpenMap(long now)
@@ -369,6 +410,7 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private bool TryReadState(long now)
     {
+        if (_headset.CopyTo(_second, now)) return true;
         Receive(_steamLinkSocket, 512, now);
         bool steamLink = _steamLink.CopyTo(_steamLinkBytes, now);
         bool vd = TryReadVirtualDesktop(now);
@@ -381,6 +423,28 @@ public sealed class TrackingModule : ExtTrackingModule
         }
         if (steamLink || vd) SendLabels(source);
         return steamLink || vd;
+    }
+
+    private void AcceptHeadset(long now)
+    {
+        var p = _headset.Current;
+        uint flags = BinaryPrimitives.ReadUInt32LittleEndian(p[4..]), status = BinaryPrimitives.ReadUInt32LittleEndian(p[12..]);
+        string[] names = ["CheekPuffLeft", "CheekPuffRight", "CheekSuckLeft", "CheekSuckRight", "BrowInnerUpLeft", "BrowInnerUpRight", "BrowOuterUpLeft", "BrowOuterUpRight", "BrowLowererLeft", "BrowLowererRight", "BrowPinchLeft", "BrowPinchRight"];
+        var values = new Dictionary<string, float>(); var shares = new Dictionary<string, float>();
+        for (int i = 0; i < 12; i++)
+            if (i < 4 ? (flags & 8) != 0 : i >= 8 && (flags & 16) != 0) values[names[i]] = BinaryPrimitives.ReadSingleLittleEndian(p[(20 + i * 4)..]);
+        for (int i = 0; i < 4; i++) if ((flags & 16) != 0) shares[names[i + 4]] = BinaryPrimitives.ReadSingleLittleEndian(p[(68 + i * 4)..]);
+        _extraFace.Accept(JsonSerializer.SerializeToUtf8Bytes(new { version = 1, enabled = (flags & 1) != 0, values, shares }), now);
+        Span<byte> pupil = stackalloc byte[16]; pupil.Clear(); "QPPD"u8.CopyTo(pupil); pupil[4] = 1; pupil[5] = (byte)((status >> 3) & 1);
+        p.Slice(96, 8).CopyTo(pupil[8..]); _pupil.Accept(pupil, now);
+        Span<byte> tongue = stackalloc byte[56]; tongue.Clear(); "QPTO"u8.CopyTo(tongue); tongue[4] = 3; tongue[5] = (byte)((flags >> 1) & 1); tongue[6] = 31;
+        if ((status & 4) != 0)
+        {
+            float extension = BinaryPrimitives.ReadSingleLittleEndian(p[84..]), horizontal = BinaryPrimitives.ReadSingleLittleEndian(p[88..]), vertical = BinaryPrimitives.ReadSingleLittleEndian(p[92..]);
+            float[] directions = [extension, vertical, -vertical, -horizontal, horizontal];
+            for (int i = 0; i < 5; i++) BinaryPrimitives.WriteSingleLittleEndian(tongue[(8 + i * 4)..], Math.Clamp(directions[i], 0, 1));
+        }
+        AcceptTongue(tongue, now);
     }
 
     private void SendLabels(string source)
@@ -475,8 +539,14 @@ public sealed class TrackingModule : ExtTrackingModule
         bool customFresh = Packets.Fresh(_lastGazeTick, now, GazeTimeoutMs);
         for (int side = 0; side < 2; side++)
         {
-            if (values[12 + side] > BlinkClosed) _blinkTick[side] = now;
-            if (now - _blinkTick[side] <= BlinkSettleMs)
+            var lid = values[12 + side];
+            if (lid == _lids[side]) continue;
+            if (_lidTicks[side] != 0 && (lid - _lids[side]) * 1000 / Math.Max(1, now - _lidTicks[side]) > BlinkClosingPerSecond) _blinkTick = now;
+            (_lids[side], _lidTicks[side]) = (lid, now);
+        }
+        for (int side = 0; side < 2; side++)
+        {
+            if (now - _blinkTick <= BlinkSettleMs)
             {
                 _heldTick[side] = now;
                 continue;
