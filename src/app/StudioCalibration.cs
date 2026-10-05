@@ -4,6 +4,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Ui = Wpf.Ui.Controls;
 
 namespace QFTPlus;
 
@@ -38,6 +39,7 @@ public partial class StudioWindow
         calibrationModes.IsEnabled = !recording && !training;
         slowMode.Visibility = Visible(kind == "enroll" && !recording && !training);
         begin.Visibility = Visible(!recording && !training);
+        setUpFace.Visibility = Visible(SetupFirst && !recording && !training);
         pause.Visibility = skip.Visibility = Visible(recording && kind != "pupils");
         cancel.Visibility = Visible(recording);
         progress.Visibility = Visible(recording || training);
@@ -46,6 +48,34 @@ public partial class StudioWindow
 
     void Calibration()
     {
+        if (HeadsetModelExperiment.Standalone(session))
+        {
+            var state = Muted("", live: true);
+            trackingRefresh += () => state.Text = session.App is not { } app ? session.AppProblem
+                : $"Face: {(HeadsetApp.Flag(app, "calibrated", "face") ? "calibrated" : "not calibrated")} · Pupils: {(HeadsetApp.Flag(app, "calibrated", "pupils") ? "calibrated" : "not calibrated")}";
+            trackingRefresh();
+            var started = Muted("", live: true);
+            started.Visibility = Visibility.Collapsed;
+            Ui.Button Start(string title, string kind, bool primary)
+            {
+                var button = AsyncButton(title, async () =>
+                {
+                    try
+                    {
+                        session.App = await HeadsetApp.SendAsync(session, CancellationToken.None, ("calibrate", kind));
+                        started.Text = "Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.";
+                    }
+                    catch (IOException error) { started.Text = error.Message; }
+                    started.Visibility = Visibility.Visible;
+                });
+                button.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
+                return button;
+            }
+            Page.Children.Add(Card(Heading("Calibrate in the headset"),
+                Muted("QFT+ Headset records and processes calibration on the headset, where an avatar shows each expression to copy. Your saved calibration changes only when a new one passes."),
+                Start("Calibrate face", "face", true), Start("Calibrate pupils", "pupils", false), started, state));
+            return;
+        }
         if (training) kind = trainingKind;
         calibrationModes.SelectionChanged -= CalibrationModeChanged;
         calibrationModes.Items.Clear();
@@ -54,7 +84,7 @@ public partial class StudioWindow
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
         poseTitle.Text = "Calibrate " + GroupTitle(kind).ToLowerInvariant();
-        poseDetail.Text = (kind switch
+        poseDetail.Text = (SetupFirst ? "Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. " : "") + (kind switch
         {
             "enroll" => "Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range.",
             "benchmark-quick" => "For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change.",
@@ -67,14 +97,14 @@ public partial class StudioWindow
         count.Text = kind == "pupils" ? "" : "Recordings stay on this PC.";
         count.Visibility = Visible(kind != "pupils");
         slowMode.IsChecked = slow;
-        begin.Content = "Start calibration";
-        begin.Appearance = Wpf.Ui.Controls.ControlAppearance.Primary;
+        begin.Content = SetupFirst ? "Start without setup" : "Start calibration";
+        begin.Appearance = SetupFirst ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         pause.Content = "Pause";
         cancel.IsEnabled = true;
         review.Visibility = Visibility.Collapsed;
         foreach (var element in new UIElement[] { CalibrationAreaLabel, calibrationModes, CalibrationCard, slowMode }) Page.Children.Add(element);
         Actions.Children.Clear();
-        foreach (var button in new[] { begin, pause, skip, cancel, review }) Actions.Children.Add(button);
+        foreach (var button in new[] { setUpFace, begin, pause, skip, cancel, review }) Actions.Children.Add(button);
         ResizeGuide();
         RefreshCalibrationControls();
         if (training && !trainingKind.StartsWith("benchmark")) ShowWorking();
@@ -91,6 +121,15 @@ public partial class StudioWindow
     {
         if (recording || training || calibrationModes.SelectedItem is not ComboBoxItem item) return;
         (kind, candidate, prefix, calibrationResult) = ((string)item.Tag, "", "", null);
+        CalibrationReset();
+    }
+
+    bool SetupFirst => kind.StartsWith("benchmark") && !File.Exists(session.Config["faceEnrollment"]?.GetValue<string>());
+
+    void SetUpFaceFirst(object sender, RoutedEventArgs e)
+    {
+        if (recording || training) return;
+        (kind, candidate, prefix, calibrationResult) = ("enroll", "", "", null);
         CalibrationReset();
     }
 
@@ -116,6 +155,11 @@ public partial class StudioWindow
     internal void Begin()
     {
         if (recording || training) return;
+        if (HeadsetModelExperiment.Standalone(session))
+        {
+            Error("Open Calibration in QFT+ Headset. This experiment records and processes calibration on the headset.");
+            return;
+        }
         if (!session.Running) Error("Start tracking, then start calibration.");
         else if (runtimeId.Length == 0 || session.State != "Connected" || !FreshState()) Error("Waiting for the headset cameras. Make sure the headset is awake and connected.");
         else

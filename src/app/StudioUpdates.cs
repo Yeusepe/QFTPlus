@@ -125,6 +125,12 @@ public partial class StudioWindow
             if (System.Windows.Forms.TaskDialog.ShowDialog(owner, new System.Windows.Forms.TaskDialogPage
                 { Caption = "Uninstall QFT+", Heading = "Close an app first", Text = blocker,
                   Buttons = { System.Windows.Forms.TaskDialogButton.Retry, System.Windows.Forms.TaskDialogButton.Cancel } }) != System.Windows.Forms.TaskDialogButton.Retry) return;
+        if (HeadsetModelExperiment.Enabled(session) || HeadsetModelExperiment.Pending(session))
+        {
+            busy = true;
+            try { await session.SetHeadsetModel(false); }
+            finally { busy = false; SidebarStatus(); trackingRefresh?.Invoke(); }
+        }
         if (everything.Checked) File.WriteAllText(Uninstall.EverythingMarker, "Settings > Uninstall: also delete the data");
         else File.Delete(Uninstall.EverythingMarker);
         var update = Velopack.Locators.VelopackLocator.Current.UpdateExePath;
@@ -178,9 +184,9 @@ public partial class StudioWindow
         foreach (var button in new[] { install, check, view }) { button.Margin = new(0, 0, 8, 8); actions.Children.Add(button); }
         var automatic = new CheckBox { Content = "Check for updates automatically", IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
         automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
+        System.Windows.Automation.AutomationProperties.SetHelpText(automatic, updater is null ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."
+            : (installedVersion?.IsPrerelease == true ? "Includes release candidates. " : "") + "Updates install here and keep your settings, calibrations, and recordings.");
         panel.Children.Add(automatic);
-        panel.Children.Add(Text(updater is null ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."
-            : (installedVersion?.IsPrerelease == true ? "Includes release candidates. " : "") + "Updates install here and keep your settings, calibrations, and recordings.", 13, true));
         Page.Children.Add(Card(panel));
         updateRefresh = () =>
         {

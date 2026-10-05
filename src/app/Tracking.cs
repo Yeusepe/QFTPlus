@@ -18,17 +18,22 @@ internal sealed class Tracking
     readonly Session session;
     readonly string adb, target;
     readonly bool eyes;
+    readonly bool headsetModel;
     readonly double vergence;
     readonly CancellationTokenSource stop = new();
     Process? relay;
     bool mounted;
     string eyeBefore = "false";
     internal string State = "waiting", Error = "", ErrorLog = Log;
+    internal sealed record StreamRate(double Fps, double Busy);
+    internal StreamRate? Stream;
+    internal string SlowCause => Stream is not { Fps: < 15 } rate ? "" : rate.Busy > .8 ? "pc" : "connection";
     internal Task Run { get; }
 
     internal Tracking(Session session, string target, bool eyes, double vergence)
     {
         this.session = session; this.target = target; this.eyes = eyes; this.vergence = vergence;
+        headsetModel = HeadsetModelExperiment.Enabled(session);
         adb = Adb.Exe(session.Root);
         Session.Rotate(Path.Combine(session.Root, Log), clear: true);
         Run = Task.Run(RunAsync);
@@ -40,7 +45,7 @@ internal sealed class Tracking
 
     internal async Task StopAsync() { stop.Cancel(); await Run; }
 
-    string Restore => $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}" + (eyes ? "; " + EyeRestore : "");
+    string Restore => (headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --stop; " : "") + $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}" + (eyes ? "; " + EyeRestore : "");
 
     string EyeRestore => $"if grep -qF '{EyeTarget}' /proc/mounts; then stop trackingservice; setprop {EyeProperty} {eyeBefore}; umount '{EyeTarget}'; start trackingservice; "
         + $"else setprop {EyeProperty} {eyeBefore}; fi; rm -f '{EyeCopy}'";
@@ -70,7 +75,13 @@ internal sealed class Tracking
             var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             await StartCamera(token);
             receiver = session.Launch(session.Python, [Path.Combine(session.Root, "receiver.py")], "face.log",
-                line => { if (line == "CONNECTED") State = "running"; }, ("QFT_STREAM_TOKEN", token), ("QFT_STREAM_HOST", Direct ?? "127.0.0.1"));
+                line =>
+                {
+                    if (line == "CONNECTED") State = "running";
+                    else if (line.Split(' ') is ["STREAM_RATE", var fps, var busy])
+                        Stream = new(double.Parse(fps, System.Globalization.CultureInfo.InvariantCulture), double.Parse(busy, System.Globalization.CultureInfo.InvariantCulture));
+                }, ("QFT_STREAM_TOKEN", token), ("QFT_STREAM_HOST", Direct ?? "127.0.0.1"),
+                ("QFT_HEADSET_MODEL", headsetModel ? "1" : "0"));
             var children = new[] { gaze, relay, receiver }.OfType<Process>().ToArray();
             await Task.WhenAny(children.Select(child => child.WaitForExitAsync(stop.Token)));
             foreach (var (child, log) in new[] { (gaze, "eyes.log"), (receiver, "face.log"), (relay, "questpro-live-relay.txt") })
@@ -121,7 +132,8 @@ internal sealed class Tracking
         Write(inject.Output);
         if (inject.Code != 0) throw new IOException("Starting the headset camera stream failed. The Tracking log shows why.");
         var bind = Direct is { } address ? $" --bind {address}" : "";
-        relay = session.Launch(adb, Adb.Su(target, $"{Relay} --max-fps {MaxFps} --token {token}{bind}"), "questpro-live-relay.txt");
+        var command = headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --model {HeadsetModelExperiment.Directory}" : Relay;
+        relay = session.Launch(adb, Adb.Su(target, $"{command} --max-fps {MaxFps} --token {token}{bind}"), "questpro-live-relay.txt");
         await Task.Delay(800, stop.Token);
         if (relay.HasExited)
         {

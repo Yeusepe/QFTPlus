@@ -30,7 +30,7 @@ public partial class StudioWindow
     bool manualTesting, searching;
     long manualPublished;
     JsonObject manualValues = new();
-    string outputParameter = "*", manualGroup = "Tongue";
+    internal string outputParameter = "*", manualGroup = "Tongue";
     internal Action? setupRefresh, adjustmentRefresh;
     internal int setupStep = -1;
     internal bool setupDone, moduleMissing;
@@ -96,6 +96,7 @@ public partial class StudioWindow
             parameterPicker.Margin = new(0, 0, 0, 24);
             Field(Page, "Parameter", parameterPicker);
         }
+        if (area == "Gaze" && !single) Page.Children.Add(ConvergenceOptions());
         var path = Path.Combine(session.Root, "output-settings.json");
         JsonObject? Load()
         {
@@ -165,10 +166,8 @@ public partial class StudioWindow
                     + (area is null or "Pupils" ? " The headset doesn’t measure pupils, so they stay at 50%." : "");
                 var passthrough = Toggle("passthrough", "Headset passthrough");
                 AutomationProperties.SetHelpText(passthrough, about);
-                var note = Muted(about);
-                note.Margin = new(0, 0, 0, paired ? 20 : 0);
+                passthrough.Margin = new(0, 4, 0, paired ? 20 : 4);
                 input.Children.Add(passthrough);
-                input.Children.Add(note);
             }
             if (paired)
             {
@@ -187,7 +186,9 @@ public partial class StudioWindow
         basics.Children.Add(Muted("Dead zone ignores movement around neutral, then scales the remaining movement to reach full output. Offset shifts the result after this step."));
         Slider? release = null;
         var syncing = false;
-        NumericSetting.AddTo(basics, "Smoothing", 0, 100, Value("smoothing", 0), v =>
+        var smoothing = names.Select(n => OutputAdjustments.DefaultSmoothing(OutputAdjustments.Area(n))).Distinct().Count() == 1
+            ? OutputAdjustments.DefaultSmoothing(OutputAdjustments.Area(names[0])) : 0;
+        NumericSetting.AddTo(basics, "Smoothing", 0, 100, Value("smoothing", smoothing), v =>
         {
             Save("smoothing", v);
             if (release is null || values.ContainsKey("release") || group.ContainsKey("release") || inherited.ContainsKey("release")) return;
@@ -199,7 +200,7 @@ public partial class StudioWindow
         var response = new StackPanel { Margin = new(0, 16, 0, 0) };
         Number(response, "Response curve", "curve", .1, 5, 1, raw: true);
         response.Children.Add(Muted("1 is linear. Below 1 boosts small movements; above 1 makes them gentler."));
-        release = NumericSetting.AddTo(response, "Smoothing when relaxing", 0, 100, Value("release", Value("smoothing", 0)), v =>
+        release = NumericSetting.AddTo(response, "Smoothing when relaxing", 0, 100, Value("release", Value("smoothing", smoothing)), v =>
         {
             if (!syncing) Save("release", v);
         });
@@ -291,8 +292,8 @@ public partial class StudioWindow
             sliders.IsEnabled = manualTesting;
             PublishManual();
         };
-        var about = Muted("While it’s on, VRCFaceTracking gets these values instead of your face.");
-        about.Margin = new(0, 0, 0, 16);
+        AutomationProperties.SetHelpText(enabled, "While it’s on, VRCFaceTracking gets these values instead of your face.");
+        enabled.Margin = new(0, 4, 0, 16);
         foreach (var name in Parameters().Where(name => OutputAdjustments.Area(name) == manualGroup))
         {
             manualValues[name] = Neutral(name);
@@ -303,7 +304,7 @@ public partial class StudioWindow
                 if (Environment.TickCount64 - manualPublished >= 100) PublishManual();
             }, gaze ? "" : "%", gaze ? 1 : 100, gaze ? 3 : 2);
         }
-        foreach (var element in new UIElement[] { enabled, about, Card(sliders) }) Page.Children.Add(element);
+        foreach (var element in new UIElement[] { enabled, Card(sliders) }) Page.Children.Add(element);
         Actions.Children.Add(Button("Reset", () =>
         {
             StopManual();
@@ -331,8 +332,31 @@ public partial class StudioWindow
     UIElement EyeOptions()
     {
         var enabled = new CheckBox { Content = "Independent eye gaze", IsChecked = session.IndependentGaze };
+        AutomationProperties.SetHelpText(enabled, "Tracks the direction of each eye separately.");
         var status = Muted("", live: true);
         var setup = Button("Set up eye tracking", () => Navigate("Setup"));
+        var convergence = Button("Adjust convergence", () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
+        trackingRefresh = () =>
+        {
+            var on = enabled.IsChecked == true;
+            enabled.IsEnabled = setup.IsEnabled = !busy && !session.Running;
+            status.Text = busy ? "Wait for the current step to finish to change eye gaze." : session.Running ? "Stop tracking to change eye gaze."
+                : on ? "Starts with tracking." : "Uses standard eye tracking.";
+            setup.Visibility = Visible(on && !File.Exists(SetupService.EyeModel(session.Root)));
+            convergence.Visibility = Visible(on);
+        };
+        enabled.Click += (_, _) =>
+        {
+            session.Save("independentGaze", enabled.IsChecked == true);
+            trackingRefresh?.Invoke();
+        };
+        trackingRefresh();
+        return Card(enabled, status, Buttons(setup, convergence));
+    }
+
+    UIElement ConvergenceOptions()
+    {
+        if (HeadsetModelExperiment.Standalone(session)) return HeadsetConvergence();
         var gain = session.VergenceGain;
         var controls = new StackPanel();
         var strength = NumericSetting.AddTo(controls, "Convergence strength", 0, 3, gain, v =>
@@ -342,31 +366,65 @@ public partial class StudioWindow
         }, scale: 100);
         (strength.SmallChange, strength.LargeChange, strength.TickFrequency, strength.IsSnapToTickEnabled) = (.05, .25, .05, true);
         controls.Children.Add(Button("Reset to 100%", () => strength.Value = 1));
-        var adjustmentStatus = Muted("", live: true);
-        var options = Stack(Muted("Adjust how much your eyes turn toward each other when looking at something nearby."), controls,
-            Muted("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental."), adjustmentStatus);
-        options.Margin = new(0, 12, 0, 0);
-        trackingRefresh = () =>
+        var status = Muted("", live: true);
+        var turnOn = Button("Turn on independent eye gaze", () => Navigate("Settings"));
+        void Refresh()
         {
-            var on = enabled.IsChecked == true;
-            enabled.IsEnabled = setup.IsEnabled = !busy && !session.Running;
-            status.Text = busy ? "Wait for the current step to finish to change eye gaze." : session.Running ? "Stop tracking to change eye gaze."
-                : on ? "Starts with tracking." : "Uses standard eye tracking.";
-            AutomationProperties.SetHelpText(enabled, "Tracks the direction of each eye separately. " + status.Text);
-            setup.Visibility = Visible(on && !File.Exists(SetupService.EyeModel(session.Root)));
+            var on = session.IndependentGaze;
             controls.IsEnabled = on && !busy && (!session.Running || session.State == "Connected");
-            adjustmentStatus.Text = !on ? "Turn on independent eye gaze to adjust convergence."
+            turnOn.Visibility = Visible(!on);
+            status.Text = !on ? "Convergence works with independent eye gaze, which is off."
                 : busy || session.Running && session.State != "Connected" ? "Available when tracking is ready."
                 : session.Running ? "Changes apply immediately and are saved automatically." : "Saved automatically. Applies when tracking starts.";
-        };
-        enabled.Click += (_, _) =>
+        }
+        trackingRefresh += Refresh;
+        Refresh();
+        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby."), controls,
+            Muted("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental."),
+            status, turnOn);
+    }
+
+    UIElement HeadsetConvergence()
+    {
+        var sending = 0;
+        var syncing = false;
+        async Task Apply(string key, object value)
         {
-            session.Save("independentGaze", enabled.IsChecked == true);
-            trackingRefresh?.Invoke();
-        };
-        trackingRefresh();
-        return Card(enabled, Muted("Tracks the direction of each eye separately."), status, setup,
-            new Expander { Header = "Eye adjustments", Content = options, Margin = new(0, 8, 0, 0) });
+            sending++;
+            try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
+            catch (IOException error) { Error(error.Message); }
+            finally { sending--; }
+        }
+        var on = new CheckBox { Content = "Convergence" };
+        AutomationProperties.SetHelpText(on, "Tracks each eye separately for depth. Starts with tracking when enabled.");
+        on.Click += async (_, _) => await Apply("convergence", on.IsChecked == true);
+        var controls = new StackPanel();
+        var strength = NumericSetting.AddTo(controls, "Convergence strength", 0, 3, 1, v =>
+        {
+            if (!syncing) SaveLater(() => _ = Apply("vergenceGain", v));
+        }, scale: 100);
+        (strength.SmallChange, strength.LargeChange, strength.TickFrequency, strength.IsSnapToTickEnabled) = (.05, .25, .05, true);
+        controls.Children.Add(Button("Reset to 100%", () => strength.Value = 1));
+        var status = Muted("", live: true);
+        void Refresh()
+        {
+            if (sending > 0) return;
+            var settings = session.App?["settings"];
+            on.IsEnabled = controls.IsEnabled = settings is not null;
+            on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
+            controls.Visibility = Visible(on.IsChecked == true);
+            if (settings?["vergenceGain"]?.GetValue<double>() is { } gain && !strength.IsMouseCaptureWithin && !strength.IsKeyboardFocusWithin)
+            {
+                syncing = true;
+                strength.Value = gain;
+                syncing = false;
+            }
+            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? "Reading settings from the headset…" : "Saved in QFT+ Headset. Strength changes apply immediately.";
+        }
+        trackingRefresh += Refresh;
+        Refresh();
+        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby."), on, controls,
+            Muted("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental."), status);
     }
 
     (UIElement Card, Action Refresh, Action<string> Select) UseOptions(Action<string> changed)
@@ -445,12 +503,16 @@ public partial class StudioWindow
         });
         var headsetCard = Template("HeadsetPanel");
         var (found, caption, activity, search) = ((StackPanel)headsetCard.FindName("Headsets"), (TextBlock)headsetCard.FindName("Caption"),
-            (ProgressBar)headsetCard.FindName("Activity"), (Button)headsetCard.FindName("Search"));
+            (ContentControl)headsetCard.FindName("Activity"), (Button)headsetCard.FindName("Search"));
+        var hero = new HeadsetHero(150) { Margin = new(0, 4, 0, 12), HorizontalAlignment = HorizontalAlignment.Center };
+        activity.Content = hero;
         search.Click += (_, _) => _ = Search();
         void ShowHeadsets()
         {
             found.Children.Clear();
-            activity.Visibility = Visible(searching);
+            hero.Present(!SetUp);
+            hero.Show(searching ? HeadsetHero.Look.Working : headsets.Any(q => q.State == "device") ? HeadsetHero.Look.Connected
+                : headsets.Count > 0 || headsetsChecked is not null ? HeadsetHero.Look.Warning : HeadsetHero.Look.Idle);
             search.IsEnabled = !searching;
             search.Content = searching ? "Searching…" : "Search again";
             caption.Text = searching ? "Searching USB and Wi-Fi…" : headsetsChecked is { } at ? $"Last checked at {at:t}." : "Not checked yet.";

@@ -40,6 +40,10 @@ internal static class CalibrationSettings
         if (kind == "enroll")
         {
             if (!File.Exists(result)) throw new IOException("The face setup file is missing.");
+            string[] earlier = [config["faceEnrollment"]?.GetValue<string>() ?? "",
+                .. config["faceEnrollmentHistory"]?.AsArray().Select(node => node?.GetValue<string>() ?? "") ?? []];
+            config["faceEnrollmentHistory"] = new JsonArray([.. earlier.Where(path => path.Length > 0 && path != result).Distinct().Take(4)
+                .Select(path => (JsonNode)path)]);
             config["faceEnrollment"] = result;
         }
         else if (kind == "pupils")

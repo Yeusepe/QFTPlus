@@ -14,9 +14,10 @@ using Ui = Wpf.Ui.Controls;
 
 namespace QFTPlus;
 
-public partial class StudioWindow : Window
+public partial class StudioWindow : Ui.FluentWindow
 {
     static readonly string[] Pages = ["Tracking", "Adjustments", "Manual", "Calibration", "Cameras", "Setup", "Settings"];
+    static readonly string[] PageIcons = ["face", "tune", "experiment", "frame_person", "photo_camera", "head_mounted_device", "settings"];
     internal readonly Session session;
     readonly bool preview;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) }, saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
@@ -29,10 +30,19 @@ public partial class StudioWindow : Window
     internal bool busy;
     bool quitting;
     Action? trackingRefresh;
+    readonly HeadsetHero trackingHero = new(150) { Margin = new(0, 4, 0, 16), HorizontalAlignment = HorizontalAlignment.Center };
+    internal readonly HeadsetHero sidebarHero = new(120)
+    {
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 42, 0, 0),
+        OpacityMask = new LinearGradientBrush(Colors.Black, Colors.Transparent, new Point(.5, .43), new Point(.5, .68)),
+    };
 
     public StudioWindow(string root, bool preview = false, string? config = null)
     {
         InitializeComponent();
+        TrackingCard.Children.Insert(0, trackingHero);
+        DeviceArea.Children.Insert(1, sidebarHero);
+        DeviceGlow.Background = sidebarHero.Glow;
         this.preview = preview;
         session = new(root, config);
         saveTimer.Tick += (_, _) => SaveNow();
@@ -47,7 +57,13 @@ public partial class StudioWindow : Window
         });
         foreach (var name in Pages)
         {
-            var item = new ListBoxItem { Content = new TextBlock { Text = TitleOf(name) }, Tag = name, Margin = new(0, name == "Setup" ? 16 : 0, 0, 0) };
+            var label = new DockPanel();
+            var text = new TextBlock { Text = TitleOf(name), VerticalAlignment = VerticalAlignment.Center };
+            var glyph = Symbols.Shape(PageIcons[Array.IndexOf(Pages, name)], 22, text);
+            glyph.Margin = new(0, 0, 14, 0);
+            label.Children.Add(glyph);
+            label.Children.Add(text);
+            var item = new ListBoxItem { Content = label, Tag = name, Margin = new(0, name == "Setup" ? 16 : 0, 0, 4) };
             AutomationProperties.SetName(item, TitleOf(name));
             TextSearch.SetText(item, TitleOf(name));
             Navigation.Items.Add(item);
@@ -59,6 +75,7 @@ public partial class StudioWindow : Window
         Navigate("Tracking");
         RestorePlacement();
         SizeChanged += (_, _) => ResizeGuide();
+        PageScroll.ScrollChanged += (_, _) => FadeEdges();
         if (!preview)
         {
             void Raise(Action? then = null) => Dispatcher.Invoke(() => { Show(); then?.Invoke(); Activate(); });
@@ -106,6 +123,19 @@ public partial class StudioWindow : Window
             }
             e.Cancel = true;
         };
+    }
+
+    void FadeEdges()
+    {
+        var height = PageScroll.ActualHeight;
+        if (height <= 0) return;
+        var fade = Math.Min(.25, 32 / height);
+        var (above, below) = (PageScroll.VerticalOffset > 0, PageScroll.VerticalOffset < PageScroll.ScrollableHeight);
+        var mask = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
+        foreach (var (color, offset) in new[] { (above ? Colors.Transparent : Colors.Black, 0), (Colors.Black, fade), (Colors.Black, 1 - fade), (below ? Colors.Transparent : Colors.Black, 1) })
+            mask.GradientStops.Add(new GradientStop(color, offset));
+        mask.Freeze();
+        PageScroll.OpacityMask = mask;
     }
 
     static string TitleOf(string page) => page == "Manual" ? "Test movements" : page;
@@ -214,6 +244,7 @@ public partial class StudioWindow : Window
 
     async void StartClick(object sender, RoutedEventArgs e)
     {
+        if (!SetUp && !busy) { Navigate("Setup"); return; }
         if (busy) session.CancelSetup();
         else if (!session.Running) await Start();
         else if (recording || training) Error("Finish calibration before stopping tracking.");
@@ -286,9 +317,10 @@ public partial class StudioWindow : Window
 
     TextBlock Muted(string value, bool live = false) => Text(value, 13, true, live);
 
-    TextBlock Heading(string value, double size = 16)
+    TextBlock Heading(string value, double size = 18)
     {
         var heading = Text(value, size);
+        heading.Tag = "Heading";
         heading.SetResourceReference(StyleProperty, "SectionHeading");
         return heading;
     }
@@ -311,7 +343,15 @@ public partial class StudioWindow : Window
         return panel;
     }
 
-    static Ui.Card Card(params UIElement[] children) => new() { Content = children.Length == 1 ? children[0] : Stack(children) };
+    static FrameworkElement Card(params UIElement[] children)
+    {
+        if (children is [TextBlock { Tag: "Heading" } heading, .. var rest] && rest.Length > 0)
+        {
+            heading.Margin = new(0, 8, 0, 12);
+            return Stack(heading, Card(rest));
+        }
+        return new Ui.Card { Content = children.Length == 1 ? children[0] : Stack(children) };
+    }
 
     CheckBox Check(string key, string label, bool fallback, Action? changed = null)
     {
@@ -361,16 +401,16 @@ public partial class StudioWindow : Window
 
     bool Problem => !busy && !session.Running && (setupProblem.Length > 0 || session.State == "Tracking stopped");
 
-    (string Glyph, string Brush) Mark() => Problem ? ("", "Ink") : session.State == "Connected" ? ("", "Accent")
-        : busy || session.Running ? ("", "Accent") : ("", "Muted");
-
     void SidebarStatus()
     {
-        var (glyph, brush) = Mark();
-        ConnectionMark.Text = glyph;
-        ConnectionMark.SetResourceReference(TextBlock.ForegroundProperty, brush);
         Connection.Text = Problem && setupProblem.Length > 0 ? "Couldn’t start" : session.State;
-        StartButton.Content = busy && !session.Running ? "Cancel" : session.Running ? "Stop" : "Start";
+        if (SetUp) DeviceTile.Visibility = Visibility.Visible;
+        sidebarHero.Present(SetUp, () => DeviceTile.Visibility = Visibility.Collapsed);
+        sidebarHero.Hands = session.Hands;
+        var warning = session.State == "Waiting for headset" || session.HybridProblem.Length > 0 || session.tracking?.SlowCause is { Length: > 0 };
+        sidebarHero.Show(Problem ? HeadsetHero.Look.Error : session.State == "Connected" && !warning ? HeadsetHero.Look.Connected : warning ? HeadsetHero.Look.Warning
+            : busy || session.Running ? HeadsetHero.Look.Working : HeadsetHero.Look.Idle);
+        StartButton.Content = !SetUp && !busy ? "Set up…" : busy && !session.Running ? "Cancel" : session.Running ? "Stop" : "Start";
     }
 
     void Cameras()
@@ -427,7 +467,7 @@ public partial class StudioWindow : Window
     {
         scale = Math.Clamp(scale, 1, 2.25);
         FontSize = 14 * scale;
-        SidebarColumn.Width = new(Math.Min(280, 196 * scale));
+        SidebarColumn.Width = new(Math.Min(320, 240 * scale));
         foreach (var size in new[] { 12, 13, 14, 16, 18, 23, 25, 30 }) Resources["Font" + size] = Math.Max(13, size) * scale;
         Resources["ControlContentThemeFontSize"] = Resources["ContentControlFontSize"] = 14 * scale;
     }
@@ -440,13 +480,35 @@ public partial class StudioWindow : Window
                      ("Sidebar", "SolidBackgroundFillColorBaseBrush"), ("Ink", "TextFillColorPrimaryBrush"), ("Muted", "TextFillColorSecondaryBrush"),
                      ("Line", "DividerStrokeColorDefaultBrush"), ("Accent", "AccentFillColorDefaultBrush"), ("OnAccent", "TextOnAccentFillColorPrimaryBrush") })
             Resources[key] = FindResource(resource);
-        foreach (var (key, alias) in new[] { ("ListBoxItemSelectedBackgroundThemeBrush", "Surface"), ("ListBoxItemSelectedForegroundThemeBrush", "Ink"), ("MenuBarItemBackgroundSelected", "Line") })
+        if (!SystemParameters.HighContrast)
+            foreach (var (key, color) in dark ? DarkPalette : LightPalette) Resources[key] = Paint(color);
+        foreach (var (key, alias) in new[] { ("ListBoxItemSelectedBackgroundThemeBrush", "Selected"), ("ListBoxItemSelectedForegroundThemeBrush", "OnSelected"), ("MenuBarItemBackgroundSelected", "Line") })
             if (SystemParameters.HighContrast) Resources.Remove(key); else Resources[key] = Resources[alias];
+    }
+
+    static readonly (string Key, string Color)[] DarkPalette = [("Canvas", "#414141-#272727"), ("Sidebar", "#0DFFFFFF"), ("Menu", "#4A4A4A"), ("MenuLine", "#26FFFFFF"), ("Surface", "#0EFFFFFF"),
+        ("Ink", "#FFFFFF"), ("Muted", "#BEBEBE"), ("Line", "#14FFFFFF"), ("Selected", "#FFFFFF"), ("OnSelected", "#1F1F1F"), ("Hover", "#14FFFFFF"),
+        ("SwitchOn", "#2AD116"), ("SwitchOff", "#40FFFFFF"), ("Primary", "#FFFFFF"), ("OnPrimary", "#1F1F1F"), ("Secondary", "#1AFFFFFF")];
+    static readonly (string Key, string Color)[] LightPalette = [("Canvas", "#F7F7F9-#E6E6EA"), ("Sidebar", "#08000000"), ("Menu", "#FFFFFF"), ("MenuLine", "#1F000000"), ("Surface", "#FFFFFF"),
+        ("Ink", "#1C1C1E"), ("Muted", "#5C5D66"), ("Line", "#14000000"), ("Selected", "#1C1C1E"), ("OnSelected", "#FFFFFF"), ("Hover", "#0D000000"),
+        ("SwitchOn", "#178A0C"), ("SwitchOff", "#40000000"), ("Primary", "#1C1C1E"), ("OnPrimary", "#FFFFFF"), ("Secondary", "#0F000000")];
+    static Brush Paint(string color)
+    {
+        Color Parse(string value) => (Color)ColorConverter.ConvertFromString(value);
+        Brush brush = color.Split('-') is [var top, var bottom] ? new LinearGradientBrush(Parse(top), Parse(bottom), 90) : new SolidColorBrush(Parse(color));
+        brush.Freeze();
+        return brush;
     }
 
     static void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
 
     bool SetUp => busy || session.Running || string.Equals(session.Config["root"]?.GetValue<string>(), session.Root, StringComparison.OrdinalIgnoreCase);
+
+    void TrackingSwitchClick(object sender, RoutedEventArgs e)
+    {
+        StartClick(sender, e);
+        trackingRefresh?.Invoke();
+    }
 
     void TrackingActionClick(object sender, RoutedEventArgs e)
     {
@@ -467,22 +529,31 @@ public partial class StudioWindow : Window
         var use = session.Use;
         var config = session.Config;
         bool On(string key, bool fallback = false) => config[key]?.GetValue<bool>() ?? fallback;
-        var header = Text("Features", 14, true);
+        var header = Text("Features", 18);
         header.FontWeight = FontWeights.SemiBold;
-        header.Margin = new(4, 8, 0, 8);
+        header.Margin = new(0, 16, 0, 12);
         AutomationProperties.SetHeadingLevel(header, AutomationHeadingLevel.Level2);
         var list = new StackPanel();
-        Ui.CardAction Row(string title, Ui.SymbolRegular icon, Action go)
+        Ui.CardAction Row(string title, string icon, Action go)
         {
-            var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 4), Padding = new(16, 12, 14, 4) };
+            var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6), BorderThickness = new(0), IsChevronVisible = false };
+            row.SetResourceReference(BackgroundProperty, "Surface");
             row.Click += (_, _) => go();
             list.Children.Add(row);
             return row;
         }
         void Show(Ui.CardAction row, string value, bool problem = false)
         {
-            var (title, icon) = ((string, Ui.SymbolRegular))row.Tag;
-            (row.Content, row.Icon) = (Stack(Text(title), Text(value, 14, true)), new Ui.SymbolIcon(problem ? Ui.SymbolRegular.Warning24 : icon) { FontSize = 20 });
+            var (title, icon) = ((string, string))row.Tag;
+            var name = Text(title);
+            var chevron = Symbols.Shape("chevron_right", 22, name);
+            chevron.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(chevron, Dock.Right);
+            var content = new DockPanel();
+            content.Children.Add(chevron);
+            content.Children.Add(Stack(name, Text(value, 14, true)));
+            (row.Content, row.Icon) = (content, Symbols.Icon(problem ? "warning" : icon, (Brush)FindResource("Ink")));
+            row.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             AutomationProperties.SetName(row, $"{title}, {value}");
         }
         void Calibrate(string area)
@@ -490,46 +561,73 @@ public partial class StudioWindow : Window
             kind = area;
             Navigate("Calibration");
         }
+        Action? appRows = null;
         if (use == "hands")
-            Show(Row("Face tracking", Ui.SymbolRegular.Emoji24, () => Navigate("Settings")), "Off");
+            Show(Row("Face tracking", "face", () => Navigate("Settings")), "Off");
         else
         {
             var needsEyeSetup = session.IndependentGaze && !File.Exists(SetupService.EyeModel(session.Root));
-            Show(Row("Eye gaze", Ui.SymbolRegular.Eye24, () => Navigate(needsEyeSetup ? "Setup" : "Settings")),
+            Show(Row("Eye gaze", "eye_tracking", () => Navigate(needsEyeSetup ? "Setup" : "Settings")),
                 !session.IndependentGaze ? "Standard" : needsEyeSetup ? "Needs setup" : "Independent", needsEyeSetup);
-            Show(Row("Cheeks, tongue and brows", Ui.SymbolRegular.EmojiSmileSlight24, () => Calibrate("enroll")),
-                !On("extraFaceOutput", true) && !On("tongueOutput", true) ? "Off" : File.Exists(config["faceEnrollment"]?.GetValue<string>()) ? "Calibrated" : "Standard");
-            Show(Row("Pupil dilation", Ui.SymbolRegular.EyeTracking24, () => Calibrate("pupils")),
-                !File.Exists(Path.Combine(session.Root, "calibration/qpro-pupil-dilation.json")) ? "Not calibrated" : On("pupilDilation") ? "Calibrated" : "Off");
+            var face = Row("Cheeks, tongue and brows", "sentiment_satisfied", () => Calibrate("enroll"));
+            var pupils = Row("Pupil dilation", "adjust", () => Calibrate("pupils"));
+            if (!HeadsetModelExperiment.Standalone(session))
+            {
+                Show(face, !On("extraFaceOutput", true) && !On("tongueOutput", true) ? "Off" : File.Exists(config["faceEnrollment"]?.GetValue<string>()) ? "Calibrated" : "Standard");
+                Show(pupils, !File.Exists(Path.Combine(session.Root, "calibration/qpro-pupil-dilation.json")) ? "Not calibrated" : On("pupilDilation") ? "Calibrated" : "Off");
+            }
+            else appRows = () =>
+            {
+                string Value(string key) => session.App is null ? "Unknown" : !HeadsetApp.Flag(session.App, "calibrated", key) ? "Not calibrated"
+                    : HeadsetApp.Flag(session.App, "settings", key == "face" ? "tongue" : "pupils") ? "Calibrated" : "Off";
+                Show(face, Value("face"));
+                Show(pupils, Value("pupils"));
+            };
         }
         var hybridStopped = false;
-        var hybrid = Row("Hybrid hands", Ui.SymbolRegular.HandLeft24, () =>
+        var hybrid = Row("Hybrid hands", "front_hand", () =>
         {
             if (hybridStopped || session.HybridProblem.Length > 0) revealLog = "hybrid.log";
             Navigate("Settings");
         });
         foreach (var element in new UIElement[] { TrackingOverview, header, list }) Page.Children.Add(element);
+        var rows = list.Children.OfType<Ui.CardAction>().Where(r => r.Visibility == Visibility.Visible).ToList();
+        foreach (var r in rows) r.SetValue(Border.CornerRadiusProperty, new CornerRadius(r == rows[0] ? 16 : 0, r == rows[0] ? 16 : 0, r == rows[^1] ? 16 : 0, r == rows[^1] ? 16 : 0));
         trackingRefresh = () =>
         {
             var failed = !busy && !session.Running && setupProblem.Length > 0;
+            var onHeadset = HeadsetModelExperiment.Standalone(session);
+            var appIssue = session.State == "Connected" && onHeadset && session.Detail.IndexOf(" · Meta", StringComparison.Ordinal) is var at and >= 0
+                ? session.Detail[(at + 3)..].Replace(" · ", ". ") + "." : "";
+            appRows?.Invoke();
             var via = session.Detail.EndsWith("USB") ? "USB" : "Wi-Fi";
+            var (slow, fps) = (session.tracking?.SlowCause ?? "", session.tracking?.Stream?.Fps ?? 0);
             var (title, about) = failed ? ("Couldn’t start tracking", setupProblem)
                 : session.State == "Tracking stopped" ? ("Tracking stopped", session.Detail)
+                : session.State == "Connected" && appIssue.Length > 0 ? ("Tracking needs attention", appIssue + " Expressions can’t follow your face until the headset’s own face and eye tracking are available.")
+                : session.State == "Connected" && onHeadset ? ("Tracking is on", "QFT+ Headset is tracking and sending expressions to VRCFaceTracking.")
+                : session.State == "Waiting for headset" && onHeadset ? ("Can’t reach the headset", session.Detail)
                 : session.State == "Connected" && use == "hands" ? ("Hand tracking is on", $"Connected over {via}. Hybrid hands and controllers are on in Virtual Desktop.")
+                : session.State == "Connected" && slow.Length > 0 ? ("Tracking is running slowly", slow == "pc"
+                    ? $"This PC is keeping up with only about {fps:0} camera frames a second, so expressions lag. Close other demanding apps."
+                    : $"Only about {fps:0} camera frames a second are arriving over {via}, so expressions lag. "
+                      + (via == "USB" ? "Try another USB port or cable." : "Connect the headset to this PC with a USB cable, or move closer to your router."))
                 : session.State == "Connected" ? ("Tracking is on", $"Connected over {via}. Expressions are going to VRCFaceTracking." + (session.HybridReady ? " Hybrid hands are on." : ""))
                 : busy || session.Running ? (session.State, session.Detail)
                 : !SetUp ? ("Set up Quest Pro", "Connect the headset to this PC with a USB data cable. Setup runs once and takes a few minutes.")
-                : ("Ready to track", "Put on the headset, then start tracking.");
-            TrackingStatus.Severity = Problem ? Ui.InfoBarSeverity.Error : session.State == "Connected" ? Ui.InfoBarSeverity.Success : Ui.InfoBarSeverity.Informational;
-            (TrackingStatus.Title, TrackingStatus.Message) = (title, about);
-            TrackingProgress.Visibility = Visible(busy && session.SettingUp || session.State == "Connecting");
-            TrackingProgress.IsIndeterminate = !session.SettingUp;
-            TrackingProgress.Value = session.Progress;
-            TrackingAction.Content = busy && !session.Running ? "Cancel" : session.Running ? "Stop tracking" : !SetUp ? "Set up…"
-                : Problem ? moduleMissing ? "Open Setup" : "Try again" : "Start tracking";
-            TrackingAction.IsEnabled = session.State != "Stopping";
-            TrackingAction.Appearance = session.Running || busy ? Ui.ControlAppearance.Secondary : Ui.ControlAppearance.Primary;
-            ViewCamerasButton.Visibility = Visible(session.Running);
+                : session.State == "Ready" && session.Detail.Length > 0 ? ("Tracking is off", session.Detail)
+                : ("Ready to track", onHeadset ? "Put on the headset, then start tracking. QFT+ Headset tracks there and sends expressions to this PC." : "Put on the headset, then start tracking.");
+            (TrackingTitle.Text, TrackingMessage.Text) = (title, about);
+            TrackingMessage.Visibility = Visible(about.Length > 0);
+            trackingHero.Present(!SetUp);
+            var needsSetup = !SetUp || Problem && moduleMissing;
+            TrackingAction.Content = !SetUp ? "Set up…" : "Open Setup";
+            TrackingAction.Appearance = Ui.ControlAppearance.Primary;
+            TrackingAction.Visibility = Visible(needsSetup);
+            TrackingSwitch.Visibility = Visible(!needsSetup);
+            TrackingSwitch.IsChecked = busy || session.Running;
+            TrackingSwitch.IsEnabled = session.State != "Stopping" && !recording;
+            ViewCamerasButton.Visibility = Visible(session.Running && !onHeadset);
             TrackingHelp.Visibility = Visible(failed && session.HelpTarget is not null);
             TrackingHelp.Content = session.HelpCaption;
             TrackingLogs.Visibility = Visible(Problem);
@@ -570,10 +668,10 @@ public partial class StudioWindow : Window
         UpdateOptions();
         foreach (var element in new[]
         {
-            Heading("Tracking", 18), useCard, Face(eyes), Face(Card(OutputOptions())), Card(new ThumbrestSettings(session)),
-            Card(Heading("Startup"), Check("setupOnStart", "Set up the headset on Start", true), Face(Stack(installModule, Muted(selfInstall))),
+            Heading("Tracking", 23), useCard, Face(eyes), Face(Card(OutputOptions())), Card(HeadsetHero.Controllers(96), new ThumbrestSettings(session)),
+            Card(Heading("Startup"), Check("setupOnStart", "Set up the headset on Start", true), Face(installModule),
                 Face(Check("startWithVrcft", "Start with VRCFaceTracking", true)), Check("openVrApps", "Open VR apps on Start", true)),
-            Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView
+            Face(HeadsetModelOptions()), Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView
         })
             Page.Children.Add(element);
         UninstallOptions();
@@ -582,9 +680,55 @@ public partial class StudioWindow : Window
         revealLog = null;
     }
 
+    UIElement HeadsetModelOptions()
+    {
+        var option = new CheckBox { Content = "Track on the headset (experimental)", IsChecked = HeadsetModelExperiment.Enabled(session) };
+        AutomationProperties.SetHelpText(option, "Tracks your face, pupils and calibration in QFT+ Headset on the headset instead of on this PC. This PC starts, stops and sets it up, and VRCFaceTracking receives its expressions.");
+        var status = Muted("", live: true);
+        var retry = AsyncButton("Retry headset cleanup", async () => await Change(false));
+        var update = AsyncButton("Update QFT+ Headset", async () => { await Change(true); session.AppProblem = ""; });
+        var working = new ProgressBar { IsIndeterminate = true, Margin = new(0, 4, 0, 12) };
+        var cancel = Button("Cancel", session.CancelSetup);
+        var changing = false;
+        async Task Change(bool enabled)
+        {
+            if (busy || recording || training) return;
+            busy = changing = true;
+            StartButton.Content = "Cancel";
+            ClearNotice();
+            trackingRefresh?.Invoke();
+            try { await session.SetHeadsetModel(enabled); }
+            catch (OperationCanceledException) { session.Notify("Ready"); }
+            catch (Exception error) { Error(error.Message); session.Notify("Headset experiment needs attention", error.Message); }
+            finally
+            {
+                busy = changing = false;
+                option.IsChecked = HeadsetModelExperiment.Enabled(session);
+                SidebarStatus();
+                trackingRefresh?.Invoke();
+            }
+        }
+        option.Click += async (_, _) => await Change(option.IsChecked == true);
+        void Refresh()
+        {
+            option.IsEnabled = retry.IsEnabled = update.IsEnabled = !busy && !recording && !training && !session.Running;
+            retry.Visibility = Visible(!changing);
+            retry.Visibility = Visible(HeadsetModelExperiment.Pending(session));
+            update.Visibility = Visible(HeadsetModelExperiment.Standalone(session) && session.AppProblem == HeadsetApp.Outdated && !changing);
+            working.Visibility = cancel.Visibility = Visible(changing);
+            status.Text = changing ? session.State + ". " + session.Detail : HeadsetModelExperiment.Pending(session) ? "Off, but QFT+ Headset is still on the headset. Connect the headset, then choose Retry to remove it."
+                : update.Visibility == Visibility.Visible ? HeadsetApp.Outdated
+                : HeadsetModelExperiment.Enabled(session) ? "On. QFT+ Headset is paired with this PC; Start and Stop here control it." : "Off. Tracking runs on this PC.";
+        }
+        trackingRefresh += Refresh;
+        Refresh();
+        return Card(option, Muted("Turning it on installs QFT+ Headset and pairs it with this PC; allow its root request in the headset the first time. Turning it off removes the app and its calibration. Accuracy and headset load are still being tested."), status, working, Buttons(retry, update, cancel));
+    }
+
     StackPanel OutputOptions()
     {
         var rows = new StackPanel();
+        if (HeadsetModelExperiment.Standalone(session)) return HeadsetAppOptions();
         void Reload()
         {
             if (session.Running) Send("reload");
@@ -631,6 +775,80 @@ public partial class StudioWindow : Window
             }
             Mixed();
         }
+        return rows;
+    }
+
+    StackPanel HeadsetAppOptions()
+    {
+        var sending = 0;
+        Action refresh = () => { };
+        var status = Muted("", live: true);
+        var rows = new StackPanel();
+        rows.Children.Add(Muted("Saved in QFT+ Headset. Changes here and in the headset stay in step. Eye gaze uses Meta’s standard calibration in this experiment."));
+        async Task Apply(string key, object value)
+        {
+            sending++;
+            try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
+            catch (IOException error) { Error(error.Message); }
+            finally { sending--; refresh(); }
+        }
+        var output = new ComboBox { ItemsSource = HeadsetApp.Outputs.Select(o => o.Title).ToList() };
+        AutomationProperties.SetName(output, "Send tracking to");
+        output.SelectionChanged += async (_, _) =>
+        {
+            var id = HeadsetApp.Outputs[Math.Max(0, output.SelectedIndex)].Id;
+            if (sending == 0 && session.App?["settings"]?["output"]?.GetValue<string>() is { } current && current != id && output.IsDropDownOpen | output.IsKeyboardFocusWithin)
+                await Apply("output", id);
+        };
+        var destination = Muted("", live: true);
+        foreach (var element in new UIElement[] { Text("Send tracking to"), output, destination })
+            rows.Children.Add(element);
+        var switches = new[] { ("tongue", "Tongue direction", "Uses your face calibration.", "face"),
+            ("pupils", "Pupil dilation", "Uses your pupil calibration.", "pupils"),
+            ("boot", "Resume after restart", "Turns tracking back on if it was on when the headset restarted.", "") }
+            .Select(row =>
+            {
+                var box = new CheckBox { Content = row.Item2 };
+                AutomationProperties.SetHelpText(box, row.Item3);
+                box.Click += async (_, _) => await Apply(row.Item1, box.IsChecked == true);
+                rows.Children.Add(box);
+                return (Key: row.Item1, Box: box, Title: row.Item2, Needs: row.Item4);
+            }).ToList();
+        var rate = new ComboBox { ItemsSource = HeadsetApp.RateNames };
+        AutomationProperties.SetName(rate, "Update rate");
+        rate.SelectionChanged += async (_, _) =>
+        {
+            var value = HeadsetApp.Rates[Math.Max(0, rate.SelectedIndex)];
+            if (sending == 0 && session.App?["settings"]?["rate"] is { } rate0 && rate0.GetValue<int>() != value && rate.IsDropDownOpen | rate.IsKeyboardFocusWithin)
+                await Apply("rate", value);
+        };
+        foreach (var element in new UIElement[] { Text("Update rate"), rate,
+                     Muted("How often your face is measured and sent. Faster rates follow your face more closely; slower rates use less battery and keep the headset cooler. Changing it restarts tracking."), status })
+            rows.Children.Add(element);
+        void Refresh()
+        {
+            if (sending > 0) return;
+            var app = session.App;
+            foreach (var (key, box, title, needs) in switches)
+            {
+                var allowed = needs.Length == 0 || HeadsetApp.Flag(app, "calibrated", needs);
+                box.IsEnabled = app is not null && allowed;
+                box.IsChecked = HeadsetApp.Flag(app, "settings", key);
+                box.Content = allowed || app is null ? title : title + " · Calibrate in QFT+ Headset first";
+            }
+            rate.IsEnabled = app is not null;
+            rate.SelectedIndex = Math.Max(0, Array.IndexOf(HeadsetApp.Rates, app?["settings"]?["rate"]?.GetValue<int>() ?? 0));
+            var mode = app?["settings"]?["output"]?.GetValue<string>() ?? "";
+            output.IsEnabled = app is not null;
+            output.SelectedIndex = Array.FindIndex(HeadsetApp.Outputs, o => o.Id == mode);
+            destination.Text = HeadsetApp.Destination(app);
+            destination.Visibility = Visible(destination.Text.Length > 0);
+            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : app is null ? "Reading settings from the headset…" : "";
+            status.Visibility = Visible(status.Text.Length > 0);
+        }
+        refresh = Refresh;
+        trackingRefresh += Refresh;
+        Refresh();
         return rows;
     }
 

@@ -13,9 +13,14 @@ internal static class Uninstall
         Try(SteamVr.RemoveSettings);
         Try(SteamVr.RestoreSteamLink);
         Try(() => RemoveModule(root, SetupService.InstalledModule));
+        var session = new Session(root);
+        Try(() => HeadsetModelExperiment.CleanupOnUninstallAsync(session).GetAwaiter().GetResult());
         Try(Adb.Stop);
         if (File.Exists(Path.Combine(root, "SHA256SUMS.txt"))) Try(() => RemoveProgram(root));
-        if (File.Exists(EverythingMarker)) Try(() => RemoveData(WorkingCopy.Home, SetupService.AutoPath));
+        if (File.Exists(EverythingMarker)) Try(() =>
+        {
+            if (!HeadsetModelExperiment.Pending(session)) RemoveData(WorkingCopy.Home, SetupService.AutoPath);
+        });
     }
 
     internal static readonly string EverythingMarker = Path.Combine(WorkingCopy.Home, "uninstall-everything");

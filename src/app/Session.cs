@@ -20,7 +20,15 @@ internal sealed class Session
     internal (Task<HeadsetCleanup?> Started, string Target)? thumbrest;
     internal DateTime hybridRetry;
     internal bool handsSession;
+    bool headsetSession;
+    internal JsonObject? App;
+    internal string AppProblem = "";
+    Task? appPoll;
+    DateTime appPolled;
+    int appVersion;
+    bool? appWanted;
     bool hybridReady, hybridPending, stopping;
+    string lastSlow = "";
     const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
     internal string HybridProblem = "";
     string? hybridIncompatible;
@@ -67,10 +75,15 @@ internal sealed class Session
     internal string Use => Config["use"]?.GetValue<string>() is ("face" or "hands" or "both") and var use ? use : "both";
     internal bool Hands => Use != "face";
     internal bool HybridReady => hybridReady && Alive(Hybrid);
-    internal bool IndependentGaze => Config["independentGaze"]?.GetValue<bool>() ?? true;
+    internal bool IndependentGaze => !HeadsetModelExperiment.Standalone(this) && (Config["independentGaze"]?.GetValue<bool>() ?? true);
     internal double VergenceGain => Config["vergenceGain"] is JsonValue v && v.TryGetValue<double>(out var n) && double.IsFinite(n) ? Math.Clamp(n, 0, 3) : 1;
     internal string Python => PythonRuntime.Exe(Root);
     internal void CancelSetup() { setup?.CancelOperation(); cancelStart.Cancel(); }
+    internal async Task SetHeadsetModel(bool enabled)
+    {
+        cancelStart = new();
+        await HeadsetModelExperiment.ConfigureAsync(this, enabled, cancelStart.Token);
+    }
     int notifiedProgress;
     internal void Notify(string state, string detail = "")
     {
@@ -95,7 +108,7 @@ internal sealed class Session
         catch (SocketException error) { throw new IOException("Your change was saved. Stop and start tracking to apply it.", error); }
     }
     internal static bool Alive(Process? process) { try { return process is not null && !process.HasExited; } catch { return false; } }
-    internal bool Running => tracking?.Running == true || handsSession;
+    internal bool Running => tracking?.Running == true || handsSession || headsetSession;
     internal bool SettingUp => setup is not null;
     internal async Task Prepare()
     {
@@ -119,6 +132,24 @@ internal sealed class Session
         if (fromModule && use == "hands") return;
         attempted = true;
         var token = (cancelStart = new()).Token;
+        if (HeadsetModelExperiment.Standalone(this))
+        {
+            Save("headsetReceiverEnabled", true);
+            headsetSession = true;
+            if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: true);
+            appVersion++;
+            Notify("Connecting", "Turning on tracking in QFT+ Headset…");
+            try { (App, AppProblem, appWanted) = (await HeadsetApp.SendAsync(this, token, ("tracking", true)), "", null); }
+            catch (IOException error) { (AppProblem, appWanted) = (error.Message, true); }
+            catch (OperationCanceledException) { headsetSession = false; Save("headsetReceiverEnabled", false); throw; }
+            if (Hands && !SteamVr.IsSteamLink)
+            {
+                await Adb.EnsureAsync(Adb.Exe(Root), Config["adbTarget"]?.GetValue<string>(), token);
+                await TryStartHybrid();
+            }
+            NotifyApp();
+            return;
+        }
         await StopThumbrest();
         if (use == "hands" && SteamVr.IsSteamLink)
             throw new IOException("Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.");
@@ -145,6 +176,7 @@ internal sealed class Session
         HybridProblem = "";
         if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, token); }
         await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>(), token);
+        await HeadsetModelExperiment.EnsureAsync(this, config["adbTarget"]?.GetValue<string>() ?? "", token);
         if (config["steamvrDriver"]?.GetValue<bool>() == true && config["adbTarget"]?.GetValue<string>() is { Length: >0 } target) thumbrest = (Thumbrest.StartAsync(this, target), target);
         if (use == "hands")
         {
@@ -169,7 +201,9 @@ internal sealed class Session
     internal void Poll()
     {
         if (stopping) return;
-        if (tracking is null && !handsSession) return;
+        if (HeadsetModelExperiment.Standalone(this) && appPoll is not { IsCompleted: false } && DateTime.UtcNow - appPolled > TimeSpan.FromSeconds(2))
+            appPoll = RefreshApp();
+        if (tracking is null && !handsSession && !headsetSession) return;
         if (!Running)
         {
             ErrorLog = tracking!.ErrorLog;
@@ -186,6 +220,7 @@ internal sealed class Session
             hybridRestart = TryStartHybrid();
         }
         var via = (Config["adbTarget"]?.GetValue<string>()??"").Contains(':')?"Wi-Fi":"USB";
+        if (headsetSession) { NotifyApp(); return; }
         if (handsSession)
         {
             if (HybridProblem.Length > 0) Notify("Hybrid tracking unavailable", HybridProblem);
@@ -197,6 +232,8 @@ internal sealed class Session
         {
             case "running":
                 Notify("Connected", "Quest Pro · "+via);
+                var slow = tracking.SlowCause is { Length: > 0 } cause ? cause + tracking.Stream!.Fps.ToString("0") : "";
+                if (slow != lastSlow) { lastSlow = slow; Changed?.Invoke(State); }
                 if (hybridPending && hybridRestart is null) { hybridPending = false; hybridRestart = TryStartHybrid(); }
                 break;
             case "waiting": Notify("Waiting for headset", "Connect to this PC in Steam Link or Virtual Desktop and enter SteamVR."); break;
@@ -209,6 +246,21 @@ internal sealed class Session
         try
         {
             Notify("Stopping", "Restoring headset tracking…");
+            var appNote = "";
+            if (headsetSession)
+            {
+                appVersion++;
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    (App, AppProblem, appWanted) = (await HeadsetApp.SendAsync(this, timeout.Token, ("tracking", false)), "", null);
+                }
+                catch (Exception error) when (error is IOException or OperationCanceledException)
+                { appWanted = false; appNote = "This PC stopped receiving, but the headset couldn’t be reached. Turn off tracking in QFT+ Headset to save battery."; }
+                Save("headsetReceiverEnabled", false);
+                Save("headsetDirect", false);
+                headsetSession = false;
+            }
             if (hybridRestart is not null) await hybridRestart;
             var cleanupFailed = false;
             if (Hybrid is not null)
@@ -221,9 +273,79 @@ internal sealed class Session
             await StopThumbrest();
             if (tracking is not null) { await tracking.StopAsync(); tracking = null; }
             if (cleanupFailed) { HybridProblem = HybridCleanupProblem; Notify("Cleanup needs attention", HybridProblem); }
-            else Notify("Ready");
+            else Notify("Ready", appNote);
         }
         finally { stopping = false; }
+    }
+    async Task RefreshApp()
+    {
+        var version = appVersion;
+        appPolled = DateTime.UtcNow;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var wanted = appWanted;
+            App = wanted is { } want ? await HeadsetApp.SendAsync(this, timeout.Token, ("tracking", want)) : await HeadsetApp.SendAsync(this, timeout.Token);
+            App = await SyncAdjustments(App, timeout.Token);
+            AppProblem = "";
+            if (appWanted == wanted) appWanted = null;
+        }
+        catch (Exception error) when (error is IOException or OperationCanceledException)
+        { AppProblem = error is IOException ? error.Message : "The headset isn’t answering. Make sure it’s awake."; }
+        appPolled = DateTime.UtcNow;
+        if (version != appVersion || stopping || setup is not null || AppProblem.Length > 0) { Changed?.Invoke(State); return; }
+        var on = App?["tracking"]?.GetValue<bool>() == true;
+        var direct = on && HeadsetApp.Destination(App).Length > 0;
+        if (direct != (Config["headsetDirect"]?.GetValue<bool>() == true)) Save("headsetDirect", direct);
+        if (on != headsetSession)
+        {
+            headsetSession = on;
+            Save("headsetReceiverEnabled", on);
+            if (!on) { Notify("Ready", "Tracking was turned off in QFT+ Headset."); return; }
+            if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: true);
+        }
+        if (headsetSession) NotifyApp(); else Changed?.Invoke(State);
+    }
+    async Task<JsonObject> SyncAdjustments(JsonObject app, CancellationToken token)
+    {
+        if (app["adjustments"] is not JsonValue reported || !reported.TryGetValue(out string? headset)) return app;
+        var path = Path.Combine(Root, "output-settings.json");
+        var local = File.Exists(path) ? File.ReadAllBytes(path) : null;
+        var pc = local is null ? "" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(local)).ToLowerInvariant();
+        var synced = Config["headsetAdjustmentsHash"]?.GetValue<string>();
+        if (pc == headset)
+        {
+            if (synced != pc) Save("headsetAdjustmentsHash", pc);
+            return app;
+        }
+        if (headset.Length > 0 && headset != synced)
+        {
+            var reply = await HeadsetApp.SendAsync(this, token, ("adjustmentsWanted", true));
+            byte[] data;
+            try { data = Convert.FromBase64String(reply["adjustmentsData"]?.GetValue<string>() ?? ""); }
+            catch (FormatException error) { throw new IOException(HeadsetApp.Outdated, error); }
+            if (data.Length == 0) return reply;
+            var pending = path + ".tmp";
+            File.WriteAllBytes(pending, data);
+            File.Move(pending, path, true);
+            Save("headsetAdjustmentsHash", headset);
+            return reply;
+        }
+        if (local is null) return app;
+        var pushed = await HeadsetApp.SendAsync(this, token, ("adjustments", Convert.ToBase64String(local)));
+        Save("headsetAdjustmentsHash", pc);
+        return pushed;
+    }
+    void NotifyApp()
+    {
+        var status = App?["status"]?.GetValue<string>() ?? "";
+        if (AppProblem.Length > 0) Notify("Waiting for headset", AppProblem);
+        else if (App?["pcConnected"]?.GetValue<bool>() == true) Notify("Connected", status);
+        else if (status.StartsWith("Tracking on headset", StringComparison.Ordinal) && HeadsetApp.Destination(App) is { Length: > 0 } destination)
+            Notify("Connected", status + ". " + destination.Split(". ")[0] + ".");
+        else if (status.StartsWith("Tracking on headset", StringComparison.Ordinal))
+            Notify("Connecting", "QFT+ Headset is tracking. Waiting for VRCFaceTracking on this PC to receive it.");
+        else Notify("Connecting", status.Length > 0 ? status : "Starting QFT+ Headset…");
     }
     internal async Task StopThumbrest()
     {
@@ -347,6 +469,7 @@ internal sealed class Session
         var args=new System.Collections.Generic.List<string>{Path.Combine(Root,"contribution.py"),prefix,"--tester",consent["tester"]!.GetValue<string>(),
             "--consent-version",consent["version"]!.GetValue<int>().ToString(),"--consent-time",consent["time"]!.GetValue<string>()};
         if(Config["faceEnrollment"]?.GetValue<string>() is {Length:>0} enrollment&&File.Exists(enrollment))args.AddRange(["--enrollment",enrollment]);
+        if(Updates.Installed() is {} version)args.AddRange(["--version",version.ToString()]);
         var run=await Run(Python,args.ToArray(),allowFailure:true);
         var match=System.Text.RegularExpressions.Regex.Match(run.Output,@"^PACKAGE (.+) \d+\s*$",System.Text.RegularExpressions.RegexOptions.Multiline);
         if(run.Code!=0||!match.Success)throw new IOException("Couldn’t prepare the recording to share. "+run.Output.Trim().Split('\n').LastOrDefault());
