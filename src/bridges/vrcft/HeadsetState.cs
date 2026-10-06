@@ -11,11 +11,12 @@ internal sealed class HeadsetState : IDisposable
     readonly byte[] session = RandomNumberGenerator.GetBytes(16), buffer = new byte[65536], payload = new byte[608];
     byte[]? key;
     UdpClient? socket;
-    ulong sequence;
+    ulong sequence, adjustSequence;
     long received;
     double clockOffset = double.PositiveInfinity;
     string configured = "";
     byte[]? challenge;
+    readonly HashSet<string> seen = [];
     EndPoint? adjustFrom;
     internal byte[]? AdjustRequest;
     internal bool Fresh(long now) => received != 0 && now >= received && now - received < 300;
@@ -45,6 +46,7 @@ internal sealed class HeadsetState : IDisposable
         for (int i = 296; i < 576; i += 4) { float value = BinaryPrimitives.ReadSingleLittleEndian(data[i..]); if (!float.IsFinite(value) || value < 0 || value > 1) return false; }
         for (int i = 576; i < 608; i += 4) if (!float.IsFinite(BinaryPrimitives.ReadSingleLittleEndian(data[i..]))) return false;
         double offset = now - sent / 1e6;
+        if (!Fresh(now)) clockOffset = double.PositiveInfinity;
         clockOffset = Math.Min(clockOffset, offset);
         if (offset - clockOffset > 150) return false;
         data.CopyTo(payload); sequence = next; received = now;
@@ -63,19 +65,24 @@ internal sealed class HeadsetState : IDisposable
                 if (packet.Length == 56 && packet.StartsWith("QFTDISC1"u8) &&
                     CryptographicOperations.FixedTimeEquals(packet[24..], HMACSHA256.HashData(key, packet[..24])))
                 {
-                    if (challenge is null || !packet.Slice(8, 16).SequenceEqual(challenge))
+                    if ((challenge is null || !packet.Slice(8, 16).SequenceEqual(challenge)) && seen.Add(Convert.ToHexString(packet.Slice(8, 16))))
                     {
                         challenge = packet.Slice(8, 16).ToArray();
-                        RandomNumberGenerator.Fill(session); sequence = 0; received = 0; clockOffset = double.PositiveInfinity;
+                        RandomNumberGenerator.Fill(session); sequence = adjustSequence = 0; received = 0; clockOffset = double.PositiveInfinity;
                     }
-                    byte[] response = new byte[72]; "QFTPAIR1"u8.CopyTo(response); packet.Slice(8, 16).CopyTo(response.AsSpan(8));
-                    session.CopyTo(response, 24); HMACSHA256.HashData(key, response.AsSpan(0, 40)).CopyTo(response, 40);
+                    if (from is not IPEndPoint { AddressFamily: AddressFamily.InterNetwork } requester) continue;
+                    byte[] response = new byte[78]; "QFTPAIR2"u8.CopyTo(response); packet.Slice(8, 16).CopyTo(response.AsSpan(8));
+                    session.CopyTo(response, 24); requester.Address.GetAddressBytes().CopyTo(response, 40);
+                    BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(44), (ushort)requester.Port);
+                    HMACSHA256.HashData(key, response.AsSpan(0, 46)).CopyTo(response, 46);
                     socket.Client.SendTo(response, from);
                 }
-                else if (packet.Length >= 56 && packet.StartsWith("QFTADJR1"u8) && packet.Slice(8, 16).SequenceEqual(session) &&
+                else if (packet.Length >= 64 && packet.StartsWith("QFTADJR2"u8) && packet.Slice(8, 16).SequenceEqual(session) &&
                     CryptographicOperations.FixedTimeEquals(packet[^32..], HMACSHA256.HashData(key, packet[..^32])))
                 {
-                    AdjustRequest = packet[24..^32].ToArray(); adjustFrom = from;
+                    ulong next = BinaryPrimitives.ReadUInt64LittleEndian(packet[24..]);
+                    if (next <= adjustSequence) continue;
+                    adjustSequence = next; AdjustRequest = packet[32..^32].ToArray(); adjustFrom = from;
                 }
                 else changed |= Accept(packet, now);
             }

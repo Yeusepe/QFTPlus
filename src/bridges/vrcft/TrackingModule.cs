@@ -202,6 +202,7 @@ public sealed class TrackingModule : ExtTrackingModule
             if (!TryReadState(now)) Array.Clear(_second);
 
             var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));
+            for (int i = 0; i < expressions.Length; i++) expressions[i] = float.IsFinite(expressions[i]) ? Math.Clamp(expressions[i], 0, 1) : 0;
 
             if (_needsEye)
                 UpdateEyes(expressions);
@@ -314,10 +315,11 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             _settingsConfigTick = tick;
             try { ReadAutoStart(); }
-            catch (Exception error) when (error is ArgumentException or SocketException) { }
+            catch (Exception error) when (error is ArgumentException or SocketException or InvalidOperationException) { }
         }
         if (_settingsRoot is null) return;
-        var dt=_outputTick==0?.005:(tick-_outputTick)/1000.0; _outputTick=tick;
+        var stamp=Stopwatch.GetTimestamp();
+        var dt=_outputTick==0?.005:(double)(stamp-_outputTick)/Stopwatch.Frequency; _outputTick=stamp;
         _adjustments.Poll(_settingsRoot,tick,utc);
         var report = tick - _outputStatusTick >= 250;
         if (report)
@@ -541,8 +543,9 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             var lid = values[12 + side];
             if (lid == _lids[side]) continue;
-            if (_lidTicks[side] != 0 && (lid - _lids[side]) * 1000 / Math.Max(1, now - _lidTicks[side]) > BlinkClosingPerSecond) _blinkTick = now;
-            (_lids[side], _lidTicks[side]) = (lid, now);
+            long stamp = Stopwatch.GetTimestamp();
+            if (_lidTicks[side] != 0 && (lid - _lids[side]) * Stopwatch.Frequency / Math.Max(1, stamp - _lidTicks[side]) > BlinkClosingPerSecond) _blinkTick = now;
+            (_lids[side], _lidTicks[side]) = (lid, stamp);
         }
         for (int side = 0; side < 2; side++)
         {
