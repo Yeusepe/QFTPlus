@@ -16,6 +16,8 @@ The optional headset model experiment includes ONNX Runtime Android 1.24.3
 (MIT); see headset-model/LICENSE.txt and headset-model/ThirdPartyNotices.txt.
 It also includes OpenCV Android 5.0.0 and the Android NDK C++ runtime; see
 headset-model/opencv-LICENSE.txt, headset-model/opencv-licenses/ and headset-model/libcxx-NOTICE.txt.
+Its pupil contour tracing is adapted from OpenCV's contours.cpp (Intel License Agreement,
+Copyright (C) 2000, Intel Corporation); see headset-model/pupil-contours-LICENSE.txt.
 Its model files are converted from the
 same universal-face-v2 weights and retain the model license described below.
 QFT+ Headset loads OCUI from the user's installed Meta Horizon OS Settings app
