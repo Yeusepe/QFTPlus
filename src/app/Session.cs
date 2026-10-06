@@ -134,6 +134,7 @@ internal sealed class Session
         var token = (cancelStart = new()).Token;
         if (HeadsetModelExperiment.Standalone(this))
         {
+            if (HeadsetModelExperiment.AppChanged(this)) await HeadsetModelExperiment.ConfigureAsync(this, true, token);
             Save("headsetReceiverEnabled", true);
             headsetSession = true;
             if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: true);
@@ -142,6 +143,7 @@ internal sealed class Session
             try { (App, AppProblem, appWanted) = (await HeadsetApp.SendAsync(this, token, ("tracking", true)), "", null); }
             catch (IOException error) { (AppProblem, appWanted) = (error.Message, true); }
             catch (OperationCanceledException) { headsetSession = false; Save("headsetReceiverEnabled", false); throw; }
+            StartThumbrest();
             if (Hands && !SteamVr.IsSteamLink)
             {
                 await Adb.EnsureAsync(Adb.Exe(Root), Config["adbTarget"]?.GetValue<string>(), token);
@@ -177,7 +179,7 @@ internal sealed class Session
         if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, token); }
         await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>(), token);
         await HeadsetModelExperiment.EnsureAsync(this, config["adbTarget"]?.GetValue<string>() ?? "", token);
-        if (config["steamvrDriver"]?.GetValue<bool>() == true && config["adbTarget"]?.GetValue<string>() is { Length: >0 } target) thumbrest = (Thumbrest.StartAsync(this, target), target);
+        StartThumbrest();
         if (use == "hands")
         {
             handsSession = true;
@@ -277,6 +279,7 @@ internal sealed class Session
         }
         finally { stopping = false; }
     }
+    string syncError = "";
     async Task RefreshApp()
     {
         var version = appVersion;
@@ -286,7 +289,12 @@ internal sealed class Session
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
             var wanted = appWanted;
             App = wanted is { } want ? await HeadsetApp.SendAsync(this, timeout.Token, ("tracking", want)) : await HeadsetApp.SendAsync(this, timeout.Token);
-            App = await SyncAdjustments(App, timeout.Token);
+            try { App = await SyncAdjustments(App, timeout.Token); syncError = ""; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            {
+                if (error.Message != syncError) Log(Path.Combine(Root, "studio.log"), $"{DateTimeOffset.Now:O} Adjustments sync with the headset failed: {error.Message}");
+                syncError = error.Message;
+            }
             AppProblem = "";
             if (appWanted == wanted) appWanted = null;
         }
@@ -295,12 +303,13 @@ internal sealed class Session
         appPolled = DateTime.UtcNow;
         if (version != appVersion || stopping || setup is not null || AppProblem.Length > 0) { Changed?.Invoke(State); return; }
         var on = App?["tracking"]?.GetValue<bool>() == true;
-        var direct = on && HeadsetApp.Destination(App).Length > 0;
+        var direct = on && HeadsetApp.Destination(App).Length > 0 && App?["settings"]?["oscHost"]?.GetValue<string>() is { Length: > 0 };
         if (direct != (Config["headsetDirect"]?.GetValue<bool>() == true)) Save("headsetDirect", direct);
         if (on != headsetSession)
         {
             headsetSession = on;
             Save("headsetReceiverEnabled", on);
+            if (!on && App?["error"]?.GetValue<string>() is { Length: > 0 } error) { Notify("Tracking stopped", error); return; }
             if (!on) { Notify("Ready", "Tracking was turned off in QFT+ Headset."); return; }
             if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: true);
         }
@@ -346,6 +355,11 @@ internal sealed class Session
         else if (status.StartsWith("Tracking on headset", StringComparison.Ordinal))
             Notify("Connecting", "QFT+ Headset is tracking. Waiting for VRCFaceTracking on this PC to receive it.");
         else Notify("Connecting", status.Length > 0 ? status : "Starting QFT+ Headset…");
+    }
+    void StartThumbrest()
+    {
+        if (Config["steamvrDriver"]?.GetValue<bool>() == true && Config["adbTarget"]?.GetValue<string>() is { Length: > 0 } target)
+            thumbrest = (Thumbrest.StartAsync(this, target), target);
     }
     internal async Task StopThumbrest()
     {

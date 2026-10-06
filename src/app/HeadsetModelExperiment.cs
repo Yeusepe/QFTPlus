@@ -8,6 +8,8 @@ internal static class HeadsetModelExperiment
     internal static bool Enabled(Session session) => session.Config[Key]?.GetValue<bool>() == true;
     internal static bool Pending(Session session) => session.Config["headsetModelCleanupPending"]?.GetValue<bool>() == true;
     internal static bool Standalone(Session session) => Enabled(session) && session.Config["headsetStandalone"]?.GetValue<bool>() == true;
+    static string AppHash(Session session) => File.ReadAllText(Path.Combine(session.Root, "headset", "QFTPlus-Headset.sha256")).Trim();
+    internal static bool AppChanged(Session session) => Standalone(session) && session.Config["headsetAppSha256"]?.GetValue<string>() != AppHash(session);
 
     internal static async Task CleanupOnUninstallAsync(Session session)
     {
@@ -60,6 +62,7 @@ internal static class HeadsetModelExperiment
             session.Save("headsetReceiverEnabled", enabled);
             if (!enabled) session.Save("headsetModelDevice", null);
             if (!enabled) session.Save("headsetPairKey", null);
+            session.Save("headsetAppSha256", enabled ? AppHash(session) : null);
             session.Notify("Ready", enabled ? "QFT+ Headset is installed and paired. Put on the headset and allow its root request the first time, then start tracking here." : "QFT+ Headset and its calibration are removed from the headset. Tracking runs on this PC.");
         }
         catch

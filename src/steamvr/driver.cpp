@@ -305,6 +305,7 @@ public:
     void Cleanup() override {
         g_running = false;
         if (g_receiver.joinable()) g_receiver.join();
+        for (auto &cursor : g_cursors) if (cursor.down) { Send(MOUSEEVENTF_LEFTUP); cursor.down = false; }
         if (g_slot != nullptr && g_slot[0] == reinterpret_cast<void *>(&Added)) Patch(reinterpret_cast<void *>(g_added));
         g_shims.clear();
         VR_CLEANUP_SERVER_DRIVER_CONTEXT();

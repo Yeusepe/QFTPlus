@@ -118,7 +118,10 @@ public partial class StudioWindow
         var status = Muted("", live: true);
         var readout = Text("", 16);
         AutomationProperties.SetName(readout, "Live adjustment values");
-        Page.Children.Add(area is null || single ? Card(status, readout) : Card(status));
+        var statusCard = area is null || single ? Card(status, readout) : Card(status);
+        Page.Children.Add(statusCard);
+        if (area is null) readout.Visibility = Visibility.Collapsed;
+        if (!single) status.Margin = new(0);
         if (area is not null && !single) Page.Children.Add(new Ui.CardExpander { Header = "Live values", Content = readout, Margin = new(0, -8, 0, 16) });
         var problem = Text("", 13, live: true);
         problem.Visibility = Visibility.Collapsed;
@@ -236,16 +239,22 @@ public partial class StudioWindow
             try { data = Session.Read(Path.Combine(session.Root, "output-status.json")); }
             catch (InvalidDataException) { data = new(); }
             var age = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - OutputAdjustments.Number(data, "updated", 0);
+            void Show(string text)
+            {
+                status.Text = text;
+                status.Visibility = Visible(text.Length > 0);
+                statusCard.Visibility = Visible(text.Length > 0 || single);
+            }
             if (age < 0 || age > 2)
             {
-                status.Text = "No live response from the QFT+ module. Open VRCFaceTracking; if it is already running, update the module in Setup and restart VRCFaceTracking.";
                 readout.Text = "Waiting for live values";
+                Show("No live response from the QFT+ module. Open VRCFaceTracking; if it is already running, update the module in Setup and restart VRCFaceTracking.");
                 return;
             }
-            status.Text = JsonNode.DeepEquals(data["settings"], Load()) ? "Changes applied by the QFT+ module." : "Changes saved. Waiting for the module to apply them…";
+            var pending = JsonNode.DeepEquals(data["settings"], Load()) ? "" : "Changes saved. Waiting for the module to apply them…";
             if (area is null)
             {
-                readout.Text = "Select an area to see its live values.";
+                Show(pending);
                 return;
             }
             var inputs = data["inputs"] as JsonObject ?? new();
@@ -254,9 +263,9 @@ public partial class StudioWindow
             var missing = names.Where(name => !inputs.ContainsKey(name) || !outputs.ContainsKey(name)).ToArray();
             readout.Text = string.Join("\n", names.Except(missing).Select(name => $"{Label(name)}: {Shown(inputs, name)} → {Shown(outputs, name)}")
                 .Concat(missing.Length == 0 ? [] : [$"Not provided by the QFT+ module: {string.Join(", ", missing.Select(Label))}. Check its eye and face modules in VRCFaceTracking."]));
-            if (area == "Pupils")
-                status.Text += data["pupilTracking"]?.GetValue<bool>() == true ? " Pupil tracking is live. Dilation combines both eyes."
-                    : " Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes.";
+            var pupils = area == "Pupils" && data["pupilTracking"]?.GetValue<bool>() != true
+                ? "Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes." : "";
+            Show(string.Join(" ", new[] { pending, pupils }.Where(t => t.Length > 0)));
         };
         adjustmentRefresh();
         Actions.Children.Add(Button(outputParameter == "*" ? "Reset defaults" : "Use inherited settings", () =>
@@ -331,6 +340,7 @@ public partial class StudioWindow
 
     UIElement EyeOptions()
     {
+        if (HeadsetModelExperiment.Standalone(session)) return HeadsetEyeOptions();
         var enabled = new CheckBox { Content = "Independent eye gaze", IsChecked = session.IndependentGaze };
         AutomationProperties.SetHelpText(enabled, "Tracks the direction of each eye separately.");
         var status = Muted("", live: true);
@@ -354,6 +364,34 @@ public partial class StudioWindow
         return Card(enabled, status, Buttons(setup, convergence));
     }
 
+    UIElement HeadsetEyeOptions()
+    {
+        var sending = 0;
+        var on = new CheckBox { Content = "Independent eye gaze" };
+        AutomationProperties.SetHelpText(on, "Tracks the direction of each eye separately.");
+        var status = Muted("", live: true);
+        var convergence = Button("Adjust convergence", () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
+        void Refresh()
+        {
+            if (sending > 0) return;
+            var settings = session.App?["settings"];
+            on.IsEnabled = settings is not null;
+            on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
+            convergence.Visibility = Visible(settings is not null && on.IsChecked == true);
+            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? "Reading settings from the headset…"
+                : "Saved in QFT+ Headset. Changing it restarts tracking for a moment.";
+        }
+        on.Click += async (_, _) =>
+        {
+            sending++;
+            try { await SendToHeadset("convergence", on.IsChecked == true); }
+            finally { sending--; Refresh(); }
+        };
+        trackingRefresh += Refresh;
+        Refresh();
+        return Card(on, status, Buttons(convergence));
+    }
+
     UIElement ConvergenceOptions()
     {
         if (HeadsetModelExperiment.Standalone(session)) return HeadsetConvergence();
@@ -366,6 +404,7 @@ public partial class StudioWindow
         }, scale: 100);
         (strength.SmallChange, strength.LargeChange, strength.TickFrequency, strength.IsSnapToTickEnabled) = (.05, .25, .05, true);
         controls.Children.Add(Button("Reset to 100%", () => strength.Value = 1));
+        controls.Children[^1].SetValue(MarginProperty, new Thickness(0, -8, 0, 0));
         var status = Muted("", live: true);
         var turnOn = Button("Turn on independent eye gaze", () => Navigate("Settings"));
         void Refresh()
@@ -373,15 +412,12 @@ public partial class StudioWindow
             var on = session.IndependentGaze;
             controls.IsEnabled = on && !busy && (!session.Running || session.State == "Connected");
             turnOn.Visibility = Visible(!on);
-            status.Text = !on ? "Convergence works with independent eye gaze, which is off."
-                : busy || session.Running && session.State != "Connected" ? "Available when tracking is ready."
-                : session.Running ? "Changes apply immediately and are saved automatically." : "Saved automatically. Applies when tracking starts.";
+            status.Text = !on ? "Works with independent eye gaze, which is off." : controls.IsEnabled ? "" : "Available when tracking is ready.";
+            status.Visibility = Visible(status.Text.Length > 0);
         }
         trackingRefresh += Refresh;
         Refresh();
-        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby."), controls,
-            Muted("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental."),
-            status, turnOn);
+        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby. 100% uses your calibrated movement; higher values increase it, and at 0% both eyes look the same way. Depth accuracy is experimental."), controls, status, turnOn);
     }
 
     UIElement HeadsetConvergence()
@@ -391,40 +427,41 @@ public partial class StudioWindow
         async Task Apply(string key, object value)
         {
             sending++;
-            try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
-            catch (IOException error) { Error(error.Message); }
+            try { await SendToHeadset(key, value); }
             finally { sending--; }
         }
-        var on = new CheckBox { Content = "Convergence" };
-        AutomationProperties.SetHelpText(on, "Tracks each eye separately for depth. Starts with tracking when enabled.");
-        on.Click += async (_, _) => await Apply("convergence", on.IsChecked == true);
         var controls = new StackPanel();
+        var gain = 1.0;
+        Action save = () => _ = Apply("vergenceGain", gain);
         var strength = NumericSetting.AddTo(controls, "Convergence strength", 0, 3, 1, v =>
         {
-            if (!syncing) SaveLater(() => _ = Apply("vergenceGain", v));
+            if (!syncing) { gain = v; SaveLater(save); }
         }, scale: 100);
         (strength.SmallChange, strength.LargeChange, strength.TickFrequency, strength.IsSnapToTickEnabled) = (.05, .25, .05, true);
         controls.Children.Add(Button("Reset to 100%", () => strength.Value = 1));
+        controls.Children[^1].SetValue(MarginProperty, new Thickness(0, -8, 0, 0));
         var status = Muted("", live: true);
+        var turnOn = Button("Turn on independent eye gaze", () => Navigate("Settings"));
         void Refresh()
         {
             if (sending > 0) return;
             var settings = session.App?["settings"];
-            on.IsEnabled = controls.IsEnabled = settings is not null;
-            on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
-            controls.Visibility = Visible(on.IsChecked == true);
+            var on = settings?["convergence"]?.GetValue<bool>() != false;
+            controls.IsEnabled = settings is not null && on;
+            turnOn.Visibility = Visible(settings is not null && !on);
             if (settings?["vergenceGain"]?.GetValue<double>() is { } gain && !strength.IsMouseCaptureWithin && !strength.IsKeyboardFocusWithin)
             {
                 syncing = true;
                 strength.Value = gain;
                 syncing = false;
             }
-            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? "Reading settings from the headset…" : "Saved in QFT+ Headset. Strength changes apply immediately.";
+            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? "Reading settings from the headset…"
+                : on ? "" : "Works with independent eye gaze, which is off.";
+            status.Visibility = Visible(status.Text.Length > 0);
         }
         trackingRefresh += Refresh;
         Refresh();
-        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby."), on, controls,
-            Muted("100% uses the calibrated movement. Higher values increase it. At 0%, both eyes look in the same direction. Depth accuracy is experimental."), status);
+        return Card(Heading("Convergence"), Muted("How much your eyes turn toward each other when you look at something nearby. 100% uses your calibrated movement; higher values increase it, and at 0% both eyes look the same way. Depth accuracy is experimental."), controls, status, turnOn);
     }
 
     (UIElement Card, Action Refresh, Action<string> Select) UseOptions(Action<string> changed)
@@ -544,7 +581,7 @@ public partial class StudioWindow
                 catch (Exception error) { Error("Couldn’t search for headsets. " + error.Message); }
                 finally { searching = false; }
             }
-            if (page == "Setup") ShowHeadsets();
+            if (page == "Setup") setupRefresh?.Invoke();
         }
         var connectionMode = session.Config["connectionMode"]?.GetValue<string>() ?? "auto";
         var connection = Card([Heading("Connection"), .. new[]
@@ -624,7 +661,7 @@ public partial class StudioWindow
                 SidebarStatus();
                 if (page == "Setup")
                 {
-                    ShowSteps();
+                    setupRefresh?.Invoke();
                     _ = Search();
                 }
             }
@@ -638,6 +675,7 @@ public partial class StudioWindow
         {
             SetupProgress();
             ShowSteps();
+            ShowHeadsets();
         };
         var log = Path.Combine(session.Root, "setup.log");
         var openLog = Button("Open setup log", () => Open(log));

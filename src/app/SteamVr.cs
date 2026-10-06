@@ -122,7 +122,8 @@ internal static class SteamVr
             else { driver.Remove("blocked_by_safe_mode"); CalibrationSettings.WriteJson(file!, settings); }
             return true;
         }
-        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or ArgumentOutOfRangeException)
+        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidOperationException or ArgumentOutOfRangeException
+            or System.ComponentModel.Win32Exception)
         { throw new IOException("SteamVR’s settings can’t be read: " + error.Message, error); }
     }
 

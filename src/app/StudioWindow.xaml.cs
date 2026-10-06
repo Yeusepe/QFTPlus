@@ -94,10 +94,12 @@ public partial class StudioWindow : Ui.FluentWindow
         }
         PreviewKeyDown += (_, e) =>
         {
-            if (Keyboard.Modifiers != ModifierKeys.Control || e.Key != Key.OemComma) return;
-            Navigate("Settings");
+            if (Keyboard.Modifiers != ModifierKeys.Control || e.Key is not (Key.OemComma or Key.F)) return;
+            if (e.Key == Key.F) SearchBox.Focus();
+            else Navigate("Settings");
             e.Handled = true;
         };
+        InitializeSearch();
         KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;
@@ -114,13 +116,7 @@ public partial class StudioWindow : Ui.FluentWindow
             if (busy) session.CancelSetup();
             else if (recording) Error("Finish or cancel calibration before closing this window.");
             else if (training || session.Running) Hide();
-            else
-            {
-                quitting = true;
-                tray?.Dispose();
-                Application.Current.Shutdown();
-                return;
-            }
+            else _ = Quit();
             e.Cancel = true;
         };
     }
@@ -173,7 +169,7 @@ public partial class StudioWindow : Ui.FluentWindow
     void UseChanged(string use)
     {
         foreach (var item in Navigation.Items.Cast<ListBoxItem>().Where(item => item.Tag is "Adjustments" or "Manual" or "Calibration" or "Cameras"))
-            item.Visibility = use == "hands" ? Visibility.Collapsed : Visibility.Visible;
+            item.Visibility = Visible(use != "hands" && !(item.Tag is "Cameras" && HeadsetModelExperiment.Standalone(session)));
     }
 
     internal void Error(string message)
@@ -350,6 +346,7 @@ public partial class StudioWindow : Ui.FluentWindow
             heading.Margin = new(0, 8, 0, 12);
             return Stack(heading, Card(rest));
         }
+        if (children[^1] is TextBlock { Margin: var margin } last) last.Margin = new(margin.Left, margin.Top, margin.Right, 0);
         return new Ui.Card { Content = children.Length == 1 ? children[0] : Stack(children) };
     }
 
@@ -371,18 +368,9 @@ public partial class StudioWindow : Ui.FluentWindow
             if (name != page) Error("Finish or cancel calibration first.");
             return;
         }
-        StopManual();
-        setupRefresh = trackingRefresh = adjustmentRefresh = updateRefresh = null;
         page = name;
-        Page.Children.Clear();
-        Actions.Children.Clear();
-        cameras.Clear();
-        ClearNotice();
-        SaveNow();
-        PageTitle.Text = TitleOf(name);
-        Title = PageTitle.Text + " — QFT+";
-        Subtitle.Visibility = Visibility.Collapsed;
-        PageScroll.ScrollToTop();
+        SearchBox.Clear();
+        Clear(TitleOf(name));
         Navigation.SelectedItem = Navigation.Items.Cast<ListBoxItem>().Single(item => Equals(item.Tag, name));
         Navigation.ScrollIntoView(Navigation.SelectedItem);
         switch (name)
@@ -399,17 +387,51 @@ public partial class StudioWindow : Ui.FluentWindow
         SidebarStatus();
     }
 
+    void Clear(string title)
+    {
+        StopManual();
+        setupRefresh = trackingRefresh = adjustmentRefresh = updateRefresh = null;
+        Page.Children.Clear();
+        Actions.Children.Clear();
+        cameras.Clear();
+        ClearNotice();
+        SaveNow();
+        PageTitle.Text = title;
+        Title = title + " — QFT+";
+        Subtitle.Visibility = Visibility.Collapsed;
+        PageScroll.ScrollToTop();
+    }
+
     bool Problem => !busy && !session.Running && (setupProblem.Length > 0 || session.State == "Tracking stopped");
+
+    Action deviceGo = () => { };
+
+    void DeviceClick(object sender, RoutedEventArgs e) => deviceGo();
+
+    string AppIssue => session.State == "Connected" && HeadsetModelExperiment.Standalone(session) && session.Detail.IndexOf(" · Meta", StringComparison.Ordinal) is var at and >= 0
+        ? session.Detail[(at + 3)..].Replace(" · ", ". ") + "." : "";
+
+    (HeadsetHero.Look Look, string Status, Action Go) Attention()
+    {
+        void Tracking() => Navigate("Tracking");
+        var hands = session.HybridProblem.Length > 0 || session.Hybrid is not null && !Session.Alive(session.Hybrid);
+        if (Problem) return (HeadsetHero.Look.Error, setupProblem.Length > 0 ? "Couldn’t start" : session.State, Tracking);
+        if (session.State == "Waiting for headset") return (HeadsetHero.Look.Warning, session.State, Tracking);
+        if (session.State == "Connected" && AppIssue.Length > 0) return (HeadsetHero.Look.Warning, "Tracking needs attention", Tracking);
+        if (hands) return (HeadsetHero.Look.Warning, "Hands need attention", () => { revealLog = "hybrid.log"; Navigate("Settings"); });
+        if (session.State == "Connected" && session.tracking?.SlowCause is { Length: > 0 }) return (HeadsetHero.Look.Warning, "Running slowly", Tracking);
+        return (session.State == "Connected" ? HeadsetHero.Look.Connected : busy || session.Running ? HeadsetHero.Look.Working : HeadsetHero.Look.Idle, session.State, Tracking);
+    }
 
     void SidebarStatus()
     {
-        Connection.Text = Problem && setupProblem.Length > 0 ? "Couldn’t start" : session.State;
-        if (SetUp) DeviceTile.Visibility = Visibility.Visible;
-        sidebarHero.Present(SetUp, () => DeviceTile.Visibility = Visibility.Collapsed);
+        var (look, status, go) = Attention();
+        (Connection.Text, deviceGo) = (status, go);
+        AutomationProperties.SetName(DeviceButton, $"Quest Pro, {status}");
+        if (SetUp) DeviceButton.Visibility = Visibility.Visible;
+        sidebarHero.Present(SetUp, () => DeviceButton.Visibility = Visibility.Collapsed);
         sidebarHero.Hands = session.Hands;
-        var warning = session.State == "Waiting for headset" || session.HybridProblem.Length > 0 || session.tracking?.SlowCause is { Length: > 0 };
-        sidebarHero.Show(Problem ? HeadsetHero.Look.Error : session.State == "Connected" && !warning ? HeadsetHero.Look.Connected : warning ? HeadsetHero.Look.Warning
-            : busy || session.Running ? HeadsetHero.Look.Working : HeadsetHero.Look.Idle);
+        sidebarHero.Show(look);
         StartButton.Content = !SetUp && !busy ? "Set up…" : busy && !session.Running ? "Cancel" : session.Running ? "Stop" : "Start";
     }
 
@@ -529,33 +551,15 @@ public partial class StudioWindow : Ui.FluentWindow
         var use = session.Use;
         var config = session.Config;
         bool On(string key, bool fallback = false) => config[key]?.GetValue<bool>() ?? fallback;
-        var header = Text("Features", 18);
-        header.FontWeight = FontWeights.SemiBold;
-        header.Margin = new(0, 16, 0, 12);
-        AutomationProperties.SetHeadingLevel(header, AutomationHeadingLevel.Level2);
+        var header = Section("Features");
         var list = new StackPanel();
         Ui.CardAction Row(string title, string icon, Action go)
         {
-            var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6), BorderThickness = new(0), IsChevronVisible = false };
-            row.SetResourceReference(BackgroundProperty, "Surface");
-            row.Click += (_, _) => go();
+            var row = ListRow(title, icon, go);
             list.Children.Add(row);
             return row;
         }
-        void Show(Ui.CardAction row, string value, bool problem = false)
-        {
-            var (title, icon) = ((string, string))row.Tag;
-            var name = Text(title);
-            var chevron = Symbols.Shape("chevron_right", 22, name);
-            chevron.VerticalAlignment = VerticalAlignment.Center;
-            DockPanel.SetDock(chevron, Dock.Right);
-            var content = new DockPanel();
-            content.Children.Add(chevron);
-            content.Children.Add(Stack(name, Text(value, 14, true)));
-            (row.Content, row.Icon) = (content, Symbols.Icon(problem ? "warning" : icon, (Brush)FindResource("Ink")));
-            row.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            AutomationProperties.SetName(row, $"{title}, {value}");
-        }
+        void Show(Ui.CardAction row, string value, bool problem = false) => ShowRow(row, value, problem);
         void Calibrate(string area)
         {
             kind = area;
@@ -566,12 +570,13 @@ public partial class StudioWindow : Ui.FluentWindow
             Show(Row("Face tracking", "face", () => Navigate("Settings")), "Off");
         else
         {
-            var needsEyeSetup = session.IndependentGaze && !File.Exists(SetupService.EyeModel(session.Root));
-            Show(Row("Eye gaze", "eye_tracking", () => Navigate(needsEyeSetup ? "Setup" : "Settings")),
-                !session.IndependentGaze ? "Standard" : needsEyeSetup ? "Needs setup" : "Independent", needsEyeSetup);
+            var onHeadset = HeadsetModelExperiment.Standalone(session);
+            var needsEyeSetup = !onHeadset && session.IndependentGaze && !File.Exists(SetupService.EyeModel(session.Root));
+            var eyes = Row("Eye gaze", "eye_tracking", () => Navigate(needsEyeSetup ? "Setup" : "Settings"));
+            if (!onHeadset) Show(eyes, !session.IndependentGaze ? "Standard" : needsEyeSetup ? "Needs setup" : "Independent", needsEyeSetup);
             var face = Row("Cheeks, tongue and brows", "sentiment_satisfied", () => Calibrate("enroll"));
             var pupils = Row("Pupil dilation", "adjust", () => Calibrate("pupils"));
-            if (!HeadsetModelExperiment.Standalone(session))
+            if (!onHeadset)
             {
                 Show(face, !On("extraFaceOutput", true) && !On("tongueOutput", true) ? "Off" : File.Exists(config["faceEnrollment"]?.GetValue<string>()) ? "Calibrated" : "Standard");
                 Show(pupils, !File.Exists(Path.Combine(session.Root, "calibration/qpro-pupil-dilation.json")) ? "Not calibrated" : On("pupilDilation") ? "Calibrated" : "Off");
@@ -580,6 +585,7 @@ public partial class StudioWindow : Ui.FluentWindow
             {
                 string Value(string key) => session.App is null ? "Unknown" : !HeadsetApp.Flag(session.App, "calibrated", key) ? "Not calibrated"
                     : HeadsetApp.Flag(session.App, "settings", key == "face" ? "tongue" : "pupils") ? "Calibrated" : "Off";
+                Show(eyes, session.App is null ? "Unknown" : HeadsetApp.Flag(session.App, "settings", "convergence") ? "Independent" : "Standard");
                 Show(face, Value("face"));
                 Show(pupils, Value("pupils"));
             };
@@ -591,14 +597,12 @@ public partial class StudioWindow : Ui.FluentWindow
             Navigate("Settings");
         });
         foreach (var element in new UIElement[] { TrackingOverview, header, list }) Page.Children.Add(element);
-        var rows = list.Children.OfType<Ui.CardAction>().Where(r => r.Visibility == Visibility.Visible).ToList();
-        foreach (var r in rows) r.SetValue(Border.CornerRadiusProperty, new CornerRadius(r == rows[0] ? 16 : 0, r == rows[0] ? 16 : 0, r == rows[^1] ? 16 : 0, r == rows[^1] ? 16 : 0));
+        RoundEnds(list);
         trackingRefresh = () =>
         {
             var failed = !busy && !session.Running && setupProblem.Length > 0;
             var onHeadset = HeadsetModelExperiment.Standalone(session);
-            var appIssue = session.State == "Connected" && onHeadset && session.Detail.IndexOf(" · Meta", StringComparison.Ordinal) is var at and >= 0
-                ? session.Detail[(at + 3)..].Replace(" · ", ". ") + "." : "";
+            var appIssue = AppIssue;
             appRows?.Invoke();
             var via = session.Detail.EndsWith("USB") ? "USB" : "Wi-Fi";
             var (slow, fps) = (session.tracking?.SlowCause ?? "", session.tracking?.Stream?.Fps ?? 0);
@@ -637,6 +641,59 @@ public partial class StudioWindow : Ui.FluentWindow
                 hybridStopped || hybridFailed);
         };
         trackingRefresh();
+    }
+
+    TextBlock Section(string title)
+    {
+        var header = Text(title, 18);
+        header.FontWeight = FontWeights.SemiBold;
+        header.Margin = new(0, 16, 0, 12);
+        AutomationProperties.SetHeadingLevel(header, AutomationHeadingLevel.Level2);
+        return header;
+    }
+
+    Ui.CardAction ListRow(string title, string? icon, Action go)
+    {
+        var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6), BorderThickness = new(0), IsChevronVisible = false };
+        row.SetResourceReference(BackgroundProperty, "Surface");
+        row.Click += (_, _) => go();
+        return row;
+    }
+
+    void ShowRow(Ui.CardAction row, string value, bool problem = false)
+    {
+        var (title, icon) = ((string, string?))row.Tag;
+        var name = Text(title);
+        var chevron = Symbols.Shape("chevron_right", 22, name);
+        chevron.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(chevron, Dock.Right);
+        var content = new DockPanel();
+        content.Children.Add(chevron);
+        content.Children.Add(value.Length > 0 ? Stack(name, Text(value, 14, true)) : name);
+        (row.Content, row.Icon) = (content, icon is null ? null : Symbols.Icon(problem ? "warning" : icon, (Brush)FindResource("Ink")));
+        row.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        AutomationProperties.SetName(row, value.Length > 0 ? $"{title}, {value}" : title);
+    }
+
+    Border ActionRow(string title, TextBlock value, string icon, Button action)
+    {
+        action.VerticalAlignment = VerticalAlignment.Center;
+        action.Margin = new(16, 0, 0, 2);
+        DockPanel.SetDock(action, Dock.Right);
+        var glyph = Symbols.Icon(icon, (Brush)FindResource("Ink"));
+        glyph.Margin = new(0, 0, 14, 2);
+        glyph.VerticalAlignment = VerticalAlignment.Center;
+        var content = new DockPanel();
+        foreach (var child in new UIElement[] { action, glyph, Stack(Text(title), value) }) content.Children.Add(child);
+        var row = new Border { Child = content, Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6) };
+        row.SetResourceReference(Border.BackgroundProperty, "Surface");
+        return row;
+    }
+
+    static void RoundEnds(Panel list)
+    {
+        var rows = list.Children.OfType<FrameworkElement>().Where(r => r.Visibility == Visibility.Visible).ToList();
+        foreach (var r in rows) r.SetValue(Border.CornerRadiusProperty, new CornerRadius(r == rows[0] ? 16 : 0, r == rows[0] ? 16 : 0, r == rows[^1] ? 16 : 0, r == rows[^1] ? 16 : 0));
     }
 
     static Visibility Visible(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
@@ -704,6 +761,7 @@ public partial class StudioWindow : Ui.FluentWindow
             {
                 busy = changing = false;
                 option.IsChecked = HeadsetModelExperiment.Enabled(session);
+                UseChanged(session.Use);
                 SidebarStatus();
                 trackingRefresh?.Invoke();
             }
@@ -712,8 +770,7 @@ public partial class StudioWindow : Ui.FluentWindow
         void Refresh()
         {
             option.IsEnabled = retry.IsEnabled = update.IsEnabled = !busy && !recording && !training && !session.Running;
-            retry.Visibility = Visible(!changing);
-            retry.Visibility = Visible(HeadsetModelExperiment.Pending(session));
+            retry.Visibility = Visible(!changing && HeadsetModelExperiment.Pending(session));
             update.Visibility = Visible(HeadsetModelExperiment.Standalone(session) && session.AppProblem == HeadsetApp.Outdated && !changing);
             working.Visibility = cancel.Visibility = Visible(changing);
             status.Text = changing ? session.State + ". " + session.Detail : HeadsetModelExperiment.Pending(session) ? "Off, but QFT+ Headset is still on the headset. Connect the headset, then choose Retry to remove it."
@@ -778,6 +835,12 @@ public partial class StudioWindow : Ui.FluentWindow
         return rows;
     }
 
+    async Task SendToHeadset(string key, object value)
+    {
+        try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
+        catch (IOException error) { Error(error.Message); }
+    }
+
     StackPanel HeadsetAppOptions()
     {
         var sending = 0;
@@ -788,8 +851,7 @@ public partial class StudioWindow : Ui.FluentWindow
         async Task Apply(string key, object value)
         {
             sending++;
-            try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
-            catch (IOException error) { Error(error.Message); }
+            try { await SendToHeadset(key, value); }
             finally { sending--; refresh(); }
         }
         var output = new ComboBox { ItemsSource = HeadsetApp.Outputs.Select(o => o.Title).ToList() };

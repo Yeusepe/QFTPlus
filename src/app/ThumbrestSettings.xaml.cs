@@ -8,7 +8,6 @@ namespace QFTPlus;
 public partial class ThumbrestSettings : UserControl
 {
     readonly Session session;
-    readonly JsonObject saved;
     readonly Dictionary<string, JsonValue> pending = new();
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     bool applying, driverOn;
@@ -18,7 +17,7 @@ public partial class ThumbrestSettings : UserControl
     {
         InitializeComponent();
         this.session = session;
-        saved = session.Config["thumbrest"] as JsonObject ?? new();
+        var saved = session.Config["thumbrest"] as JsonObject ?? new();
         double Get(string key, double fallback) => saved[key] is JsonValue value && value.TryGetValue<double>(out var number) ? number : fallback;
         Mode.ItemsSource = new ModeOption[]
         {
@@ -83,8 +82,9 @@ public partial class ThumbrestSettings : UserControl
         try
         {
             var live = await Task.Run(() => SteamVr.SetThumbrest(batch));
+            var saved = session.Config["thumbrest"]?.DeepClone() as JsonObject ?? new();
             foreach (var (key, value) in batch) saved[key] = value.DeepClone();
-            session.Save("thumbrest", saved.DeepClone());
+            session.Save("thumbrest", saved);
             Status.Text = live ? "Applied." : "Applies when SteamVR starts.";
         }
         catch (Exception error) { Status.Text = "Couldn’t change the thumbrest. " + error.Message; }

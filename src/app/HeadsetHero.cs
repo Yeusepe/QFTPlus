@@ -18,7 +18,7 @@ internal sealed class HeadsetHero : Grid
     Look look = Look.Idle;
     bool shown = true;
     EventHandler? playing;
-    Action? next;
+    Action? next, leaving;
 
     internal Brush Glow { get; }
 
@@ -65,7 +65,14 @@ internal sealed class HeadsetHero : Grid
         image.Source = Still();
         Children.Add(image);
         Loaded += (_, _) => { if (shown) Appear(); };
-        Unloaded += (_, _) => Stop();
+        Unloaded += (_, _) => { Stop(); if (!shown) Hidden(); };
+    }
+
+    void Hidden()
+    {
+        if (leaving is not { } then) return;
+        leaving = null;
+        then();
     }
 
     internal static HeadsetHero Controllers(double height) => new(height, "touch");
@@ -85,9 +92,10 @@ internal sealed class HeadsetHero : Grid
     {
         if (show == shown) return;
         shown = show;
+        leaving = show ? null : () => { Visibility = Visibility.Collapsed; hidden?.Invoke(); };
         if (show) { Visibility = Visibility.Visible; if (IsLoaded) Appear(); return; }
-        if (!IsVisible || !Animated) { Visibility = Visibility.Collapsed; hidden?.Invoke(); return; }
-        Leave(() => { if (!shown) { Visibility = Visibility.Collapsed; hidden?.Invoke(); } });
+        if (!IsVisible || !Animated) { Hidden(); return; }
+        Leave(() => { if (!shown) Hidden(); });
     }
 
     internal void Show(Look state)
@@ -155,6 +163,7 @@ internal sealed class HeadsetHero : Grid
     void Rest()
     {
         Stop(); next = null;
+        if (!shown) Hidden();
         image.OpacityMask = null;
         pose = variant == "touch" ? "rest" : Target;
         var clip = pose == "rest" ? null : pose == "connected" ? "connecting-connected" : $"rest-{pose}";
@@ -188,10 +197,11 @@ internal sealed class HeadsetHero : Grid
         var span = TimeSpan.FromMilliseconds(milliseconds);
         var ease = new SineEase { EasingMode = EasingMode.EaseInOut };
         var edge = new GradientStop(Colors.Black, show ? -.3 : 1); var feather = new GradientStop(Colors.Transparent, show ? 0 : 1.35);
-        image.OpacityMask = new LinearGradientBrush { StartPoint = new(0, 1), EndPoint = new(0, 0), GradientStops = { edge, feather } };
+        var mask = new LinearGradientBrush { StartPoint = new(0, 1), EndPoint = new(0, 0), GradientStops = { edge, feather } };
+        image.OpacityMask = mask;
         edge.BeginAnimation(GradientStop.OffsetProperty, new DoubleAnimation(show ? 1 : -.3, span) { EasingFunction = ease });
         var sweep = new DoubleAnimation(show ? 1.35 : 0, span) { EasingFunction = ease };
-        if (show) sweep.Completed += (_, _) => image.OpacityMask = null;
+        if (show) sweep.Completed += (_, _) => { if (image.OpacityMask == mask) image.OpacityMask = null; };
         feather.BeginAnimation(GradientStop.OffsetProperty, sweep);
     }
 
@@ -202,7 +212,7 @@ internal sealed class HeadsetHero : Grid
         {
             Look.Working => dark ? Color.FromRgb(0x0A, 0x84, 0xFF) : Color.FromRgb(0x00, 0x7A, 0xFF),
             Look.Connected => dark ? Color.FromRgb(0x30, 0xD1, 0x58) : Color.FromRgb(0x34, 0xC7, 0x59),
-            Look.Warning => dark ? Color.FromRgb(0xFF, 0xD6, 0x0A) : Color.FromRgb(0xFF, 0xCC, 0x00),
+            Look.Warning => dark ? Color.FromRgb(0xFF, 0xB0, 0x20) : Color.FromRgb(0xFF, 0xA5, 0x00),
             Look.Error => dark ? Color.FromRgb(0xFF, 0x45, 0x3A) : Color.FromRgb(0xFF, 0x3B, 0x30),
             _ => Color.FromArgb(0, core.Color.R, core.Color.G, core.Color.B),
         };

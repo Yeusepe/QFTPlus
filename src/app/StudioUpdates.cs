@@ -131,12 +131,13 @@ public partial class StudioWindow
             try { await session.SetHeadsetModel(false); }
             finally { busy = false; SidebarStatus(); trackingRefresh?.Invoke(); }
         }
-        if (everything.Checked) File.WriteAllText(Uninstall.EverythingMarker, "Settings > Uninstall: also delete the data");
-        else File.Delete(Uninstall.EverythingMarker);
         var update = Velopack.Locators.VelopackLocator.Current.UpdateExePath;
         if (update is null || !File.Exists(update)) { Error("QFT+ couldn’t find its uninstaller. Uninstall it from Windows Settings > Apps."); return; }
         await session.Stop();
-        using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(update, "--uninstall --silent") { UseShellExecute = false })) { }
+        if (everything.Checked) File.WriteAllText(Uninstall.EverythingMarker, "Settings > Uninstall: also delete the data");
+        else File.Delete(Uninstall.EverythingMarker);
+        try { using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(update, "--uninstall --silent") { UseShellExecute = false })) { } }
+        catch { File.Delete(Uninstall.EverythingMarker); throw; }
         await Quit();
     }
 

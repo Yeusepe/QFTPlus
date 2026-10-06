@@ -3,6 +3,8 @@
   <SolidColorBrush x:Key="Canvas" Color="#F5F5F7"/><SolidColorBrush x:Key="Surface" Color="#FFFFFF"/><SolidColorBrush x:Key="Sidebar" Color="#EBEBEF"/><SolidColorBrush x:Key="Ink" Color="#202127"/><SolidColorBrush x:Key="Muted" Color="#626570"/><SolidColorBrush x:Key="Line" Color="#E1E2E7"/><SolidColorBrush x:Key="Accent" Color="#0067D9"/>
   <SolidColorBrush x:Key="Selected" Color="#1C1C1E"/><SolidColorBrush x:Key="OnSelected" Color="#FFFFFF"/><SolidColorBrush x:Key="Hover" Color="#0D000000"/><SolidColorBrush x:Key="SwitchOn" Color="#178A0C"/><SolidColorBrush x:Key="SwitchOff" Color="#40000000"/><SolidColorBrush x:Key="Primary" Color="#1C1C1E"/><SolidColorBrush x:Key="OnPrimary" Color="#FFFFFF"/><SolidColorBrush x:Key="Secondary" Color="#0F000000"/><SolidColorBrush x:Key="Menu" Color="#FFFFFF"/><SolidColorBrush x:Key="MenuLine" Color="#1F000000"/>
   <PathGeometry x:Key="ExpandMore" Figures="M480-362q-8 0-15-2.5t-13-8.5L268-557q-11-11-11-28t11-28q11-11 28-11t28 11l156 156 156-156q11-11 28-11t28 11q11 11 11 28t-11 28L508-373q-6 6-13 8.5t-15 2.5Z"><PathGeometry.Transform><MatrixTransform Matrix="0.0229167,0,0,0.0229167,0,22"/></PathGeometry.Transform></PathGeometry>
+  <PathGeometry x:Key="SearchGlyph" Figures="M380-320q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l224 224q11 11 11 28t-11 28q-11 11-28 11t-28-11L532-372q-30 24-69 38t-83 14Zm0-80q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"><PathGeometry.Transform><MatrixTransform Matrix="0.0145833,0,0,0.0145833,0,14"/></PathGeometry.Transform></PathGeometry>
+  <PathGeometry x:Key="CloseGlyph" Figures="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11-11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"><PathGeometry.Transform><MatrixTransform Matrix="0.0208333,0,0,0.0208333,0,20"/></PathGeometry.Transform></PathGeometry>
   <PathGeometry x:Key="CheckMark" Figures="m382-354 339-339q12-12 28-12t28 12q12 12 12 28.5T777-636L410-268q-12 12-28 12t-28-12L182-440q-12-12-11.5-28.5T183-497q12-12 28.5-12t28.5 12l142 143Z"><PathGeometry.Transform><MatrixTransform Matrix="0.0208333,0,0,0.0208333,0,20"/></PathGeometry.Transform></PathGeometry>
   <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
   <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="16,8"/><Setter Property="MinHeight" Value="44"/><Setter Property="MinWidth" Value="44"/><Setter Property="Border.CornerRadius" Value="22"/></Style>
@@ -158,10 +160,42 @@
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="*"/></Grid.RowDefinitions>
   <Border Background="{DynamicResource Sidebar}" Grid.RowSpan="2">
-   <Grid Margin="16,48,16,24">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-    <StackPanel x:Name="StatusBlock" Margin="0,0,0,20">
-     <Border x:Name="DeviceTile" CornerRadius="16" Background="{DynamicResource Surface}" Margin="0,0,0,10" Height="124">
+   <Grid Margin="16,16,16,24">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <TextBox x:Name="SearchBox" Margin="0,0,0,16" Padding="0" Foreground="{DynamicResource Ink}" CaretBrush="{DynamicResource Ink}" FontSize="{DynamicResource Font14}" AutomationProperties.Name="Search QFT+">
+     <TextBox.Template><ControlTemplate TargetType="TextBox">
+      <Grid Height="44">
+       <Border CornerRadius="22" Background="{DynamicResource Secondary}"/>
+       <Border x:Name="Lit" CornerRadius="22" Background="{DynamicResource Hover}" Visibility="Collapsed"/>
+       <Path Data="{StaticResource SearchGlyph}" Fill="{DynamicResource Muted}" Width="14" Height="14" HorizontalAlignment="Left" Margin="15,0,0,0" IsHitTestVisible="False"/>
+       <TextBlock x:Name="Hint" Text="Search QFT+" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="38,0,40,0" IsHitTestVisible="False" Visibility="Collapsed"/>
+       <ScrollViewer x:Name="PART_ContentHost" Focusable="False" VerticalAlignment="Center" Margin="36,0,40,0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"/>
+       <Button x:Name="Clear" Width="44" HorizontalAlignment="Right" Focusable="False" Click="ClearSearch" Cursor="Arrow" AutomationProperties.Name="Clear search">
+        <Button.Template><ControlTemplate TargetType="Button"><Border Background="Transparent"><Path Data="{StaticResource CloseGlyph}" Fill="{DynamicResource Muted}" Width="20" Height="20"/></Border></ControlTemplate></Button.Template>
+       </Button>
+      </Grid>
+      <ControlTemplate.Triggers>
+       <Trigger Property="Text" Value=""><Setter TargetName="Hint" Property="Visibility" Value="Visible"/><Setter TargetName="Clear" Property="Visibility" Value="Collapsed"/></Trigger>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Lit" Property="Visibility" Value="Visible"/></Trigger>
+       <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Lit" Property="Visibility" Value="Visible"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".45"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate></TextBox.Template>
+    </TextBox>
+    <StackPanel x:Name="StatusBlock" Grid.Row="1" Margin="0,0,0,20">
+     <Button x:Name="DeviceButton" Click="DeviceClick" Margin="0,0,0,10" HorizontalAlignment="Stretch" FocusVisualStyle="{x:Null}">
+      <Button.Template><ControlTemplate TargetType="Button">
+       <Grid>
+        <ContentPresenter/>
+        <Border x:Name="Lit" CornerRadius="16" Background="{DynamicResource Hover}" Visibility="Collapsed" IsHitTestVisible="False"/>
+        <Border x:Name="Ring" CornerRadius="16" BorderBrush="{DynamicResource Ink}" BorderThickness="0" IsHitTestVisible="False"/>
+       </Grid>
+       <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Lit" Property="Visibility" Value="Visible"/></Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="BorderThickness" Value="2"/></Trigger>
+       </ControlTemplate.Triggers>
+      </ControlTemplate></Button.Template>
+     <Border x:Name="DeviceTile" CornerRadius="16" Background="{DynamicResource Surface}" Height="124">
       <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Direction="270" Opacity=".4"/></Border.Effect>
       <Grid x:Name="DeviceArea" ClipToBounds="True">
        <Border x:Name="DeviceGlow" CornerRadius="16" IsHitTestVisible="False" Opacity=".4"/>
@@ -171,9 +205,10 @@
        </StackPanel>
       </Grid>
      </Border>
+     </Button>
      <Button x:Name="StartButton" Content="Start" Click="StartClick" HorizontalAlignment="Stretch"/>
     </StackPanel>
-    <ListBox x:Name="Navigation" Grid.Row="1" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="Pages" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+    <ListBox x:Name="Navigation" Grid.Row="2" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="Pages" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
    </Grid>
   </Border>
   <Grid Grid.Column="1" Grid.Row="1" Margin="32,8,32,24" HorizontalAlignment="Stretch">
@@ -290,6 +325,6 @@
     <Button x:Name="review" Content="Review video" Click="ReviewCalibration" Margin="12,0,0,0"/>
    </WrapPanel>
   </Grid>
-  <ui:TitleBar Grid.ColumnSpan="2" Height="40" Title="" ShowHelp="False" Background="Transparent" ButtonsForeground="{DynamicResource Ink}"/>
+  <ui:TitleBar Grid.Column="1" Height="40" Title="" ShowHelp="False" Background="Transparent" ButtonsForeground="{DynamicResource Ink}"/>
  </Grid>
 </ui:FluentWindow>

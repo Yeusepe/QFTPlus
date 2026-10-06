@@ -20,6 +20,7 @@ public partial class StudioWindow
     (bool Passed, string Message)? calibrationResult;
     WindowState? restoreState;
     long Ack => state["ack"]?.GetValue<long>() ?? 0;
+    DateTime lastFresh = DateTime.UtcNow;
     bool FreshState() => state["time"]?.GetValue<double>() is { } time && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - time) < 3;
     static string GroupTitle(string kind) => kind == "pupils" ? "Pupils" : kind.StartsWith("benchmark") ? "Benchmark" : "Face";
 
@@ -50,30 +51,41 @@ public partial class StudioWindow
     {
         if (HeadsetModelExperiment.Standalone(session))
         {
-            var state = Muted("", live: true);
-            trackingRefresh += () => state.Text = session.App is not { } app ? session.AppProblem
-                : $"Face: {(HeadsetApp.Flag(app, "calibrated", "face") ? "calibrated" : "not calibrated")} · Pupils: {(HeadsetApp.Flag(app, "calibrated", "pupils") ? "calibrated" : "not calibrated")}";
-            trackingRefresh();
-            var started = Muted("", live: true);
-            started.Visibility = Visibility.Collapsed;
-            Ui.Button Start(string title, string kind, bool primary)
+            Subtitle.Text = "Runs in QFT+ Headset, where an avatar shows each expression to copy.";
+            Subtitle.Visibility = Visibility.Visible;
+            var status = Muted("", live: true);
+            var list = new StackPanel();
+            var rows = new List<(TextBlock Value, string Kind, string About)>();
+            foreach (var (kind, title, icon, about, primary) in new[] {
+                         ("face", "Face and tongue", "sentiment_satisfied", "Copy 12 expressions from a Meta avatar · about 75 seconds", true),
+                         ("pupils", "Pupil dilation", "adjust", "Follow a dot as the space darkens and brightens · about 80 seconds", false) })
             {
-                var button = AsyncButton(title, async () =>
+                var start = AsyncButton("Calibrate", async () =>
                 {
                     try
                     {
                         session.App = await HeadsetApp.SendAsync(session, CancellationToken.None, ("calibrate", kind));
-                        started.Text = "Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.";
+                        status.Text = "Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.";
                     }
-                    catch (IOException error) { started.Text = error.Message; }
-                    started.Visibility = Visibility.Visible;
+                    catch (IOException error) { status.Text = error.Message; }
                 });
-                button.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
-                return button;
+                start.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
+                AutomationProperties.SetName(start, "Calibrate " + title.ToLowerInvariant());
+                var value = Text("", 14, true);
+                list.Children.Add(ActionRow(title, value, icon, start));
+                rows.Add((value, kind, about));
             }
-            Page.Children.Add(Card(Heading("Calibrate in the headset"),
-                Muted("QFT+ Headset records and processes calibration on the headset, where an avatar shows each expression to copy. Your saved calibration changes only when a new one passes."),
-                Start("Calibrate face", "face", true), Start("Calibrate pupils", "pupils", false), started, state));
+            RoundEnds(list);
+            trackingRefresh += () =>
+            {
+                foreach (var (value, kind, about) in rows)
+                    value.Text = (session.App is not { } app ? "" : HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated · " : "Not calibrated · ") + about;
+                if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : "Reading calibration from the headset…";
+            };
+            trackingRefresh();
+            var note = Muted("Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.");
+            note.Margin = new(0, 8, 0, 8);
+            foreach (var element in new UIElement[] { list, note, status }) Page.Children.Add(element);
             return;
         }
         if (training) kind = trainingKind;
@@ -274,7 +286,17 @@ public partial class StudioWindow
             try { state = Session.Read(Path.Combine(session.Root, "studio.state.json")); }
             catch (InvalidDataException) { state = new(); }
             var id = state["runtimeId"]?.GetValue<string>() ?? "";
-            if (id != runtimeId) (runtimeId, command) = (id, Ack);
+            var restarted = id != runtimeId;
+            if (restarted) (runtimeId, command) = (id, Ack);
+            if (FreshState() || !recording) lastFresh = DateTime.UtcNow;
+            if (recording && (!session.Running || restarted || DateTime.UtcNow - lastFresh > TimeSpan.FromSeconds(15)))
+            {
+                (recording, cancelPending) = (false, false);
+                Theme("System");
+                if (restoreState is { } before) (WindowState, restoreState) = (before, null);
+                if (page == "Calibration") CalibrationReset(); else RefreshCalibrationControls();
+                Error("Calibration stopped because tracking stopped or the camera feed stayed paused. Your previous calibration is unchanged.");
+            }
             var settled = FreshState() && Ack >= command;
             if (cancelPending && settled && Send("cancel"))
             {

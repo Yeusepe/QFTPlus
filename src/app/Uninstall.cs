@@ -33,7 +33,12 @@ internal static class Uninstall
         var logs = Path.Combine(research is { Length: > 0 } ? research
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QFTPlus", "research"), "sessions");
         foreach (var file in Directory.GetFiles(Path.GetDirectoryName(settings)!, Path.GetFileName(settings) + "*")) File.Delete(file);
-        foreach (var folder in new[] { home, logs }.Where(Directory.Exists))
+        if (Directory.Exists(logs))
+        {
+            foreach (var log in Directory.GetFiles(logs, "*.facelog*")) File.Delete(log);
+            if (!Directory.EnumerateFileSystemEntries(logs).Any()) Directory.Delete(logs);
+        }
+        foreach (var folder in new[] { home }.Where(Directory.Exists))
         {
             var aside = folder + ".removing-" + Guid.NewGuid().ToString("N")[..8];
             try { Directory.Move(folder, aside); } catch (IOException) { aside = folder; }

@@ -33,7 +33,13 @@ internal static class Program
     var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
     app.Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ThemesDictionary());
     app.Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ControlsDictionary());
-    var window=new StudioWindow(root);
+    StudioWindow window;
+    try{window=new StudioWindow(root);}
+    catch(InvalidDataException error)
+    {
+        System.Windows.Forms.TaskDialog.ShowDialog(new System.Windows.Forms.TaskDialogPage{Caption="QFT+",Heading="QFT+ couldn’t read its settings",Text=error.Message});
+        return;
+    }
     app.MainWindow=window;
     var registration=ThreadPool.RegisterWaitForSingleObject(show,(_,_)=>window.Dispatcher.BeginInvoke(()=>{window.Show();window.WindowState=WindowState.Normal;window.Activate();}),null,-1,false);
     app.Startup+=async(_,_)=>

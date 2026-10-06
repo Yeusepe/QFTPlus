@@ -15,7 +15,7 @@ internal static partial class HeadsetApp
     {
         var adb = Adb.Exe(session.Root);
         var target = session.Config["adbTarget"]?.GetValue<string>() ?? "";
-        var starts = changes.Any(c => c is ("tracking", true) or ("rate", _));
+        var starts = changes.Any(c => c is ("tracking", true) or ("rate" or "convergence" or "output" or "oscHost" or "oscPort", _));
         var opens = changes.Any(c => c.Key == "calibrate");
         string[] command = ["-s", target, "shell", (starts ? "cmd deviceidle tempwhitelist -d 10000 com.qftplus.headset >/dev/null; " : "")
             + "am broadcast" + (opens ? " --allow-background-activity-starts" : "") + " --include-stopped-packages -n com.qftplus.headset/.ControlReceiver"
