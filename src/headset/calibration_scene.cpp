@@ -469,7 +469,8 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
         env->DeleteLocalRef(cls);
         require(update && cancelCalibration && startCalibration && scenePresented && panelReady && pointer && avatarReady, "Calibration callback missing");
         const int panelWidth = 1600, panelHeight = 800;
-        env->CallVoidMethod(activity, panelReady, s.createPanel(panelWidth, panelHeight), panelWidth, panelHeight);
+        auto rethrow = [&] { if (env->ExceptionCheck()) { env->ExceptionClear(); throw std::runtime_error("Calibration UI failed"); } };
+        env->CallVoidMethod(activity, panelReady, s.createPanel(panelWidth, panelHeight), panelWidth, panelHeight); rethrow();
         if (!pupils && setupSpace) s.loadSpace(setupSpace);
         if (!pupils && preset) {
             auto string = [&](jstring j) { const char* c = env->GetStringUTFChars(j, nullptr); std::string r(c); env->ReleaseStringUTFChars(j, c); return r; };
@@ -497,7 +498,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
             }
             if (stopping) break;
             int changed = env->CallIntMethod(activity, update, focused);
-            if (env->ExceptionCheck()) { env->ExceptionClear(); throw std::runtime_error("Calibration UI failed"); }
+            rethrow();
             if (changed < 0) break;
             env->GetFloatArrayRegion(values, 0, 8, state);
             if (!running) { std::this_thread::sleep_for(std::chrono::milliseconds(25)); continue; }
@@ -505,9 +506,9 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
             xr(xrSyncActions(s.session, &sync), "Read calibration controls");
             XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO}; XrActionStateBoolean button{XR_TYPE_ACTION_STATE_BOOLEAN};
             get.action = s.cancel; xr(xrGetActionStateBoolean(s.session, &get, &button), "Read leave button");
-            if (button.isActive && button.currentState) { env->CallVoidMethod(activity, cancelCalibration); break; }
+            if (button.isActive && button.currentState) { env->CallVoidMethod(activity, cancelCalibration); rethrow(); break; }
             get.action = s.start; xr(xrGetActionStateBoolean(s.session, &get, &button), "Read start button");
-            if (button.isActive && button.changedSinceLastSync && button.currentState) env->CallVoidMethod(activity, startCalibration);
+            if (button.isActive && button.changedSinceLastSync && button.currentState) { env->CallVoidMethod(activity, startCalibration); rethrow(); }
             bool pressed[2] = {};
             for (int h = 0; h < 2; h++) {
                 get.action = s.select; get.subactionPath = s.hands[h]; XrActionStateBoolean trigger{XR_TYPE_ACTION_STATE_BOOLEAN};
@@ -525,7 +526,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
             if (!pupil) {
                 float dt = last ? std::min(.1f, float(frame.predictedDisplayTime - last) / 1e9f) : 0; last = frame.predictedDisplayTime;
                 expression(int(state[1]), state[2], s.guide); s.guide.idle = state[6] == 0; s.guide.update(dt);
-                if (!avatarReported && (s.guide.ready() || s.guide.failed())) { env->CallVoidMethod(activity, avatarReady, jboolean(s.guide.ready())); avatarReported = true; }
+                if (!avatarReported && (s.guide.ready() || s.guide.failed())) { env->CallVoidMethod(activity, avatarReady, jboolean(s.guide.ready())); rethrow(); avatarReported = true; }
             }
             XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION}; projection.space = s.worldSpace;
             XrCompositionLayerProjectionView projectionViews[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
@@ -575,7 +576,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
                             u = (hit.x*p.m[0] + hit.y*p.m[1] + hit.z*p.m[2]) / quad.size.width + .5f; v = .5f - (hit.x*p.m[4] + hit.y*p.m[5] + hit.z*p.m[6]) / quad.size.height;
                         }
                         bool onPanel = u >= 0 && u <= 1 && v >= 0 && v <= 1;
-                        env->CallVoidMethod(activity, pointer, onPanel ? u : -1.f, onPanel ? v : -1.f, jboolean(pressed[hand]));
+                        env->CallVoidMethod(activity, pointer, onPanel ? u : -1.f, onPanel ? v : -1.f, jboolean(pressed[hand])); rethrow();
                         float length = onPanel ? t : .6f; to = {from.x + dir.x*length, from.y + dir.y*length, from.z + dir.z*length}; aiming = state[5] != 2;
                     }
                     for (int i = 0; i < 2; i++) {
@@ -621,7 +622,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
             }
             XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO}; end.displayTime = frame.predictedDisplayTime; end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE; end.layerCount = layerCount; end.layers = layers;
             xr(xrEndFrame(s.session, &end), "Submit calibration frame");
-            if (focused && layerCount && !presented) { env->CallVoidMethod(activity, scenePresented); presented = true; }
+            if (focused && layerCount && !presented) { env->CallVoidMethod(activity, scenePresented); rethrow(); presented = true; }
         }
         if (running) xrRequestExitSession(s.session);
     } catch (const std::exception& e) { error = e.what(); __android_log_print(ANDROID_LOG_ERROR, "QFTCalibration", "%s", error.c_str()); }

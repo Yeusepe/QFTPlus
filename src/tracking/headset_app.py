@@ -84,7 +84,7 @@ def install(root, runtime, config):
         finally:
             root.run('rm -f ' + scratch, check=False)
     broadcast = ('am broadcast --include-stopped-packages -n ' + PACKAGE + '/.SetupReceiver '
-                 '--es host ' + shlex.quote(host) + ' --ei port 27276 --es key ' + shlex.quote(key) + ' --ez enabled true')
+                 '--es host ' + shlex.quote(host) + ' --ei port 27276 --es key ' + shlex.quote(key))
     if fresh:
         broadcast += (' --ez pupils ' + str(bool(config.get('pupilDilation', False))).lower() +
                       ' --ez tongue ' + str(tongue).lower())

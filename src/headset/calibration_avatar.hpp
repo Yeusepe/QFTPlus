@@ -32,7 +32,7 @@ struct FaceProvider { void* context; bool (*callback)(FacePose*, void*); };
 
 enum Expression { CheekPuffL = 2, CheekPuffR = 3, CheekRaiserL = 4, CheekSuckL = 6, CheekSuckR = 7, EyesClosedL = 12, EyesClosedR = 13, EyesLookDownL = 14, EyesLookDownR = 15,
     EyesLookLeftL = 16, EyesLookLeftR = 17, EyesLookRightL = 18, EyesLookRightR = 19, EyesLookUpL = 20, EyesLookUpR = 21, InnerBrowRaiserL = 22, JawDrop = 24,
-    LipFunnelerLB = 34, LipFunnelerLT = 35, LipFunnelerRB = 36, LipFunnelerRT = 37, LipPressorL = 38, LipPuckerL = 40, LipPuckerR = 41, UpperLidRaiserL = 68, Count = 72 };
+    LipFunnelerLB = 34, LipFunnelerLT = 35, LipFunnelerRB = 36, LipFunnelerRT = 37, LipPressorL = 38, LipPuckerL = 40, LipPuckerR = 41, UpperLidRaiserL = 59, Count = 72 };
 
 struct Api {
     void* library = nullptr;
@@ -299,6 +299,7 @@ private:
             }
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, std::max(0, int(image.mips) - 1));
         } else if (image.format == 0xe3dd9a1eu) {
+            if (data.size() < size_t(image.width) * image.height * 4) throw std::runtime_error("Truncated avatar texture");
             glTexImage2D(GL_TEXTURE_2D, 0, srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data()); glGenerateMipmap(GL_TEXTURE_2D);
         } else throw std::runtime_error("Unsupported avatar texture format");
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -362,11 +363,11 @@ private:
         uint32_t extensions = 0; api.ovrAvatar2Primitive_GetNumMaterialExtensions(p.id, &extensions);
         static const char* keys[8] = {"anisotropicIntensity", "colorRoughness", "roughness", "specularColorIntensity", "specularColorOffset", "specularNormalIntensity", "specularShiftIntensity", "specularWhiteIntensity"};
         for (uint32_t e = 0; e < extensions; e++) {
-            char name[64] = {}; uint32_t size = sizeof name; api.ovrAvatar2Primitive_GetMaterialExtensionName(p.id, e, name, &size);
+            char name[64] = {}; uint32_t size = sizeof name - 1; api.ovrAvatar2Primitive_GetMaterialExtensionName(p.id, e, name, &size);
             float* target = !std::strcmp(name, "FB_materials_hair") ? m.hair : !std::strcmp(name, "FB_materials_facial_hair") ? m.facialHair : nullptr;
             uint32_t entries = 0; if (!target) continue; api.ovrAvatar2Primitive_GetNumEntriesInMaterialExtensionByIndex(p.id, e, &entries);
             for (uint32_t i = 0; i < entries; i++) {
-                ExtensionEntry entry{}; if (api.ovrAvatar2Primitive_MaterialExtensionEntryMetaDataByIndex(p.id, e, i, &entry) != Success || entry.dataSize < 4 || entry.nameSize > 64) continue;
+                ExtensionEntry entry{}; if (api.ovrAvatar2Primitive_MaterialExtensionEntryMetaDataByIndex(p.id, e, i, &entry) != Success || entry.dataSize < 4 || entry.nameSize >= 64) continue;
                 char key[64] = {}; std::vector<uint8_t> value(entry.dataSize);
                 if (api.ovrAvatar2Primitive_MaterialExtensionEntryDataByIndex(p.id, e, i, key, entry.nameSize, value.data(), entry.dataSize) != Success) continue;
                 for (int k = 0; k < 8; k++) if (!std::strcmp(key, keys[k])) std::memcpy(&target[k], value.data(), 4);

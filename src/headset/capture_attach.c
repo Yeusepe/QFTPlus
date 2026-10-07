@@ -27,8 +27,7 @@ int main(int argc, char **argv) {
     if (error) { fprintf(stderr, "CAPTURE_ATTACH_FAILED %s\n", error->message); g_clear_error(&error); }
     frida_injector_close_sync(injector, NULL, &error);
     if (error) { fprintf(stderr, "CAPTURE_CLOSE_FAILED %s\n", error->message); g_clear_error(&error); }
-    g_object_unref(injector);
-    frida_deinit();
     if (ok) puts("CAPTURE_ATTACHED reused=0");
-    return ok ? 0 : 4;
+    fflush(stdout);
+    _exit(ok ? 0 : 4);
 }

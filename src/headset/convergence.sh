@@ -62,7 +62,7 @@ if ! mkdir "$work" 2>/dev/null; then
     before=$(cat "$work/property" 2>/dev/null)
     [ ! -d "$instance" ] || traced=1
     if [ -e "$work/bolt.ptl" ] && grep -qF " $target " /proc/mounts; then mounted=1
-    elif [ -n "$before" ] && [ "$(getprop "$property")" != "$before" ]; then
+    elif [ -e "$work/property" ] && [ "$(getprop "$property")" != "$before" ]; then
         stop trackingservice; setprop "$property" "$before"; start trackingservice
     fi
     restore

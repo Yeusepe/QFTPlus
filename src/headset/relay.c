@@ -67,11 +67,26 @@ static char g_owned[512];
 static void keep_features(void) {
     int face, eye; requested_features(&face, &eye);
     if (face < 0 || eye < 0 || (face >= FACE_LEVEL && eye >= 3)) return;
-    if (request_features(face < FACE_LEVEL ? FACE_LEVEL : face, eye < 3 ? 3 : eye)) { int fd = open(g_owned, O_CREAT | O_WRONLY | O_CLOEXEC, 0600); if (fd >= 0) close(fd); }
+    int want_face = face < FACE_LEVEL ? FACE_LEVEL : face, want_eye = eye < 3 ? 3 : eye;
+    if (request_features(want_face, want_eye)) {
+        int before[2] = {face, eye};
+        FILE *marker = fopen(g_owned, "re");
+        if (marker) { if (fscanf(marker, "%d %d", &before[0], &before[1]) != 2) before[0] = before[1] = 0; fclose(marker); }
+        int fd = open(g_owned, O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
+        if (fd >= 0) { dprintf(fd, "%d %d %d %d\n", before[0], before[1], want_face, want_eye); close(fd); }
+    }
     printf("NATIVE_FEATURES face=%d eye=%d\n", face, eye);
 }
 static void release_features(void) {
-    if (access(g_owned, F_OK) || !request_features(0, 0)) return;
+    FILE *marker = fopen(g_owned, "re");
+    if (!marker) return;
+    int before[2], ours[2], now[2];
+    requested_features(&now[0], &now[1]);
+    if (fscanf(marker, "%d %d %d %d", &before[0], &before[1], &ours[0], &ours[1]) != 4)
+        before[0] = before[1] = 0, ours[0] = now[0], ours[1] = now[1];
+    fclose(marker);
+    for (int i = 0; i < 2; i++) if (now[i] >= 0 && now[i] != ours[i]) before[i] = now[i];
+    if (!request_features(before[0], before[1])) return;
     unlink(g_owned); printf("NATIVE_FEATURES released\n");
 }
 static void camera_lease_open(const char *directory) {
@@ -439,28 +454,28 @@ static int authorize_client(int client, const char *token) {
 
 #if defined(QFT_ANDROID_APP) && defined(QFT_HEADSET_MODEL)
 #include <pthread.h>
+#define PACKET_INTERVAL_NS (UINT64_C(1000000000) / 90)
 typedef struct {
     pthread_mutex_t lock;
-    int client, stop, failed, enabled;
-    uint64_t *packet, *timestamp;
+    int client, stop, failed, enabled, pending;
+    uint64_t *packet, *timestamp, sent;
     uint32_t *face, *eye, *face_updates;
     const TrackingResult *output;
 } MetaRefresh;
 static void *refresh_meta(void *argument) {
     MetaRefresh *r = argument;
-    uint64_t next = 0;
     for (;;) {
         usleep(1000);
         pthread_mutex_lock(&r->lock);
         if (r->stop || r->failed) { pthread_mutex_unlock(&r->lock); return NULL; }
         uint64_t now = monotonic_nanoseconds();
         NativeSample fresh;
-        if (r->enabled && now >= next) {
+        if (r->enabled && now - r->sent >= PACKET_INTERVAL_NS) {
             native_tracking_read(g_native, now, &fresh);
-            if ((fresh.flags & 1) && (fresh.face_sequence != *r->face || fresh.eye_sequence != *r->eye)) {
+            if (r->pending || ((fresh.flags & 1) && (fresh.face_sequence != *r->face || fresh.eye_sequence != *r->eye))) {
                 if (fresh.face_sequence != *r->face) ++*r->face_updates;
                 *r->face = fresh.face_sequence; *r->eye = fresh.eye_sequence;
-                next = now + UINT64_C(5000000);
+                r->sent = now; r->pending = 0;
                 uint8_t header[64] = {0};
                 memcpy(header, "QPLIVE3", 7);
                 put_u32(header, 8, 3); put_u32(header, 12, sizeof header);
@@ -473,6 +488,15 @@ static void *refresh_meta(void *argument) {
             }
         }
         pthread_mutex_unlock(&r->lock);
+    }
+}
+static void *watch_features(void *argument) {
+    MetaRefresh *r = argument;
+    for (unsigned tick = 1;; tick++) {
+        usleep(100000);
+        pthread_mutex_lock(&r->lock); int stop = r->stop; pthread_mutex_unlock(&r->lock);
+        if (stop) return NULL;
+        if (tick % 50 == 0) keep_features();
     }
 }
 #define REFRESH_LOCK() pthread_mutex_lock(&refresh.lock)
@@ -623,6 +647,8 @@ static int run(int argc, char **argv) {
                                .face = &sent_face, .eye = &sent_eye, .face_updates = &meta_face_updates, .output = &last_output};
         pthread_t refresher;
         int refreshing = !pthread_create(&refresher, NULL, refresh_meta, &refresh);
+        pthread_t feature_watch;
+        int watching = g_app_session && g_fidelity && !pthread_create(&feature_watch, NULL, watch_features, &refresh);
 #endif
         tracking_model_control(g_tracking, &control, (double)monotonic_nanoseconds() / 1e9);
 #endif
@@ -631,10 +657,6 @@ static int run(int argc, char **argv) {
 #ifdef QFT_HEADSET_MODEL
             if (g_app_session && now >= provider_check) {
                 provider_check = now + UINT64_C(1000000000);
-#ifdef QFT_ANDROID_APP
-                static unsigned feature_check;
-                if (g_fidelity && ++feature_check % 5 == 0) keep_features();
-#endif
                 if (!camera_provider || !runs_program(camera_provider, "vendor.oculus.hardware.sensors@1.0-service")) {
                     fprintf(stderr, "CAMERA_PROVIDER_CHANGED reattach_required=1\n");
                     g_stopped = 1;
@@ -742,21 +764,25 @@ static int run(int argc, char **argv) {
             native_tracking_read(g_native, monotonic_nanoseconds(), &native);
             if (native.face_sequence != sent_face) meta_face_updates++;
             sent_face = native.face_sequence;
+            int hold = 0;
 #ifdef QFT_ANDROID_APP
             sent_eye = native.eye_sequence; last_output = output; last_timestamp = timestamp;
             refresh.enabled = control.version == 3 && !raw_fps;
+            uint64_t sending = monotonic_nanoseconds();
+            hold = refresh.enabled && sending - refresh.sent < PACKET_INTERVAL_NS;
+            if (hold) refresh.pending = 1; else { refresh.sent = sending; refresh.pending = 0; }
 #endif
             uint8_t header[64] = {0};
             memcpy(header, "QPLIVE3", 7);
             put_u32(header, 8, 3); put_u32(header, 12, sizeof header);
-            put_u64(header, 16, control.version == 3 ? ++packet : sequence); put_u64(header, 24, timestamp);
+            put_u64(header, 16, control.version == 3 ? (hold ? packet : ++packet) : sequence); put_u64(header, 24, timestamp);
             put_u32(header, 32, sizeof output / 4); put_u32(header, 36, 1); put_u32(header, 40, sizeof output / 4);
             put_u32(header, 44, control.version == 3 ? 4 : 3);
             put_u32(header, 48, sizeof output + (control.version == 3 ? sizeof native : 0));
             put_u32(header, 52, 0x1f);
             put_u64(header, 56, monotonic_nanoseconds());
-            int sent = send_all(client, header, sizeof header) && send_all(client, &output, sizeof output) &&
-                       (control.version != 3 || send_all(client, &native, sizeof native));
+            int sent = hold || (send_all(client, header, sizeof header) && send_all(client, &output, sizeof output) &&
+                       (control.version != 3 || send_all(client, &native, sizeof native)));
             if (sent && raw_fps && now >= next_raw_at) {
                 if (control.version == 3 && raw_fps == 24) {
                     float thumbnails[512];
@@ -787,6 +813,7 @@ static int run(int argc, char **argv) {
 #elif defined(QFT_HEADSET_MODEL)
         REFRESH_LOCK(); refresh.stop = 1; REFRESH_UNLOCK();
         if (refreshing) pthread_join(refresher, NULL);
+        if (watching) pthread_join(feature_watch, NULL);
 #endif
         close(client);
         g_client = -1;

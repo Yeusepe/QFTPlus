@@ -211,7 +211,8 @@ int main(int argc, char **argv) {
         pid_t pid = running_pid();
         if (pid > 0) {
             kill(pid, SIGTERM);
-            for (int i = 0; i < 50 && kill(pid, 0) == 0; i++) usleep(20000);
+            for (int i = 0; i < 150 && kill(pid, 0) == 0; i++) usleep(20000);
+            if (kill(pid, 0) == 0) { kill(pid, SIGKILL); for (int i = 0; i < 50 && kill(pid, 0) == 0; i++) usleep(20000); }
         }
         unlink(PID_PATH);
         puts("THUMBREST_STOPPED");
