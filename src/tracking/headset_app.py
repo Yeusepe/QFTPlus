@@ -15,6 +15,10 @@ PACKAGE = 'com.qftplus.headset'
 DATA = '/data/user/0/' + PACKAGE
 
 
+def installed():
+    return 'package:' in adb('shell', f'pm path {PACKAGE} || true')
+
+
 def stop(root):
     adb('shell', 'am', 'force-stop', PACKAGE)
     root.run('for p in $(pidof libqft_worker.so); do '
@@ -28,11 +32,11 @@ def stop(root):
 
 
 def remove(root):
-    if 'package:' in adb('shell', 'pm', 'path', PACKAGE):
+    if installed():
         stop(root)
         if 'Success' not in adb('uninstall', PACKAGE):
             raise RuntimeError('Android did not confirm removal of QFT+ Headset.')
-    if 'package:' in adb('shell', 'pm', 'path', PACKAGE):
+    if installed():
         raise RuntimeError('Headset app removal is incomplete.')
     print('HEADSET_APP_REMOVED', flush=True)
 
@@ -52,19 +56,20 @@ def install(root, runtime, config):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
         route.connect((match[1], 27276))
         host = route.getsockname()[0]
-    installed = 'package:' in adb('shell', 'pm', 'path', PACKAGE)
-    if installed:
+    fresh = not installed()
+    if not fresh:
         stop(root)
     print('HEADSET_APP_INSTALLING', flush=True)
     if 'Success' not in adb('install', '-r', str(apk), timeout=180):
         raise RuntimeError('Android did not install the headset app.')
+    tongue = bool(config.get('tongueOutput', False))
     if not root.run(f'test -f {DATA}/files/model/profile.bin && echo PRESENT', check=False):
         from headset_profile import compile_profile
         options = dict(config)
         try:
             profile = compile_profile(options, runtime)
         except ValueError:
-            options['tongueOutput'] = False
+            options['tongueOutput'] = tongue = False
             profile = compile_profile(options, runtime)
         scratch = '/data/local/tmp/qft-app-profile-' + secrets.token_hex(12)
         try:
@@ -79,12 +84,14 @@ def install(root, runtime, config):
         finally:
             root.run('rm -f ' + scratch, check=False)
     broadcast = ('am broadcast --include-stopped-packages -n ' + PACKAGE + '/.SetupReceiver '
-                 '--es host ' + shlex.quote(host) + ' --ei port 27276 --es key ' + shlex.quote(key) +
-                 ' --ez enabled true --ez pupils ' + str(bool(config.get('pupilDilation', False))).lower() +
-                 ' --ez tongue ' + str(bool(config.get('tongueOutput', False))).lower())
-    if 'QFT_PAIRED' not in root.run(broadcast):
+                 '--es host ' + shlex.quote(host) + ' --ei port 27276 --es key ' + shlex.quote(key) + ' --ez enabled true')
+    if fresh:
+        broadcast += (' --ez pupils ' + str(bool(config.get('pupilDilation', False))).lower() +
+                      ' --ez tongue ' + str(tongue).lower())
+    if 'QFT_PAIRED' not in root.run(broadcast, display='pairing broadcast'):
         raise RuntimeError('Headset app did not confirm pairing.')
-    adb('shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity')
+    if fresh:
+        adb('shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity')
     print('HEADSET_APP_READY', flush=True)
 
 

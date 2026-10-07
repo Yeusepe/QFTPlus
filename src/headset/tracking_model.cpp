@@ -146,7 +146,7 @@ struct TrackingModel {
     bool pupil_filtered = false, pupil_calibrating = false;
     std::array<float, 14> pupil_found{};
     double pupil_job_time = 0;
-    std::future<bool> pupil_job;
+    std::future<void> pupil_job;
     void reset() {
         for (int i = 0; i < 13; i++) {
             neutral[i] = profile->neutral[i];
@@ -237,7 +237,7 @@ struct TrackingModel {
                 double t = p.puff_threshold[s], v = side[s] * gate;
                 values[s] = static_cast<float>(v < t ? v * .5 / t : .5 + (v - t) * .5 / (1 - t));
             }
-            double dt = puff_time < 0 ? 0 : std::max(0., now - puff_time);
+            double dt = puff_time < 0 ? 0 : std::clamp(now - puff_time, 0., .1);
             puff_time = now;
             if (amount < .05 && std::max(side[0], side[1]) < .15)
                 for (int i = 0; i < 512; i++)
@@ -337,8 +337,7 @@ struct TrackingModel {
             previous_eyes.clear();
         }
         if (pupil_job.valid() && pupil_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            if (!pupil_job.get())
-                throw std::runtime_error("Pupil detection failed");
+            pupil_job.get();
             out.status |= TRACK_PUPIL_UPDATED;
             geometry = pupil_found;
             double relative[2] = {NAN, NAN}, time = pupil_job_time;
@@ -393,10 +392,7 @@ struct TrackingModel {
                 pupil_job = std::async(std::launch::async, [this, ranged, ranges] {
                     pupil_found.fill(0);
                     for (int eye = 0; eye < 2; eye++)
-                        if (!pupil_detect(previous_eyes.data(), eye, ranged ? ranges.data() + eye * 2 : nullptr,
-                                          pupil_found.data() + eye * 7))
-                            return false;
-                    return true;
+                        pupil_detect(previous_eyes.data(), eye, ranged ? ranges.data() + eye * 2 : nullptr, pupil_found.data() + eye * 7);
                 });
             }
         }
@@ -440,12 +436,12 @@ extern "C" void tracking_model_control(TrackingModel *m, const TrackingControl *
 extern "C" int tracking_model_run(TrackingModel *m, const uint8_t *strip, const float features[999],
                                   double now, TrackingResult *out) {
     try {
+        if (!(m->profile->capabilities & 1))
+            m->control.flags &= ~TRACK_TONGUE;
         *out = {};
         out->version = 2;
         out->flags = m->control.flags;
         out->revision = m->control.revision;
-        if ((m->control.flags & TRACK_TONGUE) && !(m->profile->capabilities & 1))
-            throw std::runtime_error("Tongue calibration is missing");
         uint64_t t = clock_ns(), u;
         if (m->control.flags & (TRACK_EXTRA | TRACK_TONGUE)) {
             uint64_t networks = stage_ns[0];

@@ -32,7 +32,7 @@ struct FaceProvider { void* context; bool (*callback)(FacePose*, void*); };
 
 enum Expression { CheekPuffL = 2, CheekPuffR = 3, CheekRaiserL = 4, CheekSuckL = 6, CheekSuckR = 7, EyesClosedL = 12, EyesClosedR = 13, EyesLookDownL = 14, EyesLookDownR = 15,
     EyesLookLeftL = 16, EyesLookLeftR = 17, EyesLookRightL = 18, EyesLookRightR = 19, EyesLookUpL = 20, EyesLookUpR = 21, InnerBrowRaiserL = 22, JawDrop = 24,
-    LipFunnelerLB = 34, LipFunnelerLT = 35, LipFunnelerRB = 36, LipFunnelerRT = 37, LipPressorL = 38, LipPuckerL = 40, LipPuckerR = 41, UpperLidRaiserL = 59, Count = 72 };
+    LipFunnelerLB = 34, LipFunnelerLT = 35, LipFunnelerRB = 36, LipFunnelerRT = 37, LipPressorL = 38, LipPuckerL = 40, LipPuckerR = 41, UpperLidRaiserL = 68, Count = 72 };
 
 struct Api {
     void* library = nullptr;
@@ -138,6 +138,7 @@ public:
 
     void update(float dt) {
         animate(dt);
+        if (!api.library) return;
         api.ovrAvatar2_Update(dt);
         if (!ready()) {
             Request info{}; api.ovrAvatar2Asset_GetLoadRequestInfo(request, &info); state = info.state;

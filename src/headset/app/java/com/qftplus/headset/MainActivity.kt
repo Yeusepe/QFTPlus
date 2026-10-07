@@ -213,7 +213,7 @@ class MainActivity : ComponentActivity() {
             delay(500)
         } }
         Group(null, "Turns on the headset's face and eye tracking while it runs, and off again when you stop it.",
-            row("Face and eye tracking", if (enabled) status else "Off", trailing = ocui.toggle(enabled, "Face and eye tracking") {
+            row("Face and eye tracking", if (enabled) status else TrackingService.error?.let { "Stopped: $it" } ?: "Off", trailing = ocui.toggle(enabled, "Face and eye tracking") {
                 if (it) start() else stop(); enabled = settings.getBoolean("enabled", false)
             }))
         Group("Features", null,
@@ -298,7 +298,8 @@ class MainActivity : ComponentActivity() {
             revision++; editing = null
         }
         val savedService = remember(revision) { settings.getString("oscService", null) }
-        LaunchedEffect(destinations) { destinations.firstOrNull { it.service == savedService && (it.host != host || it.port != port) }?.let { save(it.host, it.port, it) } }
+        val savedType = remember(revision) { settings.getString("oscServiceType", null) }
+        LaunchedEffect(destinations) { destinations.firstOrNull { it.service == savedService && it.type == savedType && (it.host != host || it.port != port) }?.let { save(it.host, it.port, it) } }
         editing?.let { which -> ReceiverPage(if (which == "saved") name else null, if (which == "saved") host else "", if (which == "saved") port.toString() else "9000",
             back = { editing = null }, save = { h, p -> save(h, p) }, forget = { stop(); settings.edit().remove("oscHost").remove("oscService").remove("oscServiceType").remove("oscName").apply(); revision++; editing = null }); return }
         fun choose(id: String) { if (mode != id) { stop(); mode = id; settings.edit().putString("output", id).apply(); notice = "Destination changed. Turn tracking on when you're ready." } }
@@ -381,6 +382,7 @@ class MainActivity : ComponentActivity() {
             Page(pages[1]) {
                 Group(null, "Turn on tracking with QFT+ on your PC, open VRCFaceTracking with the QFT+ module, and keep this page open.",
                     row("Connecting to QFT+ on your PC…", "Adjustments made here change what your PC sends to VRChat.", "oc_icon_computer_filled_24"))
+                ConvergenceGroups()
             }
             return
         }
@@ -478,7 +480,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() { super.onResume(); resumed = true; intent.getStringExtra("calibrationResult")?.let { notice = it; intent.removeExtra("calibrationResult") } }
+    override fun onResume() { super.onResume(); resumed = true; calibrationResult?.let { notice = it; calibrationResult = null } }
     override fun onNewIntent(next: Intent) { super.onNewIntent(next); setIntent(next); tab = next.getIntExtra("page", tab).coerceIn(0, pages.lastIndex) }
     override fun onSaveInstanceState(state: Bundle) { super.onSaveInstanceState(state); state.putInt("page", tab) }
     override fun onPause() { resumed = false; if (::ocui.isInitialized) ocui.dismissOverlays(); super.onPause() }

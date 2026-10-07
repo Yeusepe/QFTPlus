@@ -18,6 +18,10 @@ def fresh_values(sample: dict | None, names: list[str], now_ns: int) -> dict[str
     return dict(zip(names, map(float, sample["values"])))
 
 
+def _no_constant(name):
+    raise ValueError(f"{name} is not a number")
+
+
 def floats(value, count: int | None = None) -> list[float]:
     if not isinstance(value, list) or len(value) > 512 or count is not None and len(value) != count:
         raise ValueError("invalid list")
@@ -64,7 +68,7 @@ class LabelSidecarRecorder:
                 return
             arrival = {"arrivalMonotonicNs": time.monotonic_ns(), "arrivalWallNs": time.time_ns()}
             try:
-                message = json.loads(data)
+                message = json.loads(data, parse_constant=_no_constant)
                 if message["v"] != 1:
                     continue
                 if message["type"] == "schema":
@@ -73,7 +77,7 @@ class LabelSidecarRecorder:
                         self.schema_names = names
                 elif message["type"] == "sample":
                     self.latest = {**sample_record(message, self.schema_names), **arrival}
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, OverflowError, RecursionError):
                 pass
 
     def close(self) -> None:

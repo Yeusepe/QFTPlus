@@ -38,7 +38,8 @@ public final class ControlReceiver extends BroadcastReceiver {
         restart |= intent.hasExtra("output") && !intent.getStringExtra("output").equals(TrackingService.outputMode(settings));
         if (intent.hasExtra("output")) edit.putString("output", intent.getStringExtra("output"));
         if (intent.hasExtra("oscHost") || intent.hasExtra("oscPort")) {
-            restart = true;
+            restart |= intent.hasExtra("oscHost") && !intent.getStringExtra("oscHost").equals(settings.getString("oscHost", ""))
+                || intent.hasExtra("oscPort") && intent.getIntExtra("oscPort", 9000) != settings.getInt("oscPort", 9000);
             if (intent.hasExtra("oscHost")) edit.putString("oscHost", intent.getStringExtra("oscHost"));
             if (intent.hasExtra("oscPort")) edit.putInt("oscPort", intent.getIntExtra("oscPort", 9000));
             edit.remove("oscService").remove("oscServiceType").remove("oscName");
@@ -72,8 +73,10 @@ public final class ControlReceiver extends BroadcastReceiver {
     static int capabilities(Context context) {
         try (FileInputStream input = new FileInputStream(new File(context.getFilesDir(), "model/profile.bin"))) {
             byte[] header = new byte[12];
-            if (input.read(header) != 12 || !new String(header, 0, 8, "US-ASCII").equals("QFTHP002")) return 0;
-            return ByteBuffer.wrap(header, 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            if (input.read(header) != 12) return 0;
+            String magic = new String(header, 0, 8, "US-ASCII");
+            int flags = ByteBuffer.wrap(header, 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            return magic.equals("QFTHP002") ? flags : magic.equals("QFTHP001") ? flags & 8 : 0;
         } catch (IOException missing) { return 0; }
     }
     static boolean currentProfile(File profile) {
@@ -89,7 +92,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         catch (Exception unknown) { version = ""; }
         boolean enabled = settings.getBoolean("enabled", false);
         return new JSONObject().put("v", 1).put("version", version).put("tracking", enabled)
-            .put("status", enabled ? TrackingService.status : "Off").put("pcConnected", enabled && TrackingService.pcConnected)
+            .put("status", enabled ? TrackingService.status : "Off").put("error", enabled || TrackingService.error == null ? "" : TrackingService.error).put("pcConnected", enabled && TrackingService.pcConnected)
             .put("settings", new JSONObject().put("enabled", enabled).put("output", TrackingService.outputMode(settings))
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))
                 .put("tongue", settings.getBoolean("tongue", false)).put("pupils", settings.getBoolean("pupils", false))

@@ -364,7 +364,8 @@ static int copy_stable_frame(const uint8_t *shared, uint32_t *last_generation,
     memcpy(sequence, shared + SHARED_SEQUENCE_OFFSET, sizeof(*sequence));
     memcpy(timestamp, shared + SHARED_TIMESTAMP_OFFSET, sizeof(*timestamp));
     memcpy(frame, shared + SHARED_HEADER_BYTES, SENSOR_BYTES);
-    uint32_t after = __atomic_load_n(generation, __ATOMIC_ACQUIRE);
+    __atomic_thread_fence(__ATOMIC_ACQUIRE); 
+    uint32_t after = __atomic_load_n(generation, __ATOMIC_RELAXED);
     if (before != after || (after & 1u)) return 0;
     *last_generation = after;
     return 1;
@@ -562,7 +563,7 @@ static int run(int argc, char **argv) {
     g_model = face_model_open(g_model_directory);
     if (!g_model) return 5;
     g_tracking = tracking_model_open(g_model_directory);
-    if (!g_tracking) return 5;
+    if (!g_tracking) return 6; 
     g_native = native_tracking_open();
     if (g_app_session && !g_native) return 7;
     uint64_t provider_check = 0;
@@ -608,7 +609,7 @@ static int run(int argc, char **argv) {
 #ifdef QFT_HEADSET_MODEL
         unsigned raw_fps = 0;
         uint64_t next_raw_at = 0;
-        TrackingControl control = {0};
+        TrackingControl control = {0}, incoming = {0}; 
         size_t control_bytes = 0;
         uint32_t revision = 0, tracking_flags = 0;
         control.native_age = 1000;
@@ -642,19 +643,20 @@ static int run(int argc, char **argv) {
             }
             int disconnected = 0;
             for (unsigned pending = 0; pending < 64; pending++) {
-            ssize_t received = recv(client, (uint8_t *)&control + control_bytes, sizeof control - control_bytes, MSG_DONTWAIT);
+            ssize_t received = recv(client, (uint8_t *)&incoming + control_bytes, sizeof incoming - control_bytes, MSG_DONTWAIT);
             if (!received) { disconnected = 1; break; }
             if (received > 0) {
                 control_bytes += (size_t)received;
-                if (control_bytes == sizeof control) {
-                    if (control.magic != UINT32_C(0x43544651) || (control.version != 2 && control.version != 3) ||
-                        (control.raw_fps != 0 && control.raw_fps != 8 && control.raw_fps != 24) || control.flags > 127 ||
-                        !isfinite(control.native_age) || control.native_age < 0) { disconnected = 1; break; }
-                    for (unsigned i = 0; i < 70; i++) if (!isnan(control.native_values[i]) &&
-                        (!isfinite(control.native_values[i]) || control.native_values[i] < 0 || control.native_values[i] > 1)) disconnected = 1;
+                if (control_bytes == sizeof incoming) {
+                    if (incoming.magic != UINT32_C(0x43544651) || (incoming.version != 2 && incoming.version != 3) ||
+                        (incoming.raw_fps != 0 && incoming.raw_fps != 8 && incoming.raw_fps != 24) || incoming.flags > 127 ||
+                        !isfinite(incoming.native_age) || incoming.native_age < 0) { disconnected = 1; break; }
+                    for (unsigned i = 0; i < 70; i++) if (!isnan(incoming.native_values[i]) &&
+                        (!isfinite(incoming.native_values[i]) || incoming.native_values[i] < 0 || incoming.native_values[i] > 1)) disconnected = 1;
                     if (disconnected) break;
+                    control = incoming;
                     if (control.version == 3 && !g_native) { result = 7; g_stopped = 1; break; }
-                    if (revision != control.revision && !tracking_model_reload(g_tracking, g_model_directory)) { result = 5; g_stopped = 1; break; }
+                    if (revision != control.revision && !tracking_model_reload(g_tracking, g_model_directory)) { result = 6; g_stopped = 1; break; }
                     revision = control.revision; raw_fps = control.raw_fps; tracking_flags = control.flags;
                     tracking_model_control(g_tracking, &control, (double)now / 1e9);
 #ifdef QFT_ANDROID_APP

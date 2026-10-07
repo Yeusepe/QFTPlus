@@ -36,6 +36,7 @@ final class OscOutput implements AutoCloseable {
     private int targetsFor = Integer.MIN_VALUE;
     private static final byte[] FLOAT = string(",f"), TRUE = string(",T"), FALSE = string(",F"), BUNDLE = string("#bundle");
     private static final byte[][] ACTIVE = {path("ExpressionTrackingActive"), path("LipTrackingActive"), path("EyeTrackingActive")};
+    private static final byte[] EYES = string("/tracking/eye/LeftRightPitchYaw"), CLOSED = string("/tracking/eye/EyesClosedAmount"), FOUR = string(",ffff");
     private static final class Packet extends ByteArrayOutputStream { Packet() { super(1200); } byte[] data() { return buf; } }
     private final Packet bytes = new Packet();
     private final DataOutputStream out = new DataOutputStream(bytes);
@@ -61,8 +62,8 @@ final class OscOutput implements AutoCloseable {
     }
     private static byte[] path(String address) { return string("/avatar/parameters/" + address); }
     private void begin() throws IOException { bytes.reset(); out.write(BUNDLE); out.writeLong(1); }
-    private void flush() throws IOException {
-        if (bytes.size() > 16) socket.send(new DatagramPacket(bytes.data(), bytes.size(), host, port));
+    private void flush() {
+        if (bytes.size() > 16) try { socket.send(new DatagramPacket(bytes.data(), bytes.size(), host, port)); } catch (IOException unreachable) { }
     }
     private void write(byte[] address, byte[] tag, boolean number, float v) throws IOException {
         int size = address.length + tag.length + (number ? 4 : 0);
@@ -128,6 +129,13 @@ final class OscOutput implements AutoCloseable {
             t.sentSteps = steps;
         }
     }
+    private void floats(byte[] address, byte[] tag, float... v) throws IOException {
+        int size = address.length + tag.length + 4 * v.length;
+        if (bytes.size() + size + 4 > 1200) { flush(); begin(); }
+        out.writeInt(size); out.write(address); out.write(tag); for (float f : v) out.writeFloat(f);
+        messages++;
+    }
+    private static float degrees(float gaze) { return (float)Math.toDegrees(Math.atan(gaze)); }
     private void active(boolean face, boolean eyes) throws IOException {
         for (int i = 0; i < 3; i++) write(ACTIVE[i], (i == 2 ? eyes : face) ? TRUE : FALSE, false, 0);
     }
@@ -160,6 +168,11 @@ final class OscOutput implements AutoCloseable {
             active((nativeFlags & 1) != 0, (nativeFlags & 7) == 7);
             long t2 = System.nanoTime();
             for (java.util.Map.Entry<String, Float> entry : values.entrySet()) expression(entry.getKey(), entry.getValue(), all, learned);
+            if ((nativeFlags & 6) == 6) {
+                floats(EYES, FOUR, -degrees(values.getOrDefault("EyeLeftY", 0f)), degrees(values.getOrDefault("EyeLeftX", 0f)),
+                    -degrees(values.getOrDefault("EyeRightY", 0f)), degrees(values.getOrDefault("EyeRightX", 0f)));
+                floats(CLOSED, FLOAT, 1 - (values.getOrDefault("EyeOpenLeft", 1f) + values.getOrDefault("EyeOpenRight", 1f)) / 2);
+            }
             flush(); if (all) refresh = now;
             sendNs += System.nanoTime() - t2;
             return;

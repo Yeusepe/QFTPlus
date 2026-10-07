@@ -30,7 +30,8 @@ final class OscDiscovery implements AutoCloseable {
     private final Set<String> present = new HashSet<>();
     private final ArrayDeque<NsdServiceInfo> pending = new ArrayDeque<>();
     private final Listener listener;
-    private boolean resolving, closed;
+    private boolean resolving;
+    private volatile boolean closed;
     OscDiscovery(Context context, Listener listener) {
         manager = context.getSystemService(NsdManager.class); this.listener = listener;
         multicast = context.getSystemService(android.net.wifi.WifiManager.class).createMulticastLock("qft-osc-discovery");

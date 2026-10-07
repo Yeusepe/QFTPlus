@@ -137,8 +137,16 @@ def brow_forward(h, w, neutral, present):
 
 
 class UniversalFace:
-    def __init__(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), bias=0., log=None, tongue=None, headset=False,
-                 history=(), benchmarks=()):
+    def __init__(self, *args, **kwargs):
+        try:
+            self._load(*args, **kwargs)
+        except BaseException:
+            with GPU_LOCK:
+                self.model = None
+            raise
+
+    def _load(self, path, enrollment=None, enabled=False, *, families=tuple(FAMILIES), bias=0., log=None, tongue=None,
+              history=(), benchmarks=()):
         """path: MODEL.npz (MODEL.area.onnx next to it); history: earlier face setup files, newest first; benchmarks: recorded
         benchmark prefixes (captures/benchmark-...), newest first."""
         path = Path(path).resolve()
@@ -165,7 +173,9 @@ class UniversalFace:
             self.run(np.zeros((400, 2000), np.uint8))
         except Exception as error:
             print("INFERENCE_FALLBACK cpu: " + str(error), flush=True)
-            self.model = session(graph, cpu=True)
+            cpu = session(graph, cpu=True)
+            with GPU_LOCK:
+                self.model = cpu
         print("INFERENCE_BACKEND " + self.model.get_providers()[0] + " " + str(graph_path), flush=True)
         self.anchors, self.present, sides, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment, history, benchmarks)
         if not self.present.any() and meta["allowsNoEnrollment"] is not True:
@@ -198,17 +208,9 @@ class UniversalFace:
         self.share, self.share_ns = {}, None
         self.enabled, self.tongue = enabled, tongue
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.headset = headset
-        if headset:
-            self.model = None
-            if tongue is not None and tongue.enabled and self.tongue_map is None:
-                self.close()
-                raise ValueError('Complete face and tongue calibration before using Experimental on Headset Model.')
 
     def run(self, strip):
         """400x2000 uint8 strip -> mouth embedding (512,), tongue head (7,), brow embedding (480,)"""
-        if getattr(self, 'headset', False):
-            raise RuntimeError('Headset model results are required; PC inference fallback is disabled.')
         with GPU_LOCK:
             try:
                 q, t, w = self.model.run(None, {"cameras": np.ascontiguousarray(strip)})
@@ -333,26 +335,21 @@ class UniversalFace:
         gate = min(1., max(0., (amount - .03) / .07))
         side = [min(1., max(0., float((thumbs[int(c)] - self.puff_reference[int(c)]) @ d))) for c, d in zip(camera, direction)]
         values = [v * .5 / t if v < t else .5 + (v - t) * .5 / (1 - t) for v, t in zip((s * gate for s in side), map(float, level))]
-        dt = 0. if self.puff_ns is None else max(0., (now_ns - self.puff_ns) / 1e9)
+        dt = 0. if self.puff_ns is None else min(.1, max(0., (now_ns - self.puff_ns) / 1e9))
         self.puff_ns = now_ns
         if amount < .05 and max(side) < .15:
             self.puff_reference += np.float32(.03 * dt) * np.sign(thumbs - self.puff_reference)
         return values
 
-    def update(self, strip, native=None, native_names=(), now_ns=0, *, features=None):
-        if self.headset:
-            if features is None or features.shape != (999,) or not np.isfinite(features).all():
-                raise ValueError('Invalid headset model output')
-            q, t, w = features[:512], features[512:519], features[519:]
-        else:
-            q, t, w = self.run(strip)
+    def update(self, strip, native=None, native_names=(), now_ns=0):
+        q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
         horizontal, vertical = tongue_direction(q, self.tongue_map) if self.tongue_map else np.tanh(t[1:3])
         fresh = fresh_values(native, native_names, now_ns)
         nv = fresh or {}
         native_puff = [nv.get(n, 0.) for n in NATIVE_PUFF]
-        if self.puff_camera is not None and strip is not None:
+        if self.puff_camera is not None:
             p["CheekPuffLeft"], p["CheekPuffRight"] = self.puff_sides(
                 thumbnails(strip), max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff), now_ns)
         else:

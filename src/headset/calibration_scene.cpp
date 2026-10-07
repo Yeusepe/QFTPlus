@@ -199,8 +199,13 @@ Mat fromPose(const XrPosef& p) {
     m.m[12] = p.position.x; m.m[13] = p.position.y; m.m[14] = p.position.z; return m;
 }
 XrPosef toPose(const Mat& m) {
-    float qw = std::sqrt(std::max(0.f, 1 + m.m[0] + m.m[5] + m.m[10])) / 2;
-    return {{(m.m[6] - m.m[9]) / (4 * qw), (m.m[8] - m.m[2]) / (4 * qw), (m.m[1] - m.m[4]) / (4 * qw), qw}, {m.m[12], m.m[13], m.m[14]}};
+    float r00 = m.m[0], r11 = m.m[5], r22 = m.m[10], trace = r00 + r11 + r22, s;
+    XrQuaternionf q;
+    if (trace > 0) { s = std::sqrt(trace + 1) * 2; q = {(m.m[6] - m.m[9]) / s, (m.m[8] - m.m[2]) / s, (m.m[1] - m.m[4]) / s, s / 4}; }
+    else if (r00 > r11 && r00 > r22) { s = std::sqrt(1 + r00 - r11 - r22) * 2; q = {s / 4, (m.m[4] + m.m[1]) / s, (m.m[8] + m.m[2]) / s, (m.m[6] - m.m[9]) / s}; }
+    else if (r11 > r22) { s = std::sqrt(1 + r11 - r00 - r22) * 2; q = {(m.m[4] + m.m[1]) / s, s / 4, (m.m[9] + m.m[6]) / s, (m.m[8] - m.m[2]) / s}; }
+    else { s = std::sqrt(1 + r22 - r00 - r11) * 2; q = {(m.m[8] + m.m[2]) / s, (m.m[9] + m.m[6]) / s, s / 4, (m.m[1] - m.m[4]) / s}; }
+    return {q, {m.m[12], m.m[13], m.m[14]}};
 }
 Mat viewProjection(const XrView& eye) {
     float l = std::tan(eye.fov.angleLeft), r = std::tan(eye.fov.angleRight), d = std::tan(eye.fov.angleDown), u = std::tan(eye.fov.angleUp), n = .05f, f = 1000;

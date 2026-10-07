@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit;
 
 public final class TrackingService extends Service {
     static volatile String status = "Stopped";
+    static volatile String error;
+    private volatile String workerError;
     static volatile byte[] latest;
     static volatile long lastFrame;
     static volatile Calibration calibration;
@@ -40,9 +42,9 @@ public final class TrackingService extends Service {
     }
     private boolean direct() { return !outputMode(settings).equals("pc") && !settings.getString("oscHost", "").isEmpty(); }
     private boolean connected(long now) { return link != null && link.connected(now); }
-    private void poll(long now) throws IOException {
+    private void poll(long now) {
         if (link == null) return;
-        link.poll(now);
+        try { link.poll(now); } catch (IOException error) { android.util.Log.w("QFT", "PC link", error); }
         pcConnected = link.connected(now);
         if (link.adjustments != null && now - link.adjustmentsTime < 3_000_000_000L) pcAdjustments = link.adjustments;
         byte[] settings = adjustmentsToSend;
@@ -72,7 +74,7 @@ public final class TrackingService extends Service {
             settings.edit().putBoolean("enabled", false).apply(); stopSelf(); return START_NOT_STICKY;
         }
         if (!settings.getBoolean("enabled", false)) { stopSelf(); return START_NOT_STICKY; }
-        if (thread == null) { thread = new Thread(() -> { synchronized (runtimeLock) { if (!stopping) run(); } }, "qft-runtime"); thread.start(); }
+        if (thread == null) { error = null; thread = new Thread(() -> { synchronized (runtimeLock) { if (!stopping) run(); } }, "qft-runtime"); thread.start(); }
         return START_STICKY;
     }
     public void onDestroy() {
@@ -82,6 +84,7 @@ public final class TrackingService extends Service {
         Calibration active = calibration;
         if (active != null) active.fail("Tracking stopped. Previous calibration retained.");
         calibration = null; latest = null; status = "Stopped"; pcConnected = false;
+        pcAdjustments = null; adjustmentsToSend = null;
         super.onDestroy();
     }
     private Process root(String command) throws IOException {
@@ -134,7 +137,6 @@ public final class TrackingService extends Service {
         return "LD_LIBRARY_PATH=" + quote(getApplicationInfo().nativeLibraryDir + ":/vendor/lib64") + " ";
     }
     private void run() {
-        int failures = 0;
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
         android.net.wifi.WifiManager.WifiLock wifi = getSystemService(android.net.wifi.WifiManager.class)
             .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "qft-tracking");
@@ -144,29 +146,29 @@ public final class TrackingService extends Service {
             String pairKey = settings.getString("key", "");
             if (outputMode(settings).equals("pc") && !pairKey.isEmpty())
                 link = new HeadsetLink(pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
-            while (!stopping) {
-                poll(System.nanoTime());
-                if (!connected(System.nanoTime()) && !direct() && calibration == null) {
-                    status = outputMode(settings).equals("pc") ? "Waiting for QFT+ on your PC" : "Choose a destination in Connections";
-                    Thread.sleep(500);
-                    continue;
+            try (Convergence eyes = settings.getBoolean("convergence", true) ? Convergence.start(this) : null) {
+                while (!stopping) {
+                    poll(System.nanoTime());
+                    if (!connected(System.nanoTime()) && !direct() && calibration == null) {
+                        status = outputMode(settings).equals("pc") ? "Waiting for QFT+ on your PC" : "Choose a destination in Connections";
+                        Thread.sleep(500);
+                        continue;
+                    }
+                    session(eyes);
                 }
-                try (Convergence eyes = settings.getBoolean("convergence", true) ? Convergence.start(this) : null) {
-                    session(eyes); failures = 0;
-                }
-                catch (Exception error) {
-                    if (stopping) break;
-                    Calibration c = calibration;
-                    if (c != null) { c.fail("Tracking interrupted. Your previous calibration is unchanged."); calibration = null; }
-                    status = "Waiting: " + error.getMessage(); latest = null;
-                    android.util.Log.e("QFT", status, error);
-                    try { Files.write(new File(getFilesDir(), "status.txt").toPath(), status.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
-                    failures++;
-                }
-                if (!stopping) Thread.sleep(Math.min(10000, 1000L << Math.min(3, failures)));
             }
         } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-        catch (Exception error) { status = "Setup failed: " + error.getMessage(); }
+        catch (Exception failure) {
+            if (!stopping) {
+                Calibration c = calibration;
+                if (c != null) { c.fail("Tracking interrupted. Your previous calibration is unchanged."); calibration = null; }
+                error = workerError != null ? workerError : failure.getMessage() != null ? failure.getMessage() : failure.toString();
+                status = "Tracking stopped: " + error;
+                settings.edit().putBoolean("enabled", false).apply();
+                android.util.Log.e("QFT", status, failure);
+                try { Files.write(new File(getFilesDir(), "status.txt").toPath(), status.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
+            }
+        }
         finally {
             wifi.release();
             if (link != null) link.close(); latest = null;
@@ -190,9 +192,8 @@ public final class TrackingService extends Service {
                 status = "Waiting for eye and face cameras";
                 if (sessionOsc != null) sessionOsc.idle();
                 if (sessionControl != null) connection.getOutputStream().write(sessionControl);
-                try { poll(System.nanoTime()); } catch (Exception failure) { throw new IOException(failure); }
-                if (!connected(System.nanoTime()) && !direct() && calibration == null)
-                    throw new IOException("Receiver disconnected; releasing headset worker");
+                poll(System.nanoTime());
+                if (!connected(System.nanoTime()) && !direct() && calibration == null) return null;
                 if (offset > 0 && SystemClock.elapsedRealtime() >= deadline) throw new IOException("Incomplete camera frame");
             }
         }
@@ -201,6 +202,7 @@ public final class TrackingService extends Service {
     }
     private void session(Convergence eyes) throws Exception {
         String libraries = getApplicationInfo().nativeLibraryDir;
+        workerError = null;
         byte[] random = new byte[32]; new SecureRandom().nextBytes(random);
         StringBuilder key = new StringBuilder(); for (byte b : random) key.append(String.format("%02x", b & 255));
         Process worker = root(environment() + "exec " + quote(libraries + "/libqft_worker.so") + " --app-session --model " + quote(directory.toString()) + " --max-fps " + (settings.getInt("rate", 0) > 0 ? settings.getInt("rate", 0) : 72) + " --token " + key);
@@ -208,6 +210,7 @@ public final class TrackingService extends Service {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(worker.getInputStream()))) {
                 String line; while ((line = reader.readLine()) != null) {
                     android.util.Log.i("QFTWorker", line);
+                    if (line.startsWith("QFT_ERROR: ")) workerError = line.substring(11);
                     if (line.contains("FAILED") || line.contains("UNSUPPORTED") || line.contains("CANNOT LINK") || line.contains("not found") || line.contains("No such file")) status = line;
                 }
             } catch (IOException ignored) {}
@@ -230,12 +233,15 @@ public final class TrackingService extends Service {
             long sequence = -1;
             long perfAt = SystemClock.elapsedRealtime() + 5000, statusAt = 0; int perfFrames = 0, perfStale = 0, perfFlags = 0, perfStatus = 0, perfNative = 0;
             double perfLatency = 0, perfOutput = 0, perfWorker = 0; float tongueMax = 0, puffMax = 0, metaTongue = 0, metaPuff = 0;
+            int capabilities = ControlReceiver.capabilities(this);
+            if ((capabilities & 1) == 0 && settings.getBoolean("tongue", false)) settings.edit().putBoolean("tongue", false).apply();
+            if ((capabilities & 8) == 0 && settings.getBoolean("pupils", false)) settings.edit().putBoolean("pupils", false).apply();
             while (!stopping) {
                 if (eyes != null) eyes.check();
                 Calibration c = calibration;
                 int options = 1 | 8 | 16;
-                if (settings.getBoolean("tongue", false)) options |= 2;
-                if (settings.getBoolean("pupils", false)) options |= 4;
+                if ((capabilities & 1) != 0 && settings.getBoolean("tongue", false)) options |= 2;
+                if ((capabilities & 8) != 0 && settings.getBoolean("pupils", false)) options |= 4;
                 if (c != null && c.isPupils()) options |= 64;
                 poll(System.nanoTime());
                 if (!connected(System.nanoTime()) && osc == null && c == null) break;
@@ -244,11 +250,13 @@ public final class TrackingService extends Service {
                 sessionControl = control.array();
                 output.write(sessionControl);
                 byte[] header = exact(input, 64, eyes);
+                if (header == null) break;
                 ByteBuffer h = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
                 if (h.getLong(0) != 0x00334556494c5051L || h.getInt(8) != 3 || h.getInt(12) != 64) throw new IOException("Invalid headset header");
                 int kind = h.getInt(44), bytes = h.getInt(48);
                 if (!((kind == 4 && bytes == 608) || (kind == 5 && bytes == Calibration.FEATURES * 4))) throw new IOException("Invalid headset payload");
                 byte[] payload = exact(input, bytes, eyes);
+                if (payload == null) break;
                 long captured = h.getLong(24), finished = h.getLong(56);
                 long now = System.nanoTime();
                 if (captured > finished || finished > now || now - captured > 250000000L) { perfStale++; continue; }
@@ -306,7 +314,7 @@ public final class TrackingService extends Service {
                                     }
                                 }
                             } else settings.edit().putBoolean("pupils", true).apply();
-                            revision++;
+                            revision++; capabilities = ControlReceiver.capabilities(this);
                         } } finally {
                             Files.deleteIfExists(new File(directory, "calibration.bin").toPath());
                             Files.deleteIfExists(new File(directory, "profile.pending").toPath());
@@ -332,6 +340,10 @@ public final class TrackingService extends Service {
                     worker.destroy(); log.join(1000);
                     try { command(environment() + quote(libraries + "/libqft_worker.so") + " --release-features " + quote(directory.toString()), 8); }
                     catch (Exception error) { android.util.Log.w("QFT", "Releasing Meta face and eye tracking failed", error); }
+                    if (!worker.isAlive() && worker.exitValue() == 6) {
+                        removeCalibration(this); prepare();
+                        throw new IOException("Your calibration couldn't be loaded and was reset. Calibrate again in QFT+ Headset.");
+                    }
                 }
             }
         }

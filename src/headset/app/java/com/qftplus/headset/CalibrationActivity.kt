@@ -39,6 +39,8 @@ internal fun startCalibration(context: android.content.Context, pupils: Boolean)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", returnTask()))
 }
 
+@Volatile internal var calibrationResult: String? = null
+
 private fun returnTask(): Int = runCatching {
     val process = ProcessBuilder("su", "-c", "dumpsys activity activities | grep -m1 'ResumedActivity: ActivityRecord'")
         .redirectErrorStream(true).start()
@@ -108,7 +110,7 @@ class CalibrationActivity : ComponentActivity() {
                 val core = File(folder, "OvrAvatar2Assets.zip")
                 if (!pupils && !core.exists()) assets.open("avatar/OvrAvatar2Assets.zip").use { input -> File(folder, "core.tmp").also { t -> t.outputStream().use { input.copyTo(it) }; t.renameTo(core) } }
                 val presets = if (pupils) emptyArray() else assets.list("avatar/presets").orEmpty()
-                val preset = presets.randomOrNull()?.let { name -> assets.open("avatar/presets/$name").use { it.readBytes() } }
+                val preset = presets.randomOrNull()?.let { name -> Log.i("QFTCalibration", "Avatar preset $name"); assets.open("avatar/presets/$name").use { it.readBytes() } }
                 val space = if (pupils) null else runCatching { SetupSpace.read().toTypedArray() }.onFailure { Log.w("QFTCalibration", "Setup space unavailable", it) }.getOrNull()
                 if (!pupils && preset == null) avatar = 2
                 runScene(applicationInfo.nativeLibraryDir + "/libovravatar2.so", folder.path, preset, scene, pupils, space)
@@ -269,7 +271,8 @@ class CalibrationActivity : ComponentActivity() {
     private fun leave() { cancelCalibration(); stopScene() }
     private fun closePanel() { if (::ocui.isInitialized) ocui.dismissOverlays(); presentation?.dismiss(); presentation = null; display?.release(); display = null }
     private fun returnToPanel(message: String) {
-        val panelIntent = Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("calibrationResult", message).putExtra("page", 2)
+        calibrationResult = message
+        val panelIntent = Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("page", 2)
         val task = intent.getIntExtra("returnTask", -1)
         if (task >= 0 && runCatching { getSystemService(android.app.ActivityManager::class.java).moveTaskToFront(task, 0) }.isSuccess) {
             val manager = getSystemService(android.app.NotificationManager::class.java)

@@ -181,7 +181,7 @@ final class Calibration {
         if(!problem.isEmpty()) { fail(problem); return false; }
         Path profile=new File(directory,"profile.bin").toPath(),pending=new File(directory,"profile.pending").toPath();
         byte[] bytes=Files.readAllBytes(profile);ByteBuffer p=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-        if (bytes.length < 32 || p.getLong(0) != 0x3130305048544651L || p.getInt(12) != bytes.length - 16) throw new IOException("Invalid headset calibration profile");
+        if (bytes.length < 32 || p.getLong(0) != 0x3230305048544651L || p.getInt(12) != bytes.length - 16) throw new IOException("Invalid headset calibration profile");
         p.putInt(8,p.getInt(8)|8);p.position(bytes.length-16);for(double v:small)p.putFloat((float)v);for(double v:large)p.putFloat((float)v);
         Files.write(pending,bytes);Files.move(pending,profile,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
         saved("Pupil calibration passed and saved");return true;

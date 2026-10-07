@@ -149,7 +149,8 @@ static void publish_frame(uint8_t *shared, uint64_t sequence,
     uint32_t *generation = (uint32_t *)(void *)(shared + SHARED_GENERATION_OFFSET);
     uint32_t value = __atomic_load_n(generation, __ATOMIC_RELAXED);
     if (value & 1u) ++value;
-    __atomic_store_n(generation, value + 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(generation, value + 1u, __ATOMIC_RELAXED);
+    __atomic_thread_fence(__ATOMIC_RELEASE); 
     memcpy(shared + SHARED_SEQUENCE_OFFSET, &sequence, sizeof(sequence));
     uint64_t timestamp = monotonic_nanoseconds();
     memcpy(shared + SHARED_TIMESTAMP_OFFSET, &timestamp, sizeof(timestamp));

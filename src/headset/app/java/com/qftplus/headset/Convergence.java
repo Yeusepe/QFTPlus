@@ -74,7 +74,7 @@ final class Convergence implements AutoCloseable {
             Path model = eyes.directory.resolve("bolt.ptl"), script = eyes.directory.resolve("convergence.sh");
             patch(rootFile(MODEL), model);
             try (InputStream input = context.getAssets().open("convergence.sh")) { Files.copy(input, script); }
-            eyes.process = new ProcessBuilder("su", "-c", "sh " + quote(script.toString()) + " " + quote(model.toString()) + " " +
+            eyes.process = new ProcessBuilder("su", "--mount-master", "-c", "sh " + quote(script.toString()) + " " + quote(model.toString()) + " " +
                 Integer.toHexString(probe.offsets[0]) + " " + Integer.toHexString(probe.offsets[1]) + " " + quote(probe.fetch())).redirectErrorStream(true).start();
             eyes.reader = new Thread(eyes::read, "qft-convergence"); eyes.reader.start();
             if (!eyes.ready.await(30, TimeUnit.SECONDS)) throw new IOException("Convergence startup timed out");

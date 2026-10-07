@@ -9,16 +9,11 @@ work=/data/local/tmp/qft-headset-convergence
 source=$1
 script=$0
 fail() { echo "QFT_CONVERGENCE_ERROR: $*"; exit 1; }
-mkdir "$work" 2>/dev/null || fail 'Another convergence session is still active'
-before=$(getprop "$property")
 mounted=0
 traced=0
 reader=
-cleanup() {
-    code=$?
-    trap - EXIT HUP INT TERM
-    set +e
-    result=$code
+before=
+restore() {
     if [ "$traced" = 1 ]; then
         echo 0 > "$instance/tracing_on"
         for event in detector_output detector_output_secondary; do
@@ -46,12 +41,39 @@ cleanup() {
         start trackingservice || result=1
     fi
     if { [ "$traced" = 0 ] || [ ! -d "$instance" ]; } && { [ "$mounted" = 0 ] || ! grep -qF " $target " /proc/mounts; }; then
-        rm -f "$work/bolt.ptl"; rmdir "$work"
+        rm -f "$work/bolt.ptl" "$work/pid" "$work/property"; rmdir "$work"
     else echo 'QFT_CONVERGENCE_ERROR: Could not restore the eye tracking resources'; result=1; fi
+}
+cleanup() {
+    code=$?
+    trap - EXIT HUP INT TERM
+    set +e
+    result=$code
+    restore
     rm -f "$source" "$script"
     rmdir "${source%/*}" 2>/dev/null
     exit "$result"
 }
+if ! mkdir "$work" 2>/dev/null; then
+    pid=$(cat "$work/pid" 2>/dev/null) || pid=
+    if [ -n "$pid" ] && grep -q convergence "/proc/$pid/cmdline" 2>/dev/null; then fail 'Another convergence session is still active'; fi
+    set +e
+    result=0
+    before=$(cat "$work/property" 2>/dev/null)
+    [ ! -d "$instance" ] || traced=1
+    if [ -e "$work/bolt.ptl" ] && grep -qF " $target " /proc/mounts; then mounted=1
+    elif [ -n "$before" ] && [ "$(getprop "$property")" != "$before" ]; then
+        stop trackingservice; setprop "$property" "$before"; start trackingservice
+    fi
+    restore
+    set -e
+    [ "$result" = 0 ] || fail 'Could not restore the previous convergence session'
+    traced=0; mounted=0
+    mkdir "$work" || fail 'Another convergence session is still active'
+fi
+echo $$ > "$work/pid"
+before=$(getprop "$property")
+echo "$before" > "$work/property"
 trap cleanup EXIT HUP INT TERM
 grep -qF " $target " /proc/mounts && fail 'The eye model is in use by another app'
 [ ! -d "$instance" ] || fail 'The convergence trace is already in use'

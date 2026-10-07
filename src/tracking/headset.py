@@ -75,8 +75,9 @@ class RootShell:
     def alive(self) -> bool:
         return self._process.poll() is None
 
-    def run(self, command: str, *, check: bool = True, timeout: float = 8.0) -> str:
-        """Output of `command`; a nonzero exit raises unless check is False, then it returns None."""
+    def run(self, command: str, *, check: bool = True, timeout: float = 8.0, display: str | None = None) -> str:
+        """Output of `command`; a nonzero exit raises unless check is False, then it returns None. Errors name `display`
+        instead of the command when it carries a secret (errors reach logs and the Studio)."""
         if not self.alive:
             raise RuntimeError("The headset root shell exited")
         marker = f"{DONE}{secrets.token_hex(8)}__:"
@@ -104,10 +105,10 @@ class RootShell:
             if result == "0":
                 return text
             if check:
-                raise RuntimeError(f"Headset root command failed: {command}" + (f"\nHeadset response: {text}" if text else ""))
+                raise RuntimeError(f"Headset root command failed: {display or command}" + (f"\nHeadset response: {text}" if text else ""))
             return None
         if check:
-            raise RuntimeError(f"Timed out waiting for the headset root shell: {command}")
+            raise RuntimeError(f"Timed out waiting for the headset root shell: {display or command}")
         return None
 
     def close(self) -> None:
@@ -144,19 +145,22 @@ def start_frida_server(root: RootShell, name: str, port: int, *, reuse: bool = F
     running = bool(root.run(f"pidof {shell_name} || true", timeout=15).strip())
     if running and not reuse:
         raise RuntimeError(f"The headset helper {name} is already running. Retry after it finishes.")
+    if running:
+        stop_frida_server(root, name)
+        running = False
+    token = secrets.token_hex(32)
     root.undo_on_exit(f"kill $(pidof {shell_name}); rm -f {shell_path}")
     if installed() != bundled:
-        if running:
-            raise RuntimeError("The running headset helper differs from the bundled version. Restart the headset before retrying.")
         adb("push", str(FRIDA_SERVER), path, timeout=120)
         if installed() != bundled:
             raise RuntimeError("The headset helper failed verification")
     local = None
     try:
         if not running:
-            root.run(f"chmod 755 {shell_path} && {shell_path} --listen 127.0.0.1:{port} --disable-preload --daemonize", timeout=15)
+            root.run(f"chmod 755 {shell_path} && {shell_path} --listen 127.0.0.1:{port} --token={token} --disable-preload --daemonize",
+                     timeout=15, display=f"start {name}")
         local = int(adb("forward", "tcp:0", f"tcp:{port}"))
-        device = frida.get_device_manager().add_remote_device(f"127.0.0.1:{local}")
+        device = frida.get_device_manager().add_remote_device(f"127.0.0.1:{local}", token=token)
         for attempt in range(20):
             try:
                 device.enumerate_processes()
