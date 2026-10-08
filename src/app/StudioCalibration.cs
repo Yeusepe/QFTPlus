@@ -56,6 +56,7 @@ public partial class StudioWindow
             var status = Muted("", live: true);
             var list = new StackPanel();
             var rows = new List<(TextBlock Value, string Kind, string About)>();
+            var watching = false;
             foreach (var (kind, title, icon, about, primary) in new[] {
                          ("face", "Face and tongue", "sentiment_satisfied", "Copy 12 expressions from a Meta avatar · about 75 seconds", true),
                          ("pupils", "Pupil dilation", "adjust", "Follow a dot as the space darkens and brightens · about 80 seconds", false) })
@@ -64,7 +65,8 @@ public partial class StudioWindow
                 {
                     try
                     {
-                        session.App = await HeadsetApp.SendAsync(session, CancellationToken.None, ("calibrate", kind));
+                        session.App = await session.SendApp(CancellationToken.None, ("calibrate", kind));
+                        watching = true;
                         status.Text = "Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.";
                     }
                     catch (IOException error) { status.Text = error.Message; }
@@ -81,6 +83,13 @@ public partial class StudioWindow
                 foreach (var (value, kind, about) in rows)
                     value.Text = (session.App is not { } app ? "" : HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated · " : "Not calibrated · ") + about;
                 if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : "Reading calibration from the headset…";
+                else if (session.App["calibration"] is JsonObject headset)
+                {
+                    const string calibrating = "Calibrating in the headset…";
+                    var result = headset["result"]?.GetValue<string>() ?? "";
+                    if (headset["running"]?.GetValue<bool>() == true) (status.Text, watching) = (calibrating, true);
+                    else if (watching && (result.Length > 0 || status.Text == calibrating)) (status.Text, watching) = (result, false);
+                }
             };
             trackingRefresh();
             var note = Muted("Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.");

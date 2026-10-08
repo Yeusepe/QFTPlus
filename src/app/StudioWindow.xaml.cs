@@ -837,13 +837,14 @@ public partial class StudioWindow : Ui.FluentWindow
 
     async Task SendToHeadset(string key, object value)
     {
-        try { (session.App, session.AppProblem) = (await HeadsetApp.SendAsync(session, CancellationToken.None, (key, value)), ""); }
+        try { (session.App, session.AppProblem) = (await session.SendApp(CancellationToken.None, (key, value)), ""); }
         catch (IOException error) { Error(error.Message); }
     }
 
     StackPanel HeadsetAppOptions()
     {
         var sending = 0;
+        string? outputSent = null; int? rateSent = null;
         Action refresh = () => { };
         var status = Muted("", live: true);
         var rows = new StackPanel();
@@ -852,15 +853,18 @@ public partial class StudioWindow : Ui.FluentWindow
         {
             sending++;
             try { await SendToHeadset(key, value); }
-            finally { sending--; refresh(); }
+            finally { if (--sending == 0) (outputSent, rateSent) = (null, null); refresh(); }
         }
         var output = new ComboBox { ItemsSource = HeadsetApp.Outputs.Select(o => o.Title).ToList() };
         AutomationProperties.SetName(output, "Send tracking to");
         output.SelectionChanged += async (_, _) =>
         {
             var id = HeadsetApp.Outputs[Math.Max(0, output.SelectedIndex)].Id;
-            if (sending == 0 && session.App?["settings"]?["output"]?.GetValue<string>() is { } current && current != id && output.IsDropDownOpen | output.IsKeyboardFocusWithin)
+            if ((outputSent ?? session.App?["settings"]?["output"]?.GetValue<string>()) is { } current && current != id && output.IsDropDownOpen | output.IsKeyboardFocusWithin)
+            {
+                outputSent = id;
                 await Apply("output", id);
+            }
         };
         var destination = Muted("", live: true);
         foreach (var element in new UIElement[] { Text("Send tracking to"), output, destination })
@@ -881,8 +885,11 @@ public partial class StudioWindow : Ui.FluentWindow
         rate.SelectionChanged += async (_, _) =>
         {
             var value = HeadsetApp.Rates[Math.Max(0, rate.SelectedIndex)];
-            if (sending == 0 && session.App?["settings"]?["rate"] is { } rate0 && rate0.GetValue<int>() != value && rate.IsDropDownOpen | rate.IsKeyboardFocusWithin)
+            if ((rateSent ?? session.App?["settings"]?["rate"]?.GetValue<int>()) is { } current && current != value && rate.IsDropDownOpen | rate.IsKeyboardFocusWithin)
+            {
+                rateSent = value;
                 await Apply("rate", value);
+            }
         };
         foreach (var element in new UIElement[] { Text("Update rate"), rate,
                      Muted("How often your face is measured and sent. Faster rates follow your face more closely; slower rates use less battery and keep the headset cooler. Changing it restarts tracking."), status })

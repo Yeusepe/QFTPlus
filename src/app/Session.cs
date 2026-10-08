@@ -27,6 +27,23 @@ internal sealed class Session
     DateTime appPolled;
     int appVersion;
     bool? appWanted;
+    readonly SemaphoreSlim appGate = new(1, 1);
+    int notRunning;
+
+    internal async Task<JsonObject> SendApp(CancellationToken token, params (string Key, object Value)[] changes)
+    {
+        await appGate.WaitAsync(token);
+        try
+        {
+            var wanted = appWanted;
+            JsonObject reply;
+            try { reply = await HeadsetApp.SendAsync(this, token, wanted is { } want ? [("tracking", want), .. changes] : changes); }
+            catch (HeadsetApp.Refused) { if (appWanted == wanted) appWanted = null; throw; }
+            if (appWanted == wanted) appWanted = null;
+            return reply;
+        }
+        finally { appGate.Release(); }
+    }
     bool hybridReady, hybridPending, stopping;
     string lastSlow = "";
     const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
@@ -127,6 +144,7 @@ internal sealed class Session
     }
     internal async Task Start(bool fromModule = false)
     {
+        if (stopTask is { IsCompleted: false } stop) await stop;
         if (Running || (fromModule && attempted)) return;
         var use = Use;
         if (fromModule && use == "hands") return;
@@ -140,15 +158,20 @@ internal sealed class Session
             if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: true);
             appVersion++;
             Notify("Connecting", "Turning on tracking in QFT+ Headset…");
-            try { (App, AppProblem, appWanted) = (await HeadsetApp.SendAsync(this, token, ("tracking", true)), "", null); }
-            catch (IOException error) { (AppProblem, appWanted) = (error.Message, true); }
-            catch (OperationCanceledException) { headsetSession = false; Save("headsetReceiverEnabled", false); throw; }
-            StartThumbrest();
-            if (Hands && !SteamVr.IsSteamLink)
+            appWanted = true;
+            try { (App, AppProblem) = (await SendApp(token), ""); }
+            catch (IOException error) { AppProblem = error.Message; }
+            catch (OperationCanceledException) { (headsetSession, appWanted) = (false, null); Save("headsetReceiverEnabled", false); throw; }
+            try
             {
-                await Adb.EnsureAsync(Adb.Exe(Root), Config["adbTarget"]?.GetValue<string>(), token);
-                await TryStartHybrid();
+                StartThumbrest();
+                if (Hands && !SteamVr.IsSteamLink)
+                {
+                    await Adb.EnsureAsync(Adb.Exe(Root), Config["adbTarget"]?.GetValue<string>(), token);
+                    await TryStartHybrid();
+                }
             }
+            catch { await Stop(); throw; }
             NotifyApp();
             return;
         }
@@ -242,7 +265,9 @@ internal sealed class Session
             case "starting": Notify("Connecting", "Starting the headset cameras…"); break;
         }
     }
-    internal async Task Stop()
+    Task? stopTask;
+    internal Task Stop() => stopTask is { IsCompleted: false } ? stopTask : stopTask = StopOnce();
+    async Task StopOnce()
     {
         stopping = true;
         try
@@ -252,13 +277,14 @@ internal sealed class Session
             if (headsetSession)
             {
                 appVersion++;
+                appWanted = false;
                 try
                 {
-                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    (App, AppProblem, appWanted) = (await HeadsetApp.SendAsync(this, timeout.Token, ("tracking", false)), "", null);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+                    (App, AppProblem) = (await SendApp(timeout.Token), "");
                 }
                 catch (Exception error) when (error is IOException or OperationCanceledException)
-                { appWanted = false; appNote = "This PC stopped receiving, but the headset couldn’t be reached. Turn off tracking in QFT+ Headset to save battery."; }
+                { appNote ="This PC stopped receiving, but the headset couldn’t be reached. Turn off tracking in QFT+ Headset to save battery."; }
                 Save("headsetReceiverEnabled", false);
                 Save("headsetDirect", false);
                 headsetSession = false;
@@ -283,12 +309,12 @@ internal sealed class Session
     async Task RefreshApp()
     {
         var version = appVersion;
+        var calibration = App?["calibration"]?.ToJsonString();
         appPolled = DateTime.UtcNow;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var wanted = appWanted;
-            App = wanted is { } want ? await HeadsetApp.SendAsync(this, timeout.Token, ("tracking", want)) : await HeadsetApp.SendAsync(this, timeout.Token);
+            App = await SendApp(timeout.Token);
             try { App = await SyncAdjustments(App, timeout.Token); syncError = ""; }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
             {
@@ -296,24 +322,32 @@ internal sealed class Session
                 syncError = error.Message;
             }
             AppProblem = "";
-            if (appWanted == wanted) appWanted = null;
         }
         catch (Exception error) when (error is IOException or OperationCanceledException)
         { AppProblem = error is IOException ? error.Message : "The headset isn’t answering. Make sure it’s awake."; }
         appPolled = DateTime.UtcNow;
         if (version != appVersion || stopping || setup is not null || AppProblem.Length > 0) { Changed?.Invoke(State); return; }
         var on = App?["tracking"]?.GetValue<bool>() == true;
+        notRunning = on && App?["running"]?.GetValue<bool>() == false ? notRunning + 1 : 0;
+        var closed = notRunning >= 2;
+        if (headsetSession && (!on || closed))
+        {
+            var error = closed ? "QFT+ Headset closed unexpectedly. Start tracking again." : App?["error"]?.GetValue<string>() ?? "";
+            await Stop();
+            if (HybridProblem.Length == 0)
+                Notify(error.Length > 0 ? "Tracking stopped" : "Ready", error.Length > 0 ? error : "Tracking was turned off in QFT+ Headset.");
+            return;
+        }
         var direct = on && HeadsetApp.Destination(App).Length > 0 && App?["settings"]?["oscHost"]?.GetValue<string>() is { Length: > 0 };
         if (direct != (Config["headsetDirect"]?.GetValue<bool>() == true)) Save("headsetDirect", direct);
-        if (on != headsetSession)
+        if (on && !closed && !headsetSession)
         {
-            headsetSession = on;
-            Save("headsetReceiverEnabled", on);
-            if (!on && App?["error"]?.GetValue<string>() is { Length: > 0 } error) { Notify("Tracking stopped", error); return; }
-            if (!on) { Notify("Ready", "Tracking was turned off in QFT+ Headset."); return; }
+            headsetSession = true;
+            Save("headsetReceiverEnabled", true);
             if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: true);
         }
-        if (headsetSession) NotifyApp(); else Changed?.Invoke(State);
+        if (headsetSession) NotifyApp();
+        if (!headsetSession || App?["calibration"]?.ToJsonString() != calibration) Changed?.Invoke(State);
     }
     async Task<JsonObject> SyncAdjustments(JsonObject app, CancellationToken token)
     {
@@ -329,7 +363,7 @@ internal sealed class Session
         }
         if (headset.Length > 0 && headset != synced)
         {
-            var reply = await HeadsetApp.SendAsync(this, token, ("adjustmentsWanted", true));
+            var reply = await SendApp(token, ("adjustmentsWanted", true));
             byte[] data;
             try { data = Convert.FromBase64String(reply["adjustmentsData"]?.GetValue<string>() ?? ""); }
             catch (FormatException error) { throw new IOException(HeadsetApp.Outdated, error); }
@@ -341,7 +375,7 @@ internal sealed class Session
             return reply;
         }
         if (local is null) return app;
-        var pushed = await HeadsetApp.SendAsync(this, token, ("adjustments", Convert.ToBase64String(local)));
+        var pushed = await SendApp(token, ("adjustments", Convert.ToBase64String(local)));
         Save("headsetAdjustmentsHash", pc);
         return pushed;
     }

@@ -35,18 +35,20 @@ internal static class HeadsetModelExperiment
             return;
         }
         session.Notify(enabled ? "Installing QFT+ Headset" : "Removing QFT+ Headset", "This takes a minute or two. Keep the headset awake and connected.");
-        await Adb.EnsureAsync(Adb.Exe(session.Root), token: token);
-        var config = session.Config;
-        var device = await new SetupService(session.Root).ConnectQuestAsync(token,
-            config["connectionMode"]?.GetValue<string>() ?? "auto", config["headsetSerial"]?.GetValue<string>() ?? "");
-        if (config["headsetModelDevice"]?.GetValue<string>() is { Length: > 0 } owner && owner != device.Serial)
-            throw new IOException("Connect the headset that has the experiment installed to finish removing it.");
-        session.Save("adbTarget", device.Target);
-        session.Save("headsetModelDevice", device.Serial);
-        session.Save("headsetModelCleanupPending", true);
-        await PythonRuntime.EnsureAsync(session.Root, token);
+        string? target = null;
         try
         {
+            await Adb.EnsureAsync(Adb.Exe(session.Root), token: token);
+            var config = session.Config;
+            var device = await new SetupService(session.Root).ConnectQuestAsync(token,
+                config["connectionMode"]?.GetValue<string>() ?? "auto", config["headsetSerial"]?.GetValue<string>() ?? "");
+            if (config["headsetModelDevice"]?.GetValue<string>() is { Length: > 0 } owner && owner != device.Serial)
+                throw new IOException(updatingApp ? "Connect the headset that has QFT+ Headset installed to update it." : "Connect the headset that has the experiment installed to finish removing it.");
+            session.Save("adbTarget", device.Target);
+            session.Save("headsetModelDevice", device.Serial);
+            session.Save("headsetModelCleanupPending", true);
+            target = device.Target;
+            await PythonRuntime.EnsureAsync(session.Root, token);
             await RunAsync(session, device.Target, "cleanup", token);
             if (enabled && session.Config["headsetPairKey"]?.GetValue<string>() is not { Length: 64 })
                 session.Save("headsetPairKey", Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant());
@@ -73,10 +75,11 @@ internal static class HeadsetModelExperiment
                 session.Save("headsetModelCleanupPending", false);
                 throw;
             }
+            if (target is null) throw;
             try
             {
-                await RunAsync(session, device.Target, "cleanup", CancellationToken.None);
-                await RunAppAsync(session, device.Target, "cleanup", CancellationToken.None);
+                await RunAsync(session, target, "cleanup", CancellationToken.None);
+                await RunAppAsync(session, target, "cleanup", CancellationToken.None);
                 session.Save("headsetModelCleanupPending", false);
                 session.Save("headsetModelDevice", null);
             }

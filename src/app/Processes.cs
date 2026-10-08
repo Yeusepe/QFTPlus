@@ -21,7 +21,10 @@ internal static class Processes
     internal static async Task<(int Code, string Text)> RunAsync(ProcessStartInfo info, CancellationToken token = default, int seconds = 15, string? successPrefix = null, Stream? output = null)
     {
         info.RedirectStandardOutput = info.RedirectStandardError = true;
-        using var process = Process.Start(info) ?? throw new IOException(Path.GetFileName(info.FileName) + " didn’t start.");
+        Process? started;
+        try { started = Process.Start(info); }
+        catch (Win32Exception failure) { throw new IOException(Path.GetFileName(info.FileName) + " couldn’t start: " + failure.Message, failure); }
+        using var process = started ?? throw new IOException(Path.GetFileName(info.FileName) + " didn’t start.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
         var error = process.StandardError.ReadToEndAsync(timeout.Token);

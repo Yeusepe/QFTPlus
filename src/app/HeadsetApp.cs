@@ -40,10 +40,12 @@ internal static partial class HeadsetApp
     {
         var reply = Reply().Match(text);
         if (!reply.Success) throw new IOException("Can’t reach the headset. Make sure it’s on and connected to this PC with USB or Wi-Fi.");
-        if (reply.Groups[1].Value != "0") throw new IOException(reply.Groups[2].Value.Length > 0 ? reply.Groups[2].Value : Outdated);
+        if (reply.Groups[1].Value != "0") throw new Refused(reply.Groups[2].Value.Length > 0 ? reply.Groups[2].Value : Outdated);
         try { return JsonNode.Parse(reply.Groups[2].Value) as JsonObject ?? throw new IOException(Outdated); }
         catch (JsonException error) { throw new IOException(Outdated, error); }
     }
+
+    internal sealed class Refused(string message) : IOException(message);
 
     internal static bool Flag(JsonObject? state, string group, string key) => state?[group]?[key]?.GetValue<bool>() == true;
 

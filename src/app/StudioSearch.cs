@@ -59,6 +59,8 @@ public partial class StudioWindow
                 yield return new(area, "Areas", "Adjustments", "", area, false);
             foreach (var name in parameters)
                 yield return new(Label(name), OutputAdjustments.Area(name), "Adjustments", name, name, false);
+            foreach (var pair in parameters.Select(Pair).OfType<string>().Distinct())
+                yield return new(Both(pair), OutputAdjustments.Area(pair), "Adjustments", pair + " together left right eyes", pair, false);
             foreach (var (title, words) in new[] { ("Headset passthrough", "source meta native"), ("Match left and right", "average stronger side pairs"),
                          ("Strength", "output gain multiplier"), ("Offset", "output shift"), ("Dead zone", "output deadzone"), ("Smoothing", "output filter jitter") })
                 yield return new(title, "All areas", "Adjustments", words, "*");

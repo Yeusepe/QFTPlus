@@ -24,7 +24,8 @@ internal sealed class HeadsetState : IDisposable
     internal void Configure(string secret)
     {
         if (secret == configured) return;
-        socket?.Dispose(); socket = null; key = null; received = 0; sequence = 0; clockOffset = double.PositiveInfinity;
+        socket?.Dispose(); socket = null; key = null; received = 0; sequence = adjustSequence = 0; clockOffset = double.PositiveInfinity;
+        RandomNumberGenerator.Fill(session);
         configured = "";
         if (secret.Length != 64 || !secret.All(Uri.IsHexDigit)) return;
         key = Convert.FromHexString(secret);

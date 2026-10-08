@@ -42,6 +42,9 @@ public partial class StudioWindow
     string[] Parameters() => JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(session.Root, "tracking-parameters.json"))) ?? [];
     static string Label(string key) => Regex.Replace(key, "([a-z])([A-Z])", "$1 $2");
     static double Neutral(string name) => name.StartsWith("Pupil") ? .5 : name.StartsWith("Openness") ? 1 : 0;
+    static string? Pair(string name) => name.StartsWith("Gaze") ? Regex.Replace(name, "Left|Right", "")
+        : OutputAdjustments.Partner(name) is null ? null : Regex.Replace(name, "(Left|Right)$", "");
+    static string Both(string pair) => Label(pair) + ", both sides";
 
     void Field(Panel parent, string title, Control control)
     {
@@ -80,7 +83,10 @@ public partial class StudioWindow
         var area = outputParameter == "*" ? null : OutputAdjustments.Areas.Contains(outputParameter) ? outputParameter : OutputAdjustments.Area(outputParameter);
         var single = area is not null && area != outputParameter;
         var members = area is null ? parameters : Members(area);
-        string[] names = single ? [outputParameter] : members;
+        string[] Sides(string pair) => parameters.Where(p => Pair(p) == pair).ToArray();
+        var sides = Sides(outputParameter);
+        string[] targets = sides.Length > 0 ? sides : [outputParameter];
+        string[] names = single ? targets : members;
         void Choose(string choice)
         {
             outputParameter = choice;
@@ -91,8 +97,10 @@ public partial class StudioWindow
         Field(Page, "Area", areaPicker);
         if (area is not null)
         {
-            var parameterPicker = Picker(["All parameters", .. members.Select(Label)], single ? Label(outputParameter) : "All parameters",
-                i => Choose(i == 0 ? area : members[i - 1]), () => Page.Children.OfType<ComboBox>().ElementAt(1));
+            var choices = members.SelectMany(m => Pair(m) is { } pair && Sides(pair) is [var first, _] && first == m ? new[] { pair, m } : [m]).ToArray();
+            var parameterPicker = Picker(["All parameters", .. choices.Select(c => Sides(c).Length > 0 ? Both(c) : Label(c))],
+                !single ? "All parameters" : sides.Length > 0 ? Both(outputParameter) : Label(outputParameter),
+                i => Choose(i == 0 ? area : choices[i - 1]), () => Page.Children.OfType<ComboBox>().ElementAt(1));
             parameterPicker.Margin = new(0, 0, 0, 24);
             Field(Page, "Parameter", parameterPicker);
         }
@@ -110,7 +118,7 @@ public partial class StudioWindow
         if (Load() is not { } config) return;
         var inherited = config["*"] as JsonObject ?? new();
         var group = single ? config[area!] as JsonObject ?? new() : new JsonObject();
-        var values = (config[outputParameter] as JsonObject ?? new()).DeepClone().AsObject();
+        var values = (config[targets[0]] as JsonObject ?? new()).DeepClone().AsObject();
         double Value(string key, double fallback, bool inherit = true) =>
             OutputAdjustments.Number(values, key, OutputAdjustments.Number(group, key, inherit ? OutputAdjustments.Number(inherited, key, fallback) : fallback));
         var gaze = area == "Gaze";
@@ -126,22 +134,28 @@ public partial class StudioWindow
         var problem = Text("", 13, live: true);
         problem.Visibility = Visibility.Collapsed;
         Page.Children.Add(problem);
-        JsonNode? edited = null;
-        var selected = outputParameter;
+        JsonObject edited = new();
+        var changed = new HashSet<string>();
         void Save(string key, double value)
         {
             values[key] = value;
+            changed.Add(key);
             var valid = Value("inputMax", maximum, false) - Value("inputMin", minimum, false) >= .0001 && Value("outputMin", minimum, false) <= Value("outputMax", maximum, false);
             problem.Text = valid ? "" : "Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.";
             problem.Visibility = Visible(!valid);
             if (!valid) return;
-            edited = values.DeepClone();
+            edited = new(changed.Select(k => KeyValuePair.Create(k, values[k]?.DeepClone())));
             SaveLater(Write);
         }
         void Write()
         {
             if (Load() is not { } saved) return;
-            saved[selected] = edited;
+            foreach (var target in targets)
+            {
+                var own = saved[target] as JsonObject ?? new();
+                foreach (var (key, value) in edited) own[key] = value?.DeepClone();
+                saved[target] = own;
+            }
             CalibrationSettings.WriteJson(path, saved);
             adjustmentRefresh?.Invoke();
         }
@@ -159,7 +173,9 @@ public partial class StudioWindow
             : $"These settings apply to every parameter in {area}. Only settings you change here override All areas.";
         Page.Children.Add(Muted(modeled ? scope : scope + (single ? " QFT+’s camera models don’t track this parameter, so it always comes from the headset."
             : " QFT+’s camera models don’t track these parameters, so they always come from the headset.")));
-        var paired = !single && names.Any(n => OutputAdjustments.Partner(n) is not null);
+        if (sides.Length > 1 && !JsonNode.DeepEquals(config[sides[0]], config[sides[1]]))
+            Page.Children.Add(Muted($"The two sides have different settings. Values shown are from {Label(sides[0])}; changes apply to both."));
+        var paired = (!single || sides.Length > 0) && names.Any(n => OutputAdjustments.Partner(n) is not null);
         if (modeled || paired)
         {
             var input = new StackPanel();
@@ -271,7 +287,7 @@ public partial class StudioWindow
         Actions.Children.Add(Button(outputParameter == "*" ? "Reset defaults" : "Use inherited settings", () =>
         {
             SaveNow();
-            if (Load() is { } data && data.Remove(outputParameter)) CalibrationSettings.WriteJson(path, data);
+            if (Load() is { } data && targets.Count(data.Remove) > 0) CalibrationSettings.WriteJson(path, data);
             Navigate("Adjustments");
         }));
     }
