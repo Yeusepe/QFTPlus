@@ -68,13 +68,13 @@ final class AvatarParameters implements AutoCloseable {
             packet.setLength(buffer.length); osc.receive(packet);
             heard = true;
             read(buffer, 0, packet.getLength());
-        } catch (IOException ignored) { }
+        } catch (IOException | RuntimeException ignored) { }
     }
     private void read(byte[] b, int at, int length) {
         if (length >= 16 && b[at] == '#') {
             for (int i = at + 16; i + 4 <= at + length; ) {
                 int size = big(b, i);
-                if (size <= 0 || i + 4 + size > at + length) return;
+                if (size <= 0 || size > at + length - i - 4) return;
                 read(b, i + 4, size); i += 4 + size;
             }
             return;

@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
     private val rateNames = listOf("Fastest", "30 per second", "20 per second")
     private fun begin(pupils: Boolean) {
         if (resetting) return
-        startCalibration(this, pupils)
+        startCalibration(this, pupils)?.let { notice = it; return }
         finishAndRemoveTask()
     }
 
@@ -169,8 +169,9 @@ class MainActivity : ComponentActivity() {
             Hit("Other receivers", null, 3, row = "Looking for receivers on this network…", words = "find search discover network osc connect"))
         adjustable()?.let { data ->
             hits += Hit("All parameters", null, 1, "*", null, "defaults every")
-            data.areas.forEach { hits += Hit(it, "Areas", 1, it, null) }
+            data.areas.filter { a -> data.parameters.any { it.area == a } }.forEach { hits += Hit(it, "Areas", 1, it, null) }
             data.parameters.forEach { hits += Hit(label(it.name), it.area, 1, it.name, null, it.name) }
+            data.parameters.mapNotNull { p -> pair(p)?.let { it to p.area } }.distinct().forEach { (pair, area) -> hits += Hit(pair, area, 1, pair, null, "together left right eyes") }
             listOf("Headset passthrough" to "source meta native", "Match left and right" to "source average stronger side", "Strength" to "output gain multiplier",
                 "Offset" to "output shift", "Dead zone" to "output deadzone", "Smoothing" to "output filter jitter", "Response curve" to "response gamma",
                 "Smoothing when relaxing" to "response release", "Invert output" to "response reverse", "Restore defaults" to "reset")
@@ -341,6 +342,8 @@ class MainActivity : ComponentActivity() {
     private class Parameter(val name: String, val area: String, val minimum: Float, val maximum: Float, val neutral: Float, val modeled: Boolean, val partner: String?)
     private class Adjustable(val parameters: List<Parameter>, val areas: List<String>, val settings: JSONObject, val live: Map<String, FloatArray>, val sink: String)
     private fun label(name: String) = name.replace(Regex("(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[XY]$)"), " ")
+    private fun pair(p: Parameter) = if (p.partner != null || p.area == "Gaze" && p.name.contains(Regex("Left|Right")))
+        label(p.name.replace(Regex("Left|Right"), "")) + ", both sides" else null
 
     private fun local(file: java.io.File) = Adjustable(
         parameters.map { Parameter(it, OutputAdjustments.area(it), OutputAdjustments.minimum(it), 1f, OutputAdjustments.neutral(it), OutputAdjustments.modeled(it), OutputAdjustments.partner(it)) },
@@ -387,8 +390,8 @@ class MainActivity : ComponentActivity() {
             return
         }
         val config = edited ?: current.settings
-        val area = current.areas.firstOrNull { it == path } ?: current.parameters.firstOrNull { it.name == path }?.area
-        val parameter = current.parameters.firstOrNull { it.name == path }
+        val chosen = current.parameters.filter { it.name == path }.ifEmpty { current.parameters.filter { pair(it) == path } }
+        val area = current.areas.firstOrNull { it == path } ?: chosen.firstOrNull()?.area
         when {
             path.isEmpty() -> Page(pages[1]) {
                 val areas = current.areas.filter { a -> current.parameters.any { it.area == a } }
@@ -400,12 +403,15 @@ class MainActivity : ComponentActivity() {
                     row(a, "${members.size} parameter${if (members.size == 1) "" else "s"}" + if (custom) " · Customized" else "", areaIcons[a], ocui.chevron()) { path = a }
                 }.toTypedArray())
             }
-            else -> Page(if (path == "*") "All parameters" else parameter?.let { label(it.name) } ?: path, back = { path = if (parameter != null) area!! else "" }) {
+            else -> Page(if (path == "*") "All parameters" else chosen.singleOrNull()?.let { label(it.name) } ?: path, back = { path = if (chosen.isNotEmpty()) area!! else "" }) {
                 if (path == "Gaze") ConvergenceGroups()
-                key(path) { Editor(current, config, path, area, parameter, ::save) }
-                if (parameter == null && area != null) Group("Parameters", null, *current.parameters.filter { it.area == area }.map { p ->
-                    row(label(p.name), current.live[p.name]?.let { "${shown(p, it[0])} → ${shown(p, it[1])}" } ?: "Not sent",
-                        trailing = ocui.chevron()) { path = p.name }
+                key(path) { Editor(current, config, path, area, chosen, ::save) }
+                if (chosen.isEmpty() && area != null) Group("Parameters", null, *current.parameters.filter { it.area == area }.flatMap { p ->
+                    val pair = pair(p)
+                    listOfNotNull(if (pair != null && current.parameters.first { pair(it) == pair } == p && current.parameters.count { pair(it) == pair } == 2)
+                        row(pair, "Change both sides together", trailing = ocui.chevron()) { path = pair } else null,
+                        row(label(p.name), current.live[p.name]?.let { "${shown(p, it[0])} → ${shown(p, it[1])}" } ?: "Not sent",
+                            trailing = ocui.chevron()) { path = p.name })
                 }.toTypedArray())
             }
         }
@@ -414,8 +420,11 @@ class MainActivity : ComponentActivity() {
     private fun shown(p: Parameter, v: Float) = shown(percent(p.minimum), v)
     private fun shown(percent: Boolean, v: Float) = if (percent) String.format(Locale.getDefault(), "%.0f%%", v * 100) else String.format(Locale.getDefault(), "%.2f", v)
 
-    @Composable private fun Editor(data: Adjustable, config: JSONObject, selection: String, area: String?, parameter: Parameter?, save: (JSONObject) -> Unit) {
-        val values = remember { JSONObject((config.optJSONObject(selection) ?: JSONObject()).toString()) }
+    @Composable private fun Editor(data: Adjustable, config: JSONObject, selection: String, area: String?, chosen: List<Parameter>, save: (JSONObject) -> Unit) {
+        val parameter = chosen.firstOrNull()
+        val targets = chosen.map { it.name }.ifEmpty { listOf(selection) }
+        val values = remember { JSONObject((config.optJSONObject(targets[0]) ?: JSONObject()).toString()) }
+        val changed = remember { mutableSetOf<String>() }
         val inherited = config.optJSONObject("*") ?: JSONObject()
         val group = if (parameter != null) config.optJSONObject(area!!) ?: JSONObject() else JSONObject()
         var version by remember { mutableIntStateOf(0) }
@@ -423,9 +432,10 @@ class MainActivity : ComponentActivity() {
         fun number(node: JSONObject, key: String) = node.optDouble(key, Double.NaN).takeIf { it.isFinite() }
         fun value(key: String, fallback: Float, inherit: Boolean = true): Float =
             (number(values, key) ?: number(group, key) ?: (if (inherit) number(inherited, key) else null))?.toFloat() ?: fallback
-        val names = when { parameter != null -> listOf(parameter); area != null -> data.parameters.filter { it.area == area }; else -> data.parameters }
-        val minimum = parameter?.minimum ?: if (area != null && names.all { it.minimum < 0 }) names.minOf { it.minimum } else 0f
-        val maximum = parameter?.maximum ?: if (area != null && names.all { it.minimum < 0 }) names.maxOf { it.maximum } else 1f
+        val names = when { parameter != null -> chosen; area != null -> data.parameters.filter { it.area == area }; else -> data.parameters }
+        val signed = area != null && names.isNotEmpty() && names.all { it.minimum < 0 }
+        val minimum = parameter?.minimum ?: if (signed) names.minOf { it.minimum } else 0f
+        val maximum = parameter?.maximum ?: if (signed) names.maxOf { it.maximum } else 1f
         val pct = percent(minimum)
         fun fmt(v: Float) = shown(pct, v)
         val smoothing = names.map { OutputAdjustments.defaultSmoothing(it.area) }.distinct().singleOrNull() ?: 0f
@@ -434,15 +444,18 @@ class MainActivity : ComponentActivity() {
             delay(250)
             val valid = value("inputMax", maximum, false) - value("inputMin", minimum, false) >= .0001f && value("outputMin", minimum, false) <= value("outputMax", maximum, false)
             problem = if (valid) "" else "Input minimum must be below input maximum, and output minimum can't exceed output maximum. Changes aren't saved until the ranges are valid."
-            if (valid) save(JSONObject(config.toString()).put(selection, values))
+            if (valid) save(JSONObject(config.toString()).apply { targets.forEach { t ->
+                put(t, (optJSONObject(t) ?: JSONObject()).apply { changed.forEach { put(it, values.get(it)) } }) } })
         }
-        fun set(key: String, v: Float) { values.put(key, v.toDouble()); version++ }
+        fun set(key: String, v: Float) { values.put(key, v.toDouble()); changed += key; version++ }
         key(version) {
             if (problem.isNotEmpty()) Group(null, null, row(problem, icon = "oc_icon_warning_filled_24"))
-            if (parameter != null) Group("Live", null, row("Input → output",
-                data.live[parameter.name]?.let { "${fmt(it[0])} → ${fmt(it[1])}" } ?: "Waiting for tracking"))
+            val differ = chosen.size > 1 && config.optJSONObject(targets[0])?.toString() != config.optJSONObject(targets[1])?.toString()
+            if (parameter != null) Group("Live", if (differ) "The two sides have different settings. Values shown are from ${label(targets[0])}; changes apply to both." else null,
+                *chosen.map { p -> row(if (chosen.size > 1) label(p.name) else "Input → output",
+                    data.live[p.name]?.let { "${fmt(it[0])} → ${fmt(it[1])}" } ?: "Waiting for tracking") }.toTypedArray())
             val modeled = names.any { it.modeled }
-            val paired = parameter == null && names.any { it.partner != null }
+            val paired = chosen.size != 1 && names.any { it.partner != null }
             if (modeled || paired) Group("Source", if (modeled && (area == null || area == "Pupils")) "Meta doesn't measure pupils, so passthrough holds them at 50%." else null,
                 *listOfNotNull(
                     if (modeled) row("Headset passthrough", "Send Meta's own tracking instead of QFT+'s models",
@@ -473,8 +486,8 @@ class MainActivity : ComponentActivity() {
             Group(null, null, row(if (selection == "*") "Restore defaults" else "Use inherited settings",
                 if (selection == "*") "Clears the defaults for every parameter" else "Removes the settings made here",
                 trailing = ocui.button(if (selection == "*") "Restore" else "Remove", "DANGER") {
-                    values.keys().asSequence().toList().forEach(values::remove)
-                    save(JSONObject(config.toString()).apply { remove(selection) })
+                    values.keys().asSequence().toList().forEach(values::remove); changed.clear()
+                    save(JSONObject(config.toString()).apply { targets.forEach { remove(it) } })
                     version = 0; problem = ""
                 }))
         }

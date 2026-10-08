@@ -10,7 +10,7 @@ final class Calibration {
     private final boolean pupils;
     private long start;
     private long lastFeature, heartbeat = System.nanoTime();
-    private long lastSample;
+    private long lastSample, heldSince;
     private int faceStep, pupilRound, retries;
     private boolean holdVisible;
     private float peak;
@@ -46,7 +46,7 @@ final class Calibration {
     }
     synchronized String prompt() {
         heartbeat();
-        if (!done && start != 0 && System.nanoTime()-lastSample > 3000000000L)
+        if (!done && start != 0 && heldSince == 0 && System.nanoTime()-lastSample > 3000000000L)
             fail("Tracking stopped. Check the headset fit and try calibration again.");
         if (done) return message;
         if (start == 0) return waiting;
@@ -58,6 +58,20 @@ final class Calibration {
     synchronized void fail(String reason) { if (!saved) { failed = true; done = true; message = reason; } }
     synchronized void saved(String result) { saved = true; done = true; message = result; }
     synchronized boolean cancelled() { return failed; }
+    synchronized void hold(boolean held, long now) {
+        if (done || held == (heldSince != 0)) return;
+        if (held) { heldSince = now; return; }
+        heldSince = 0; lastSample = now;
+        if (start == 0) return;
+        if (pupils) {
+            pupilSamples.removeIf(r -> (r[0]<55 ? 0 : 1)==pupilRound);
+            start = now-(pupilRound==0 ? 0 : 55000000000L);
+            Arrays.fill(previousTime,0);
+        } else {
+            holds.get(faceStep).clear();
+            start = now-faceStep*6000000000L; lastFeature = 0; peak = 0;
+        }
+    }
     synchronized void features(byte[] payload, long now) {
         if (done || pupils || start == 0 || now-lastFeature < 250000000L || !holdVisible || now-lastSample > 100000000L) return;
         double t = (now-start)/1e9;
@@ -71,7 +85,7 @@ final class Calibration {
     synchronized void sample(byte[] payload, long now) {
         if (done) return;
         if (now-heartbeat > 3000000000L) { fail("Calibration stopped because the app was closed."); return; }
-        if (!presented) return;
+        if (!presented || heldSince != 0) return;
         lastSample = now;
         ByteBuffer b = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         if (start == 0) {

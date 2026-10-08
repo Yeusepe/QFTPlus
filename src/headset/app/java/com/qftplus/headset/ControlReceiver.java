@@ -44,20 +44,25 @@ public final class ControlReceiver extends BroadcastReceiver {
             if (intent.hasExtra("oscPort")) edit.putInt("oscPort", intent.getIntExtra("oscPort", 9000));
             edit.remove("oscService").remove("oscServiceType").remove("oscName");
         }
+        boolean calibrating = TrackingService.calibration != null;
+        if (calibrating && restart) { setResultCode(2); setResultData("Finish or leave calibration in the headset, then change this setting."); return; }
         if (intent.hasExtra("tracking")) edit.putBoolean("enabled", intent.getBooleanExtra("tracking", false));
         edit.commit();
         Intent service = new Intent(context, TrackingService.class);
         boolean on = settings.getBoolean("enabled", false);
-        if (!on && intent.hasExtra("tracking") || on && restart) context.stopService(service);
+        if (!on && intent.hasExtra("tracking") && !calibrating || on && restart) context.stopService(service);
         if (on && (intent.hasExtra("tracking") || restart))
             try { context.startForegroundService(service); }
             catch (IllegalStateException notAllowed) {
                 settings.edit().putBoolean("enabled", false).commit();
                 setResultCode(2); setResultData("The headset didn't let QFT+ Headset start from this PC. Turn on tracking in QFT+ Headset."); return;
             }
-        if (intent.hasExtra("calibrate"))
-            try { CalibrationActivityKt.startCalibration(context, intent.getStringExtra("calibrate").equals("pupils")); }
-            catch (RuntimeException notAllowed) { setResultCode(2); setResultData("The headset didn't let QFT+ Headset start calibration from this PC. Start it in QFT+ Headset."); return; }
+        if (intent.hasExtra("calibrate")) {
+            String refused;
+            try { refused = CalibrationActivityKt.startCalibration(context, intent.getStringExtra("calibrate").equals("pupils")); }
+            catch (RuntimeException notAllowed) { refused = "The headset didn't let QFT+ Headset start calibration from this PC. Start it in QFT+ Headset."; }
+            if (refused != null) { setResultCode(2); setResultData(refused); return; }
+        }
         try {
             JSONObject state = state(context, settings, capabilities);
             if (intent.getBooleanExtra("adjustmentsWanted", false)) {
@@ -91,7 +96,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         try { version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName; }
         catch (Exception unknown) { version = ""; }
         boolean enabled = settings.getBoolean("enabled", false);
-        return new JSONObject().put("v", 1).put("version", version).put("tracking", enabled)
+        return new JSONObject().put("v", 1).put("version", version).put("tracking", enabled).put("running", TrackingService.running)
             .put("status", enabled ? TrackingService.status : "Off").put("error", enabled || TrackingService.error == null ? "" : TrackingService.error).put("pcConnected", enabled && TrackingService.pcConnected)
             .put("settings", new JSONObject().put("enabled", enabled).put("output", TrackingService.outputMode(settings))
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))
@@ -99,6 +104,7 @@ public final class ControlReceiver extends BroadcastReceiver {
                 .put("convergence", settings.getBoolean("convergence", true)).put("vergenceGain", settings.getFloat("vergenceGain", 1))
                 .put("boot", settings.getBoolean("boot", false)).put("rate", settings.getInt("rate", 0)))
             .put("calibrated", new JSONObject().put("face", (capabilities & 1) != 0).put("pupils", (capabilities & 8) != 0))
+            .put("calibration", new JSONObject().put("running", TrackingService.calibrating).put("result", TrackingService.lastCalibration))
             .put("adjustments", hash(TrackingService.adjustmentsFile(context)));
     }
 

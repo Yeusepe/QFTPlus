@@ -34,24 +34,29 @@ import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.min
 
-internal fun startCalibration(context: android.content.Context, pupils: Boolean) {
+internal fun startCalibration(context: android.content.Context, pupils: Boolean): String? {
+    if (TrackingService.calibrating) return "Calibration is already running in the headset."
+    val task = returnTask() ?: return TrackingService.ROOT_NEEDED
     context.startActivity(Intent(context, CalibrationActivity::class.java).setAction(Intent.ACTION_MAIN)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", returnTask()))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", task))
+    TrackingService.lastCalibration = ""
+    return null
 }
 
 @Volatile internal var calibrationResult: String? = null
 
-private fun returnTask(): Int = runCatching {
-    val process = ProcessBuilder("su", "-c", "dumpsys activity activities | grep -m1 'ResumedActivity: ActivityRecord'")
+private fun returnTask(): Int? = runCatching {
+    val process = ProcessBuilder("su", "-c", "id -u; dumpsys activity activities | grep -m1 'ResumedActivity: ActivityRecord'")
         .redirectErrorStream(true).start()
     val dump = try {
         if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) return -1
         process.inputStream.bufferedReader().use { it.readText() }
     } finally { process.destroy() }
+    if (dump.lineSequence().none { it.trim() == "0" }) return null
     val resumed = Regex("""ResumedActivity: ActivityRecord\{\S+ u0 ([^/\s]+)/\S+ t(\d+)""").find(dump) ?: return -1
     val app = resumed.groupValues[1]
     if (app.startsWith("com.oculus.") || app == "com.qftplus.headset") -1 else resumed.groupValues[2].toInt()
-}.getOrDefault(-1)
+}.getOrNull()
 
 class CalibrationActivity : ComponentActivity() {
     private external fun runScene(library: String, avatarFolder: String, preset: ByteArray?, scene: FloatArray, pupils: Boolean, space: Array<SetupSpace.Draw>?): String
@@ -60,10 +65,9 @@ class CalibrationActivity : ComponentActivity() {
 
     private lateinit var calibration: Calibration
     private lateinit var ocui: Ocui
-    private var wasTracking = false
     @Volatile private var resumed = false
     private var renderer: Thread? = null
-    private var opened = 0L; private var completed = 0L
+    private var opened = 0L; private var completed = 0L; private var unfocused = 0L
     private var focusedOnce = false; @Volatile private var visible = false; private var armed by mutableStateOf(false)
     private var distance = .75f; private var reduceMotion = false
     private var lastAssessment = ""
@@ -81,7 +85,6 @@ class CalibrationActivity : ComponentActivity() {
         super.onCreate(saved)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val preferences = getSharedPreferences("settings", 0)
-        wasTracking = preferences.getBoolean("enabled", false)
         distance = preferences.getFloat("guideDistance", .75f).coerceIn(.5f, 1.2f)
         reduceMotion = preferences.getBoolean("reduceMotion", false)
         if (checkSelfPermission("com.oculus.permission.FACE_TRACKING") != 0 || checkSelfPermission("com.oculus.permission.EYE_TRACKING") != 0)
@@ -99,8 +102,7 @@ class CalibrationActivity : ComponentActivity() {
     }
     private fun launch() {
         calibration = Calibration(intent.getBooleanExtra("pupils", false))
-        TrackingService.calibration = calibration
-        getSharedPreferences("settings", 0).edit().putBoolean("enabled", true).apply()
+        TrackingService.calibration = calibration; TrackingService.calibrating = true
         startForegroundService(Intent(this, TrackingService::class.java))
         opened = SystemClock.elapsedRealtime()
         val pupils = calibration.isPupils
@@ -115,14 +117,15 @@ class CalibrationActivity : ComponentActivity() {
                 if (!pupils && preset == null) avatar = 2
                 runScene(applicationInfo.nativeLibraryDir + "/libovravatar2.so", folder.path, preset, scene, pupils, space)
             } catch (e: Exception) { e.message ?: e.toString() }
+            val fitting = SystemClock.elapsedRealtime() + 90000
+            while (calibration.done && !calibration.cancelled() && TrackingService.calibration === calibration && TrackingService.running
+                && SystemClock.elapsedRealtime() < fitting) Thread.sleep(100)
             if (!calibration.done || TrackingService.calibration === calibration)
                 calibration.fail(if (error.isEmpty()) "Calibration cancelled. Previous calibration retained." else error)
             if (TrackingService.calibration === calibration) TrackingService.calibration = null
             Log.i("QFTCalibration", calibration.message)
-            if (!wasTracking) {
-                getSharedPreferences("settings", 0).edit().putBoolean("enabled", false).apply()
-                stopService(Intent(this, TrackingService::class.java))
-            }
+            TrackingService.lastCalibration = calibration.message; TrackingService.calibrating = false
+            if (!getSharedPreferences("settings", 0).getBoolean("enabled", false)) stopService(Intent(this, TrackingService::class.java))
             runOnUiThread { closePanel(); if (resumed) returnToPanel(calibration.message) else finishAndRemoveTask() }
         }, "qft-calibration-scene").also { it.start() }
     }
@@ -130,9 +133,13 @@ class CalibrationActivity : ComponentActivity() {
     @Suppress("unused") private fun updateScene(focused: Boolean): Int {
         val now = SystemClock.elapsedRealtime()
         if (!resumed) return -1
-        if (focused) focusedOnce = true
-        else if (focusedOnce) { calibration.fail("Calibration paused by system UI. Previous calibration retained."); return -1 }
-        if (!focused && now - opened > 30000) { calibration.fail("Calibration couldn't gain focus."); return -1 }
+        if (focused) { focusedOnce = true; unfocused = 0L }
+        else if (focusedOnce) {
+            if (unfocused == 0L) unfocused = now
+            if (now - unfocused > 20000 && !calibration.done) { calibration.fail("Calibration paused by system UI for too long. Previous calibration retained."); return -1 }
+        }
+        else if (now - opened > 30000) { calibration.fail("Calibration couldn't gain focus."); return -1 }
+        calibration.hold(!focused, System.nanoTime())
         if (armed && !calibration.started() && now - opened > 30000) {
             calibration.fail("Tracking didn't become ready. Check the headset fit and eye and face permissions.")
             TrackingService.calibration = null
@@ -197,7 +204,7 @@ class CalibrationActivity : ComponentActivity() {
     }
     @Suppress("unused") private fun avatarReady(ok: Boolean) { avatar = if (ok) 1 else 2 }
     @Suppress("unused") private fun cancelCalibration() {
-        if (::calibration.isInitialized && TrackingService.calibration === calibration) calibration.fail("Calibration cancelled. Previous calibration retained.")
+        if (::calibration.isInitialized && !calibration.done && TrackingService.calibration === calibration) calibration.fail("Calibration cancelled. Previous calibration retained.")
     }
     @Suppress("unused") private fun scenePresented() { visible = true }
     @Suppress("unused") private fun startCalibration() {
@@ -271,7 +278,7 @@ class CalibrationActivity : ComponentActivity() {
     private fun leave() { cancelCalibration(); stopScene() }
     private fun closePanel() { if (::ocui.isInitialized) ocui.dismissOverlays(); presentation?.dismiss(); presentation = null; display?.release(); display = null }
     private fun returnToPanel(message: String) {
-        calibrationResult = message
+        calibrationResult = message; TrackingService.lastCalibration = message
         val panelIntent = Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("page", 2)
         val task = intent.getIntExtra("returnTask", -1)
         if (task >= 0 && runCatching { getSystemService(android.app.ActivityManager::class.java).moveTaskToFront(task, 0) }.isSuccess) {

@@ -14,18 +14,23 @@ import java.security.*;
 import java.util.concurrent.TimeUnit;
 
 public final class TrackingService extends Service {
+    static final String ROOT_NEEDED = "QFT+ Headset needs root access. Allow it in your root manager, then try again.";
     static volatile String status = "Stopped";
     static volatile String error;
     private volatile String workerError;
     static volatile byte[] latest;
     static volatile long lastFrame;
     static volatile Calibration calibration;
+    static volatile String lastCalibration = "";
+    static volatile boolean calibrating;
+    static volatile boolean running;
     static volatile long adjustmentsWanted;
     static volatile byte[] adjustmentsToSend;
     static volatile String pcAdjustments;
     static volatile boolean pcConnected;
     private long adjustmentsSent;
     private volatile boolean stopping;
+    private volatile int lastStart;
     private volatile Socket connection;
     private byte[] sessionControl;
     private Thread thread;
@@ -41,6 +46,7 @@ public final class TrackingService extends Service {
         return settings.getString("output", settings.getBoolean("osc", false) ? "raw" : settings.getString("key", "").isEmpty() ? "vrchat" : "pc");
     }
     private boolean direct() { return !outputMode(settings).equals("pc") && !settings.getString("oscHost", "").isEmpty(); }
+    private boolean tracking() { return settings.getBoolean("enabled", false); }
     private boolean connected(long now) { return link != null && link.connected(now); }
     private void poll(long now) {
         if (link == null) return;
@@ -56,7 +62,7 @@ public final class TrackingService extends Service {
     private static String quote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
     public IBinder onBind(Intent intent) { return null; }
     public void onCreate() {
-        super.onCreate(); settings = getSharedPreferences("settings", 0);
+        super.onCreate(); running = true; settings = getSharedPreferences("settings", 0);
         directory = new File(getFilesDir(), "model");
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("tracking", "Headset tracking", NotificationManager.IMPORTANCE_LOW));
@@ -73,12 +79,23 @@ public final class TrackingService extends Service {
         if (intent != null && "stop".equals(intent.getAction())) {
             settings.edit().putBoolean("enabled", false).apply(); stopSelf(); return START_NOT_STICKY;
         }
-        if (!settings.getBoolean("enabled", false)) { stopSelf(); return START_NOT_STICKY; }
-        if (thread == null) { error = null; thread = new Thread(() -> { synchronized (runtimeLock) { if (!stopping) run(); } }, "qft-runtime"); thread.start(); }
+        if (!settings.getBoolean("enabled", false) && calibration == null) { stopSelf(); return START_NOT_STICKY; }
+        lastStart = id;
+        if (thread == null) {
+            error = null; status = "Starting tracking";
+            thread = new Thread(() -> {
+                for (;;) {
+                    int started = lastStart;
+                    synchronized (runtimeLock) { if (stopping) return; run(); }
+                    if (stopping || !tracking() && stopSelfResult(started)) return;
+                }
+            }, "qft-runtime");
+            thread.start();
+        }
         return START_STICKY;
     }
     public void onDestroy() {
-        stopping = true;
+        stopping = true; running = false;
         try { if (connection != null) connection.close(); } catch (IOException ignored) {}
         if (thread != null) thread.interrupt();
         Calibration active = calibration;
@@ -109,16 +126,22 @@ public final class TrackingService extends Service {
     private void prepare() throws Exception {
         status = "Preparing headset model";
         Files.createDirectories(directory.toPath());
+        File stamp = new File(directory, "model.version");
+        byte[] installed = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime).getBytes(StandardCharsets.UTF_8);
+        boolean update = !stamp.exists() || !java.util.Arrays.equals(Files.readAllBytes(stamp.toPath()), installed);
+        boolean newHeads = false;
         for (String name : new String[]{"model.bin", "tail.onnx", "heads.bin"}) {
             File target = new File(directory, name);
-            if (!target.exists()) {
+            if (update || !target.exists()) {
                 Path pending = new File(directory, name + ".tmp").toPath();
                 try (InputStream input = getAssets().open("model/" + name)) { Files.copy(input, pending, StandardCopyOption.REPLACE_EXISTING); }
+                if (name.equals("heads.bin") && target.exists()) newHeads = !java.util.Arrays.equals(Files.readAllBytes(pending), Files.readAllBytes(target.toPath()));
                 Files.move(pending, target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             }
         }
+        if (update) Files.write(stamp.toPath(), installed);
         File profile = new File(directory, "profile.bin");
-        if (!profile.exists() || !ControlReceiver.currentProfile(profile)) {
+        if (!profile.exists() || !ControlReceiver.currentProfile(profile) || newHeads) {
             byte[] old = profile.exists() ? Files.readAllBytes(profile.toPath()) : null, fresh;
             try (InputStream input = getAssets().open("model/profile.bin")) { fresh = input.readAllBytes(); }
             ByteBuffer header = ByteBuffer.wrap(fresh).order(ByteOrder.LITTLE_ENDIAN);
@@ -142,12 +165,16 @@ public final class TrackingService extends Service {
             .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "qft-tracking");
         wifi.setReferenceCounted(false); wifi.acquire();
         try {
+            status = "Checking root access";
+            try { command("id", 30); } catch (IOException denied) { throw new IOException(ROOT_NEEDED, denied); }
             prepare();
             String pairKey = settings.getString("key", "");
-            if (outputMode(settings).equals("pc") && !pairKey.isEmpty())
-                link = new HeadsetLink(pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
+            link = null;
             try (Convergence eyes = settings.getBoolean("convergence", true) ? Convergence.start(this) : null) {
                 while (!stopping) {
+                    if (!tracking() && calibration == null) break;
+                    if (link == null && tracking() && outputMode(settings).equals("pc") && !pairKey.isEmpty())
+                        link = new HeadsetLink(pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
                     poll(System.nanoTime());
                     if (!connected(System.nanoTime()) && !direct() && calibration == null) {
                         status = outputMode(settings).equals("pc") ? "Waiting for QFT+ on your PC" : "Choose a destination in Connections";
@@ -160,9 +187,9 @@ public final class TrackingService extends Service {
         } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         catch (Exception failure) {
             if (!stopping) {
-                Calibration c = calibration;
-                if (c != null) { c.fail("Tracking interrupted. Your previous calibration is unchanged."); calibration = null; }
                 error = workerError != null ? workerError : failure.getMessage() != null ? failure.getMessage() : failure.toString();
+                Calibration c = calibration;
+                if (c != null) { c.fail(error + " Your previous calibration is unchanged."); calibration = null; }
                 status = "Tracking stopped: " + error;
                 settings.edit().putBoolean("enabled", false).apply();
                 android.util.Log.e("QFT", status, failure);
@@ -176,7 +203,6 @@ public final class TrackingService extends Service {
                 Files.deleteIfExists(new File(directory, "calibration.bin").toPath());
                 Files.deleteIfExists(new File(directory, "profile.pending").toPath());
             } catch (IOException error) { android.util.Log.e("QFT", "Calibration temporary-file cleanup failed", error); }
-            if (!stopping) stopSelf();
         }
     }
     private byte[] exact(InputStream input, int count, Convergence eyes) throws IOException {
@@ -203,6 +229,7 @@ public final class TrackingService extends Service {
     private void session(Convergence eyes) throws Exception {
         String libraries = getApplicationInfo().nativeLibraryDir;
         workerError = null;
+        java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
         byte[] random = new byte[32]; new SecureRandom().nextBytes(random);
         StringBuilder key = new StringBuilder(); for (byte b : random) key.append(String.format("%02x", b & 255));
         Process worker = root(environment() + "exec " + quote(libraries + "/libqft_worker.so") + " --app-session --model " + quote(directory.toString()) + " --max-fps " + (settings.getInt("rate", 0) > 0 ? settings.getInt("rate", 0) : 72) + " --token " + key);
@@ -211,12 +238,12 @@ public final class TrackingService extends Service {
                 String line; while ((line = reader.readLine()) != null) {
                     android.util.Log.i("QFTWorker", line);
                     if (line.startsWith("QFT_ERROR: ")) workerError = line.substring(11);
-                    if (line.contains("FAILED") || line.contains("UNSUPPORTED") || line.contains("CANNOT LINK") || line.contains("not found") || line.contains("No such file")) status = line;
+                    if (!started.get() && (line.contains("FAILED") || line.contains("UNSUPPORTED") || line.contains("CANNOT LINK") || line.contains("not found") || line.contains("No such file"))) status = line;
                 }
             } catch (IOException ignored) {}
         });
         log.start();
-        try (OscOutput osc = direct() ? new OscOutput(this, settings.getString("oscHost", ""), settings.getInt("oscPort", 9000), outputMode(settings).equals("vrchat"), adjustmentsFile(this)) : null) {
+        try (OscOutput osc = tracking() && direct() ? new OscOutput(this, settings.getString("oscHost", ""), settings.getInt("oscPort", 9000), outputMode(settings).equals("vrchat"), adjustmentsFile(this)) : null) {
             sessionOsc = osc;
             command(quote(libraries + "/libqft_attach.so") + " " + quote(libraries + "/libqft_capture_export.so") + " " + key, 25);
             Socket socket = null;
@@ -226,7 +253,7 @@ public final class TrackingService extends Service {
                 catch (IOException error) { if (socket != null) socket.close(); socket = null; Thread.sleep(500); }
             }
             if (socket == null) throw new IOException("Headset worker did not start");
-            connection = socket; socket.setSoTimeout(1000); socket.setTcpNoDelay(true);
+            connection = socket; started.set(true); socket.setSoTimeout(1000); socket.setTcpNoDelay(true);
             OutputStream output = socket.getOutputStream(); InputStream input = socket.getInputStream();
             output.write(key.toString().getBytes(StandardCharsets.US_ASCII));
             ByteBuffer control = ByteBuffer.allocate(312).order(ByteOrder.LITTLE_ENDIAN);
@@ -244,7 +271,7 @@ public final class TrackingService extends Service {
                 if ((capabilities & 8) != 0 && settings.getBoolean("pupils", false)) options |= 4;
                 if (c != null && c.isPupils()) options |= 64;
                 poll(System.nanoTime());
-                if (!connected(System.nanoTime()) && osc == null && c == null) break;
+                if (c == null && (!tracking() || !connected(System.nanoTime()) && osc == null)) break;
                 control.clear(); control.putInt(0x43544651).putInt(3).putInt(c != null && !c.isPupils() ? 24 : 0).putInt((int)revision);
                 control.position(24); control.putFloat(1000); control.position(308); control.putInt(options);
                 sessionControl = control.array();
@@ -276,8 +303,9 @@ public final class TrackingService extends Service {
                     if (eyes != null) status += converging ? " · Convergence on" : " · Waiting for convergence";
                 }
                 long outputStart = System.nanoTime();
-                if (link != null) link.tracking(payload, ++outputSequence, captured, now);
-                if (osc != null) osc.send(payload, sequence, (now - captured) / 1e6);
+                boolean sending = tracking();
+                if (link != null && sending) link.tracking(payload, ++outputSequence, captured, now);
+                if (osc != null && sending) osc.send(payload, sequence, (now - captured) / 1e6);
                 perfFrames++; perfLatency += (now - captured) / 1e6; perfWorker += (finished - captured) / 1e6; perfOutput += (System.nanoTime() - outputStart) / 1e6;
                 perfFlags = result.getInt(4); perfStatus = result.getInt(12); perfNative = nativeFlags;
                 tongueMax = Math.max(tongueMax, result.getFloat(84)); puffMax = Math.max(puffMax, Math.max(result.getFloat(20), result.getFloat(24)));
@@ -304,7 +332,12 @@ public final class TrackingService extends Service {
                                 socket.close();
                                 if (!worker.waitFor(3, TimeUnit.SECONDS))
                                     command(environment() + quote(libraries + "/libqft_worker.so") + " --stop-token " + key, 8);
-                                command(environment() + quote(libraries + "/libqft_calibrate.so") + " " + quote(directory.toString()), 45);
+                                try { command(environment() + quote(libraries + "/libqft_calibrate.so") + " " + quote(directory.toString()), 45); }
+                                catch (IOException fit) {
+                                    String why = String.valueOf(fit.getMessage()).trim(); int at = why.lastIndexOf("CALIBRATION_FAILED ");
+                                    why = at >= 0 ? why.substring(at + 19) : why.substring(why.lastIndexOf('\n') + 1);
+                                    c.fail(why.trim().replaceAll("\\.$", "") + ". Previous calibration retained.");
+                                }
                                 synchronized (c) {
                                     if (c.cancelled()) Files.deleteIfExists(new File(directory, "profile.pending").toPath());
                                     else {
