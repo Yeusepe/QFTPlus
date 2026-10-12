@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/app/**'
+      - 'src/headset/app/**'
       - 'src/bridges/vrcft/OutputAdjustments.cs'
       - 'src/bridges/vrcft/ExtraFaceState.cs'
       - 'Directory.Build.props'
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'src/app/**'
+      - 'src/headset/app/**'
       - 'src/bridges/vrcft/OutputAdjustments.cs'
       - 'src/bridges/vrcft/ExtraFaceState.cs'
       - 'Directory.Build.props'
@@ -43,6 +45,8 @@ jobs:
         run: python .github/scripts/check-localization.py
       - name: Test resource validation
         run: python -m unittest discover -s .github/scripts -p "test_*.py"
+      - name: Compile Android resources
+        run: .github/scripts/check-android-resources.ps1
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json

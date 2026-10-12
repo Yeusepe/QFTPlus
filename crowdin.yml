@@ -9,8 +9,6 @@ files:
   - source: /src/app/Localization/Strings.resx
     dest: /Strings.resx
     translation: /src/app/Localization/Strings.%two_letters_code%.resx
-    excluded_target_languages:
-      - en
     update_option: update_as_unapproved
     # Mirror these overrides in Crowdin Settings > Languages > Language Mapping.
     languages_mapping:
@@ -20,3 +18,14 @@ files:
         pt-BR: pt-BR
         "no": nb
         sr: sr-Cyrl
+  - source: /src/headset/app/res/values/strings.xml
+    dest: /Quest.xml
+    type: android
+    translation: /src/headset/app/res/values-%android_code%/strings.xml
+    update_option: update_as_unapproved
+    languages_mapping:
+      android_code:
+        zh-CN: b+zh+Hans
+        zh-TW: b+zh+Hant
+        "no": nb
+        sr: b+sr+Cyrl

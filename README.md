@@ -29,11 +29,9 @@ Use Virtual Desktop or Steam Link with a **[supported rooted Quest Pro](https://
 
 ## Translations
 
-**[Help translate QFT+ on Crowdin](https://crowdin.com/project/qftplus).** Choose your language, open **Windows app**, and suggest a translation. You do not need to edit code.
+[Help translate the Windows and Quest apps on Crowdin](https://crowdin.com/project/qftplus). Approved translations sync hourly to a public pull request and ship after review, merge, and release.
 
-Proofreaders approve suggestions in Crowdin. The GitHub integration syncs approved strings hourly into a public **Update approved translations** pull request. After review and merge, translations are included in the next app release. Partial translations are welcome: missing strings fall back to English, and the app follows your Windows display language.
-
-See [contribution and integration instructions](CONTRIBUTING.md#translations) for wording guidelines, the public sync configuration, and checks. The current catalog covers the Windows app; headset text and some diagnostic messages remain in English.
+The Windows app follows Windows' display language; the Quest app follows the headset language. Missing translations use English. [Translation guide](CONTRIBUTING.md#translations).
 
 ## Privacy
 

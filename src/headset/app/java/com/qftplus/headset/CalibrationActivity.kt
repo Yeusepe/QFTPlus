@@ -30,13 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import java.io.File
-import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.min
 
 internal fun startCalibration(context: android.content.Context, pupils: Boolean): String? {
-    if (TrackingService.calibrating) return "Calibration is already running in the headset."
-    val task = returnTask() ?: return TrackingService.ROOT_NEEDED
+    if (TrackingService.calibrating) return context.getString(R.string.calibration_is_already_running_in_the_headset)
+    val task = returnTask() ?: return context.getString(R.string.root_needed)
     context.startActivity(Intent(context, CalibrationActivity::class.java).setAction(Intent.ACTION_MAIN)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", task))
     TrackingService.lastCalibration = ""
@@ -97,11 +96,11 @@ class CalibrationActivity : ComponentActivity() {
     override fun onRequestPermissionsResult(request: Int, permissions: Array<String>, results: IntArray) {
         super.onRequestPermissionsResult(request, permissions, results)
         if (request != 2) return
-        if (results.size != 2 || results[0] != 0 || results[1] != 0) { returnToPanel("Face and eye permissions are needed for calibration."); return }
+        if (results.size != 2 || results[0] != 0 || results[1] != 0) { returnToPanel(getString(R.string.face_and_eye_permissions_are_needed_for_calibration)); return }
         if (resumed && renderer == null) launch()
     }
     private fun launch() {
-        calibration = Calibration(intent.getBooleanExtra("pupils", false))
+        calibration = Calibration(this, intent.getBooleanExtra("pupils", false))
         TrackingService.calibration = calibration; TrackingService.calibrating = true
         startForegroundService(Intent(this, TrackingService::class.java))
         opened = SystemClock.elapsedRealtime()
@@ -121,7 +120,7 @@ class CalibrationActivity : ComponentActivity() {
             while (calibration.done && !calibration.cancelled() && TrackingService.calibration === calibration && TrackingService.running
                 && SystemClock.elapsedRealtime() < fitting) Thread.sleep(100)
             if (!calibration.done || TrackingService.calibration === calibration)
-                calibration.fail(if (error.isEmpty()) "Calibration cancelled. Previous calibration retained." else error)
+                calibration.fail(if (error.isEmpty()) getString(R.string.calibration_cancelled_previous_calibration_retained) else error)
             if (TrackingService.calibration === calibration) TrackingService.calibration = null
             Log.i("QFTCalibration", calibration.message)
             TrackingService.lastCalibration = calibration.message; TrackingService.calibrating = false
@@ -136,12 +135,12 @@ class CalibrationActivity : ComponentActivity() {
         if (focused) { focusedOnce = true; unfocused = 0L }
         else if (focusedOnce) {
             if (unfocused == 0L) unfocused = now
-            if (now - unfocused > 20000 && !calibration.done) { calibration.fail("Calibration paused by system UI for too long. Previous calibration retained."); return -1 }
+            if (now - unfocused > 20000 && !calibration.done) { calibration.fail(getString(R.string.calibration_paused_by_system_ui_for_too_long)); return -1 }
         }
-        else if (now - opened > 30000) { calibration.fail("Calibration couldn't gain focus."); return -1 }
+        else if (now - opened > 30000) { calibration.fail(getString(R.string.calibration_couldn_t_gain_focus)); return -1 }
         calibration.hold(!focused, System.nanoTime())
         if (armed && !calibration.started() && now - opened > 30000) {
-            calibration.fail("Tracking didn't become ready. Check the headset fit and eye and face permissions.")
+            calibration.fail(getString(R.string.tracking_didn_t_become_ready_check_the_headset))
             TrackingService.calibration = null
         }
         val text = calibration.prompt()
@@ -180,7 +179,7 @@ class CalibrationActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("QFTCalibration", "Calibration UI unavailable", e)
             closePanel()
-            calibration.fail("Calibration UI couldn't open. Previous calibration retained.")
+            calibration.fail(getString(R.string.calibration_ui_couldn_t_open_previous_calibration_retained))
             stopScene()
         }
     }
@@ -204,7 +203,7 @@ class CalibrationActivity : ComponentActivity() {
     }
     @Suppress("unused") private fun avatarReady(ok: Boolean) { avatar = if (ok) 1 else 2 }
     @Suppress("unused") private fun cancelCalibration() {
-        if (::calibration.isInitialized && !calibration.done && TrackingService.calibration === calibration) calibration.fail("Calibration cancelled. Previous calibration retained.")
+        if (::calibration.isInitialized && !calibration.done && TrackingService.calibration === calibration) calibration.fail(getString(R.string.calibration_cancelled_previous_calibration_retained))
     }
     @Suppress("unused") private fun scenePresented() { visible = true }
     @Suppress("unused") private fun startCalibration() {
@@ -220,35 +219,35 @@ class CalibrationActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 when {
                     done -> {
-                        ocui.Text(if (failed) "Calibration didn't finish" else "Calibration complete", kind = "title")
+                        ocui.Text(if (failed) getString(R.string.calibration_didn_t_finish) else getString(R.string.calibration_complete), kind = "title")
                         ocui.Text(prompt)
-                        Spacer(Modifier.weight(1f)); ocui.Text("Returning to QFT+…", kind = "title")
+                        Spacer(Modifier.weight(1f)); ocui.Text(getString(R.string.returning_to_qft), kind = "title")
                     }
                     !armed || !started -> {
-                        ocui.Text(if (pupil) "Pupil calibration" else "Face calibration", kind = "title")
+                        ocui.Text(if (pupil) getString(R.string.pupil_calibration) else getString(R.string.face_calibration), kind = "title")
                         ocui.Text(when {
                             armed -> prompt
-                            pupil -> "Sit still and keep light from leaking into the headset. Look at the dot and blink normally. The space darkens for 30 seconds, then brightens and darkens twice. A timer shows each phase."
-                            avatar == 0 -> "Loading the avatar…"
-                            avatar == 2 -> "The avatar couldn't load. You can still calibrate by following the instructions."
-                            else -> "Sit comfortably with the headset fitted, then copy the avatar like a mirror. Each expression gives you 2 seconds to get ready and 3 to hold."
+                            pupil -> getString(R.string.sit_still_and_keep_light_from_leaking_into)
+                            avatar == 0 -> getString(R.string.loading_the_avatar)
+                            avatar == 2 -> getString(R.string.the_avatar_couldn_t_load_you_can_still)
+                            else -> getString(R.string.sit_comfortably_with_the_headset_fitted_then_copy)
                         })
                         Spacer(Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (!armed) ocui.Button(style = "PRIMARY", label = "Start", onClick = ::startCalibration, enabled = pupil || avatar != 0)
-                            ocui.Button(label = "Leave", onClick = ::leave)
-                            if (!armed) ocui.Text("Point and pull the trigger, or press A or X. B or Y leaves.", Modifier.weight(1f), kind = "detail")
+                            if (!armed) ocui.Button(style = "PRIMARY", label = getString(R.string.start), onClick = ::startCalibration, enabled = pupil || avatar != 0)
+                            ocui.Button(label = getString(R.string.leave), onClick = ::leave)
+                            if (!armed) ocui.Text(getString(R.string.point_and_pull_the_trigger_or_press_a), Modifier.weight(1f), kind = "detail")
                         }
                     }
                     else -> {
                         val step = min(11, (elapsed / 6).toInt()); val phase = elapsed % 6
-                        ocui.Text(Calibration.PROMPTS[step], kind = "title", size = 40f)
-                        ocui.Text(if (phase < 2) "Get ready" else if (phase < 5) "Hold" else "Relax", kind = "strong", size = 28f)
+                        ocui.Text(getString(Calibration.PROMPTS[step]), kind = "title", size = 40f)
+                        ocui.Text(if (phase < 2) getString(R.string.get_ready) else if (phase < 5) getString(R.string.hold) else getString(R.string.relax), kind = "strong", size = 28f)
                         ocui.Progress((if (phase < 2) phase / 2 else if (phase < 5) (phase - 2) / 3 else 1.0).toFloat())
                         Spacer(Modifier.weight(1f))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            ocui.Text("${step + 1} of 12" + if (retrying) " · Try again" else "", Modifier.weight(1f), kind = "detail", size = 22f)
-                            ocui.Button(label = "Leave", onClick = ::leave)
+                            ocui.Text(getString(if (retrying) R.string.calibration_step_retry else R.string.calibration_step, step + 1), Modifier.weight(1f), kind = "detail", size = 22f)
+                            ocui.Button(label = getString(R.string.leave), onClick = ::leave)
                         }
                     }
                 }
@@ -259,8 +258,8 @@ class CalibrationActivity : ComponentActivity() {
     }
     @Composable private fun PupilTimer() {
         val t = elapsed
-        val (phase, total, remaining) = if (t < 30) Triple("Adjusting to darkness", 30.0, 30 - t)
-            else Triple("Brightness round ${if (t < 55) 1 else 2} of 2" + if (retrying) " · repeating" else "", 25.0, 25 - (t - 30) % 25)
+        val (phase, total, remaining) = if (t < 30) Triple(getString(R.string.adjusting_to_darkness), 30.0, 30 - t)
+            else Triple(getString(if (retrying) R.string.brightness_round_retry else R.string.brightness_round, if (t < 55) 1 else 2), 25.0, 25 - (t - 30) % 25)
         val ink = Color.White.copy(alpha = if (stimulus > .5f) .22f else .30f).let { if (stimulus > .5f) Color.Black.copy(alpha = .25f) else it }
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
@@ -269,9 +268,9 @@ class CalibrationActivity : ComponentActivity() {
                     drawCircle(ink, 5.dp.toPx())
                 }
             }
-            ocui.Text(String.format(Locale.getDefault(), "%d s", ceil(remaining).toInt()), color = ink.toArgb())
+            ocui.Text(getString(R.string.seconds_remaining, ceil(remaining).toInt()), color = ink.toArgb())
             ocui.Text(phase, color = ink.toArgb(), kind = "detail")
-            ocui.Text("B or Y goes back", color = ink.toArgb(), kind = "detail")
+            ocui.Text(getString(R.string.b_or_y_goes_back), color = ink.toArgb(), kind = "detail")
         }
     }
 
@@ -283,8 +282,8 @@ class CalibrationActivity : ComponentActivity() {
         val task = intent.getIntExtra("returnTask", -1)
         if (task >= 0 && runCatching { getSystemService(android.app.ActivityManager::class.java).moveTaskToFront(task, 0) }.isSuccess) {
             val manager = getSystemService(android.app.NotificationManager::class.java)
-            manager.createNotificationChannel(android.app.NotificationChannel("calibration", "Calibration results", android.app.NotificationManager.IMPORTANCE_DEFAULT))
-            manager.notify(2, android.app.Notification.Builder(this, "calibration").setContentTitle("QFT+ calibration").setContentText(message)
+            manager.createNotificationChannel(android.app.NotificationChannel("calibration", getString(R.string.calibration_results), android.app.NotificationManager.IMPORTANCE_DEFAULT))
+            manager.notify(2, android.app.Notification.Builder(this, "calibration").setContentTitle(getString(R.string.qft_calibration)).setContentText(message)
                 .setSmallIcon(android.R.drawable.ic_menu_view).setAutoCancel(true)
                 .setContentIntent(PendingIntent.getActivity(this, 4, panelIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build())
             finishAndRemoveTask()
@@ -295,5 +294,5 @@ class CalibrationActivity : ComponentActivity() {
         finishAndRemoveTask()
     }
     override fun onPause() { resumed = false; if (renderer != null) { cancelCalibration(); stopScene() }; super.onPause() }
-    @Deprecated("System back leaves calibration") override fun onBackPressed() { if (renderer != null) leave() else returnToPanel("Calibration cancelled.") }
+    @Deprecated("System back leaves calibration") override fun onBackPressed() { if (renderer != null) leave() else returnToPanel(getString(R.string.calibration_cancelled)) }
 }
