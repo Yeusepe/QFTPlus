@@ -158,7 +158,7 @@
   </data>
   <data name="SecondsRemaining" xml:space="preserve">
     <value>{0:0} seconds</value>
-    <comment>QFT+ Windows app. Pupil calibration countdown. {0:0} is the remaining number of seconds, rounded to a whole number. Preserve the format placeholder.</comment>
+    <comment>QFT+ Windows app. Countdown beside the pupil calibration guide, including zero at the end. {0:0} is the remaining number of seconds, rounded to a whole number. Preserve the format placeholder and translate the unit.</comment>
   </data>
   <data name="CalibrateGroup" xml:space="preserve">
     <value>Calibrate {0}</value>
