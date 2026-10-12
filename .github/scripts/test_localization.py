@@ -8,6 +8,25 @@ spec.loader.exec_module(localization)
 
 
 class ResourceChecks(unittest.TestCase):
+    def test_android_partial_and_reordered_placeholders(self):
+        localization.validate_android(
+            {'step': ('Step %1$d: %2$s', True), 'stop': ('Stop', True)},
+            {'step': ('%2$s: paso %1$d', True)})
+
+    def test_android_invalid_placeholders(self):
+        for translated in [('Step %1$s', True), ('Step %2$d', True), ('Step %d', True),
+                           ('Step %1$d', False), ('Step', True), ('', True)]:
+            with self.subTest(translated=translated), self.assertRaises(ValueError):
+                localization.validate_android({'step': ('Step %1$d', True)}, {'step': translated})
+
+    def test_android_unsafe_resources(self):
+        for data in [b'<!DOCTYPE resources><resources/>', b'<resources><style name="theme"/></resources>',
+                     b'<resources><string name="start">@string/other</string></resources>',
+                     b'<resources><string name="start">A</string><string name="start">B</string></resources>',
+                     b'<resources><string name="start" formatted="unknown">A</string></resources>']:
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                localization.read_android(data)
+
     def test_partial_translation_and_reordered_placeholders(self):
         localization.validate_translation(
             {'Start': 'Start', 'Step': 'Step {0} of {1}: {2}'},

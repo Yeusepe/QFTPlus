@@ -28,7 +28,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import java.lang.reflect.Proxy
 import java.util.function.Function
 
-internal class Ocui(host: Context) {
+internal class Ocui(private val host: Context) {
     companion object {
         const val PROVIDER = "com.oculus.panelapp.settings"
         const val SETTINGS_VERSION = 675101304L
@@ -174,7 +174,7 @@ internal class Ocui(host: Context) {
                 addView(edit, android.widget.FrameLayout.LayoutParams(-1, -1))
                 addView(glyph("oc_icon_search_filled_24", px(15)).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
                     android.widget.FrameLayout.LayoutParams(px(44), -1, android.view.Gravity.START))
-                addView(glyph("oc_icon_close_filled_24", px(12)).apply { contentDescription = "Clear search"; setOnClickListener { edit.setText("") } },
+                addView(glyph("oc_icon_close_filled_24", px(12)).apply { contentDescription = host.getString(R.string.clear_search); setOnClickListener { edit.setText("") } },
                     android.widget.FrameLayout.LayoutParams(px(44), -1, android.view.Gravity.END))
             }
         }, update = { frame ->
@@ -361,7 +361,7 @@ internal class Ocui(host: Context) {
             val builder = cls.getMethod("builder", View::class.java).invoke(null, root)
             set(builder, "A09", title); set(builder, "A07", message)
             invoke(builder, "A0E", callback("X.1Bw") { accept() }, action, true)
-            invoke(builder, "A0D", callback("X.1Bw") { cancel() }, "Cancel")
+            invoke(builder, "A0D", callback("X.1Bw") { cancel() }, host.getString(R.string.cancel))
             set(builder, "A06", callback("X.0zN") { cancel() })
             val dialog = invoke(builder, "A0C")!!
             var closed = false

@@ -18,7 +18,7 @@ tongue additions must never overwrite stock jaw, lip, cheek, brow, or blink valu
 
 ## Translations
 
-Join [Crowdin](https://crowdin.com/project/qftplus), choose your language, and open **Windows app**. Keep wording short, product names unchanged, and placeholders such as `{0}` intact. Make translation corrections in Crowdin.
+Join [Crowdin](https://crowdin.com/project/qftplus), choose your language, and open **Windows app** or **Quest app**. Keep wording short, product names unchanged, and placeholders such as `{0}` and `%1$s` intact. Make translation corrections in Crowdin.
 
 Approved translations sync hourly to a public GitHub pull request. After review and merge, they ship in the next release. Missing text falls back to English.
 

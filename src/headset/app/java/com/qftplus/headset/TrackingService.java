@@ -14,8 +14,8 @@ import java.security.*;
 import java.util.concurrent.TimeUnit;
 
 public final class TrackingService extends Service {
-    static final String ROOT_NEEDED = "QFT+ Headset needs root access. Allow it in your root manager, then try again.";
-    static volatile String status = "Stopped";
+    static final int ROOT_NEEDED = R.string.root_needed;
+    static volatile String status = "";
     static volatile String error;
     private volatile String workerError;
     static volatile byte[] latest;
@@ -62,16 +62,16 @@ public final class TrackingService extends Service {
     private static String quote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
     public IBinder onBind(Intent intent) { return null; }
     public void onCreate() {
-        super.onCreate(); running = true; settings = getSharedPreferences("settings", 0);
+        super.onCreate(); status = getString(R.string.stopped); running = true; settings = getSharedPreferences("settings", 0);
         directory = new File(getFilesDir(), "model");
         NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel("tracking", "Headset tracking", NotificationManager.IMPORTANCE_LOW));
+        manager.createNotificationChannel(new NotificationChannel("tracking", getString(R.string.headset_tracking), NotificationManager.IMPORTANCE_LOW));
         Intent stop = new Intent(this, TrackingService.class).setAction("stop");
-        Notification notification = new Notification.Builder(this, "tracking").setContentTitle("QFT+ headset tracking")
-            .setContentText("Processing on this headset. Tap Stop to release tracking resources.")
+        Notification notification = new Notification.Builder(this, "tracking").setContentTitle(getString(R.string.qft_headset_tracking))
+            .setContentText(getString(R.string.processing_on_this_headset_tap_stop_to_release))
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE))
-            .addAction(new Notification.Action.Builder(null, "Stop", PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE)).build())
+            .addAction(new Notification.Action.Builder(null, getString(R.string.stop), PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE)).build())
             .setOngoing(true).build();
         startForeground(1, notification);
     }
@@ -82,7 +82,7 @@ public final class TrackingService extends Service {
         if (!settings.getBoolean("enabled", false) && calibration == null) { stopSelf(); return START_NOT_STICKY; }
         lastStart = id;
         if (thread == null) {
-            error = null; status = "Starting tracking";
+            error = null; status = getString(R.string.starting_tracking);
             thread = new Thread(() -> {
                 for (;;) {
                     int started = lastStart;
@@ -99,8 +99,8 @@ public final class TrackingService extends Service {
         try { if (connection != null) connection.close(); } catch (IOException ignored) {}
         if (thread != null) thread.interrupt();
         Calibration active = calibration;
-        if (active != null) active.fail("Tracking stopped. Previous calibration retained.");
-        calibration = null; latest = null; status = "Stopped"; pcConnected = false;
+        if (active != null) active.fail(getString(R.string.tracking_stopped_previous_calibration_retained));
+        calibration = null; latest = null; status = getString(R.string.stopped); pcConnected = false;
         pcAdjustments = null; adjustmentsToSend = null;
         super.onDestroy();
     }
@@ -118,13 +118,13 @@ public final class TrackingService extends Service {
         });
         reader.start();
         try {
-            if (!p.waitFor(seconds, TimeUnit.SECONDS)) throw new IOException("Headset setup timed out");
+            if (!p.waitFor(seconds, TimeUnit.SECONDS)) throw new IOException(getString(R.string.headset_setup_timed_out));
             reader.join(1000);
             if (p.exitValue() != 0) throw new IOException(log.toString(StandardCharsets.UTF_8.name()));
         } finally { p.destroy(); }
     }
     private void prepare() throws Exception {
-        status = "Preparing headset model";
+        status = getString(R.string.preparing_headset_model);
         Files.createDirectories(directory.toPath());
         File stamp = new File(directory, "model.version");
         byte[] installed = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime).getBytes(StandardCharsets.UTF_8);
@@ -165,8 +165,8 @@ public final class TrackingService extends Service {
             .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "qft-tracking");
         wifi.setReferenceCounted(false); wifi.acquire();
         try {
-            status = "Checking root access";
-            try { command("id", 30); } catch (IOException denied) { throw new IOException(ROOT_NEEDED, denied); }
+            status = getString(R.string.checking_root_access);
+            try { command("id", 30); } catch (IOException denied) { throw new IOException(getString(ROOT_NEEDED), denied); }
             prepare();
             String pairKey = settings.getString("key", "");
             link = null;
@@ -177,7 +177,7 @@ public final class TrackingService extends Service {
                         link = new HeadsetLink(pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
                     poll(System.nanoTime());
                     if (!connected(System.nanoTime()) && !direct() && calibration == null) {
-                        status = outputMode(settings).equals("pc") ? "Waiting for QFT+ on your PC" : "Choose a destination in Connections";
+                        status = outputMode(settings).equals("pc") ? getString(R.string.waiting_for_qft_on_your_pc) : getString(R.string.choose_a_destination_in_connections);
                         Thread.sleep(500);
                         continue;
                     }
@@ -189,8 +189,8 @@ public final class TrackingService extends Service {
             if (!stopping) {
                 error = workerError != null ? workerError : failure.getMessage() != null ? failure.getMessage() : failure.toString();
                 Calibration c = calibration;
-                if (c != null) { c.fail(error + " Your previous calibration is unchanged."); calibration = null; }
-                status = "Tracking stopped: " + error;
+                if (c != null) { c.fail(getString(R.string.failure_calibration_unchanged, error)); calibration = null; }
+                status = getString(R.string.tracking_stopped_reason, error);
                 settings.edit().putBoolean("enabled", false).apply();
                 android.util.Log.e("QFT", status, failure);
                 try { Files.write(new File(getFilesDir(), "status.txt").toPath(), status.getBytes(StandardCharsets.UTF_8)); } catch (IOException ignored) {}
@@ -215,7 +215,7 @@ public final class TrackingService extends Service {
                 offset += n;
             } catch (SocketTimeoutException error) {
                 if (eyes != null) eyes.check();
-                status = "Waiting for eye and face cameras";
+                status = getString(R.string.waiting_for_eye_and_face_cameras);
                 if (sessionOsc != null) sessionOsc.idle();
                 if (sessionControl != null) connection.getOutputStream().write(sessionControl);
                 poll(System.nanoTime());
@@ -297,10 +297,10 @@ public final class TrackingService extends Service {
                 int nativeFlags = result.getInt(288);
                 if (now - statusAt > 500_000_000L) {
                     statusAt = now;
-                    status = "Tracking on headset · " + Math.round((now - captured) / 1e6) + " ms capture-to-output";
-                    if ((nativeFlags & 1) == 0) status += " · Meta face tracking unavailable";
-                    if ((nativeFlags & 6) != 6) status += " · Meta eye gaze unavailable";
-                    if (eyes != null) status += converging ? " · Convergence on" : " · Waiting for convergence";
+                    status = getString(R.string.tracking_latency, Math.round((now - captured) / 1e6));
+                    if ((nativeFlags & 1) == 0) status += " · " + getString(R.string.meta_face_tracking_unavailable);
+                    if ((nativeFlags & 6) != 6) status += " · " + getString(R.string.meta_eye_gaze_unavailable);
+                    if (eyes != null) status += " · " + (converging ? getString(R.string.convergence_on) : getString(R.string.waiting_for_convergence));
                 }
                 long outputStart = System.nanoTime();
                 boolean sending = tracking();
@@ -320,7 +320,7 @@ public final class TrackingService extends Service {
                     if (osc != null) { osc.messages = 0; osc.readNs = osc.applyNs = osc.sendNs = 0; }
                     perfAt = SystemClock.elapsedRealtime() + 5000; perfFrames = perfStale = 0; perfLatency = perfOutput = perfWorker = 0; tongueMax = puffMax = metaTongue = metaPuff = 0;
                 }
-                if (!connected(now) && osc == null && c == null) status = "Waiting for QFT+ on your PC";
+                if (!connected(now) && osc == null && c == null) status = getString(R.string.waiting_for_qft_on_your_pc);
                 if (c != null) {
                     c.sample(payload, now);
                     if (c.done) {
@@ -328,7 +328,7 @@ public final class TrackingService extends Service {
                         try { if (c.save(directory)) {
                             if (!c.isPupils()) {
                                 restart = true; latest = null;
-                                status = "Saving face calibration";
+                                status = getString(R.string.saving_face_calibration);
                                 socket.close();
                                 if (!worker.waitFor(3, TimeUnit.SECONDS))
                                     command(environment() + quote(libraries + "/libqft_worker.so") + " --stop-token " + key, 8);
@@ -336,14 +336,14 @@ public final class TrackingService extends Service {
                                 catch (IOException fit) {
                                     String why = String.valueOf(fit.getMessage()).trim(); int at = why.lastIndexOf("CALIBRATION_FAILED ");
                                     why = at >= 0 ? why.substring(at + 19) : why.substring(why.lastIndexOf('\n') + 1);
-                                    c.fail(why.trim().replaceAll("\\.$", "") + ". Previous calibration retained.");
+                                    c.fail(getString(R.string.calibration_failure_retained, why.trim().replaceAll("\\.$", "")));
                                 }
                                 synchronized (c) {
                                     if (c.cancelled()) Files.deleteIfExists(new File(directory, "profile.pending").toPath());
                                     else {
                                         Files.move(new File(directory, "profile.pending").toPath(), new File(directory, "profile.bin").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
                                         settings.edit().putBoolean("tongue", true).apply();
-                                        c.saved("Face calibration passed and saved");
+                                        c.saved(getString(R.string.face_calibration_passed_and_saved));
                                     }
                                 }
                             } else settings.edit().putBoolean("pupils", true).apply();
@@ -375,7 +375,7 @@ public final class TrackingService extends Service {
                     catch (Exception error) { android.util.Log.w("QFT", "Releasing Meta face and eye tracking failed", error); }
                     if (!worker.isAlive() && worker.exitValue() == 6) {
                         removeCalibration(this); prepare();
-                        throw new IOException("Your calibration couldn't be loaded and was reset. Calibrate again in QFT+ Headset.");
+                        throw new IOException(getString(R.string.your_calibration_couldn_t_be_loaded_and_was));
                     }
                 }
             }
