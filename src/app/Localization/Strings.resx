@@ -156,9 +156,9 @@
     <value>Builds the eye model from your headset. Keep the headset awake.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
-  <data name="Calibrate" xml:space="preserve">
-    <value>Calibrate </value>
-    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  <data name="CalibrateGroup" xml:space="preserve">
+    <value>Calibrate {0}</value>
+    <comment>QFT+ Windows app. Calibration heading and button accessibility label. {0} is the translated area name, such as Face or Pupils. Preserve its casing; the placeholder may move.</comment>
   </data>
   <data name="CalibrateAfterChangingHowTheHeadsetFitsYourSaved" xml:space="preserve">
     <value>Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.</value>

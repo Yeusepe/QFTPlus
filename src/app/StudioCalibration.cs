@@ -72,7 +72,7 @@ public partial class StudioWindow
                     catch (IOException error) { status.Text = error.Message; }
                 });
                 start.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
-                AutomationProperties.SetName(start, Loc.Get("Calibrate") + title.ToLowerInvariant());
+                AutomationProperties.SetName(start, Loc.Format("CalibrateGroup", title));
                 var value = Text("", 14, true);
                 list.Children.Add(ActionRow(title, value, icon, start));
                 rows.Add((value, kind, about));
@@ -104,7 +104,7 @@ public partial class StudioWindow
                      .Concat(session.Config["benchmarkMode"]?.GetValue<bool>() == true ? [("benchmark-quick", Loc.Get("ShortBenchmark")), ("benchmark", Loc.Get("FullBenchmark"))] : []))
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
-        poseTitle.Text = Loc.Get("Calibrate") + GroupTitle(kind).ToLowerInvariant();
+        poseTitle.Text = Loc.Format("CalibrateGroup", GroupTitle(kind));
         poseDetail.Text = (SetupFirst ? Loc.Get("SetUpYourFaceFirstSoTheBenchmarkChecks") : "") + (kind switch
         {
             "enroll" => Loc.Get("HoldAFewExpressionsForAFewSecondsEach"),
