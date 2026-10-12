@@ -42,98 +42,98 @@ public partial class StudioWindow
     {
         var face = session.Use != "hands";
         var onHeadset = HeadsetModelExperiment.Standalone(session);
-        yield return new("Tracking", null, "Tracking", "on off start stop status switch", Reveal: false);
-        if (!face) yield return new("Face tracking", "Features", "Tracking");
+        yield return new(Loc.Get("Tracking"), null, "Tracking", Loc.Get("OnOffStartStopStatusSwitch"), Reveal: false);
+        if (!face) yield return new(Loc.Get("FaceTracking"), Loc.Get("Features"), "Tracking");
         else
         {
-            yield return new("Eye gaze", "Features", "Tracking", "eyes independent standard");
-            yield return new("Cheeks, tongue and brows", "Features", "Tracking", "face calibration puff");
-            yield return new("Pupil dilation", "Features", "Tracking", "eyes pupils");
+            yield return new(Loc.Get("EyeGaze"), Loc.Get("Features"), "Tracking", Loc.Get("EyesIndependentStandard"));
+            yield return new(Loc.Get("CheeksTongueAndBrows"), Loc.Get("Features"), "Tracking", Loc.Get("FaceCalibrationPuff"));
+            yield return new(Loc.Get("PupilDilation"), Loc.Get("Features"), "Tracking", Loc.Get("EyesPupils"));
         }
-        yield return new("Hybrid hands", "Features", "Tracking", "hand tracking controllers fingers virtual desktop");
+        yield return new(Loc.Get("HybridHands"), Loc.Get("Features"), "Tracking", Loc.Get("HandTrackingControllersFingersVirtualDesktop"));
         if (face)
         {
             var parameters = File.Exists(Path.Combine(session.Root, "tracking-parameters.json")) ? Parameters() : [];
-            yield return new("All areas", "Areas", "Adjustments", "defaults every parameters", "*", false);
+            yield return new(Loc.Get("AllAreas"), Loc.Get("Areas"), "Adjustments", Loc.Get("DefaultsEveryParameters"), "*", false);
             foreach (var area in OutputAdjustments.Areas.Where(a => parameters.Any(p => OutputAdjustments.Area(p) == a)))
-                yield return new(area, "Areas", "Adjustments", "", area, false);
+                yield return new(AreaTitle(area), Loc.Get("Areas"), "Adjustments", area, area, false);
             foreach (var name in parameters)
-                yield return new(Label(name), OutputAdjustments.Area(name), "Adjustments", name, name, false);
+                yield return new(Label(name), AreaTitle(OutputAdjustments.Area(name)), "Adjustments", name, name, false);
             foreach (var pair in parameters.Select(Pair).OfType<string>().Distinct())
-                yield return new(Both(pair), OutputAdjustments.Area(pair), "Adjustments", pair + " together left right eyes", pair, false);
-            foreach (var (title, words) in new[] { ("Headset passthrough", "source meta native"), ("Match left and right", "average stronger side pairs"),
-                         ("Strength", "output gain multiplier"), ("Offset", "output shift"), ("Dead zone", "output deadzone"), ("Smoothing", "output filter jitter") })
-                yield return new(title, "All areas", "Adjustments", words, "*");
-            foreach (var (title, words) in new[] { ("Response curve", "gamma"), ("Smoothing when relaxing", "release fade"), ("Invert output", "reverse") })
-                yield return new(title, "Response", "Adjustments", words, "*");
-            yield return new("Reset defaults", "All areas", "Adjustments", "reset restore", "*");
-            foreach (var title in new[] { "Input minimum", "Input maximum", "Input neutral", "Output minimum", "Output maximum" })
-                yield return new(title, "Input and output limits", "Adjustments", "range clamp rest", Reveal: false);
+                yield return new(Both(pair), AreaTitle(OutputAdjustments.Area(pair)), "Adjustments", pair + Loc.Get("TogetherLeftRightEyes"), pair, false);
+            foreach (var (title, words) in new[] { (Loc.Get("HeadsetPassthrough"), Loc.Get("SourceMetaNative")), (Loc.Get("MatchLeftAndRight"), Loc.Get("AverageStrongerSidePairs")),
+                         (Loc.Get("Strength"), Loc.Get("OutputGainMultiplier")), (Loc.Get("Offset"), Loc.Get("OutputShift")), (Loc.Get("DeadZone"), Loc.Get("OutputDeadzone")), (Loc.Get("Smoothing"), Loc.Get("OutputFilterJitter")) })
+                yield return new(title, Loc.Get("AllAreas"), "Adjustments", words, "*");
+            foreach (var (title, words) in new[] { (Loc.Get("ResponseCurve"), "gamma"), (Loc.Get("SmoothingWhenRelaxing"), Loc.Get("ReleaseFade")), (Loc.Get("InvertOutput"), "reverse") })
+                yield return new(title, Loc.Get("Response"), "Adjustments", words, "*");
+            yield return new(Loc.Get("ResetDefaults"), Loc.Get("AllAreas"), "Adjustments", Loc.Get("ResetRestore"), "*");
+            foreach (var title in new[] { Loc.Get("InputMinimum"), Loc.Get("InputMaximum"), Loc.Get("InputNeutral"), Loc.Get("OutputMinimum"), Loc.Get("OutputMaximum") })
+                yield return new(title, Loc.Get("InputAndOutputLimits"), "Adjustments", Loc.Get("RangeClampRest"), Reveal: false);
             if (parameters.Any(p => OutputAdjustments.Area(p) == "Gaze"))
             {
-                yield return new("Convergence", "Gaze", "Adjustments", "independent eye depth vergence", "Gaze");
-                yield return new("Convergence strength", "Gaze", "Adjustments", "eyes depth gain vergence", "Gaze");
-                yield return new("Reset to 100%", "Gaze", "Adjustments", "convergence strength default", "Gaze");
+                yield return new(Loc.Get("Convergence"), Loc.Get("Gaze"), "Adjustments", Loc.Get("IndependentEyeDepthVergence"), "Gaze");
+                yield return new(Loc.Get("ConvergenceStrength"), Loc.Get("Gaze"), "Adjustments", Loc.Get("EyesDepthGainVergence"), "Gaze");
+                yield return new(Loc.Get("ResetTo100"), Loc.Get("Gaze"), "Adjustments", Loc.Get("ConvergenceStrengthDefault"), "Gaze");
             }
-            yield return new("Override live tracking", null, "Manual", "test movements manual sliders preview avatar");
+            yield return new(Loc.Get("OverrideLiveTracking"), null, "Manual", Loc.Get("TestMovementsManualSlidersPreviewAvatar"));
             if (onHeadset)
             {
-                yield return new("Face and tongue", "QFT+ Headset", "Calibration", "calibrate face expressions cheeks");
-                yield return new("Pupil dilation", "QFT+ Headset", "Calibration", "calibrate pupils eyes");
+                yield return new(Loc.Get("FaceAndTongue"), "QFT+ Headset", "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
+                yield return new(Loc.Get("PupilDilation"), "QFT+ Headset", "Calibration", Loc.Get("CalibratePupilsEyes"));
             }
             else
             {
-                yield return new("Face calibration", null, "Calibration", "calibrate expressions enroll tongue cheeks", "enroll", false);
-                yield return new("Pupil calibration", null, "Calibration", "calibrate pupil dilation eyes", "pupils", false);
-                yield return new("More time for each pose", null, "Calibration", "slow calibration");
+                yield return new(Loc.Get("FaceCalibration"), null, "Calibration", Loc.Get("CalibrateExpressionsEnrollTongueCheeks"), "enroll", false);
+                yield return new(Loc.Get("PupilCalibration"), null, "Calibration", Loc.Get("CalibratePupilDilationEyes"), "pupils", false);
+                yield return new(Loc.Get("MoreTimeForEachPose"), null, "Calibration", Loc.Get("SlowCalibration"));
             }
             if (!onHeadset)
             {
-                yield return new("Show pupil outlines", null, "Cameras", "camera eyes");
-                foreach (var title in new[] { "Left eye", "Right eye", "Left face", "Right face", "Brow" })
-                    yield return new(title, "Cameras", "Cameras", "camera view image");
+                yield return new(Loc.Get("ShowPupilOutlines"), null, "Cameras", Loc.Get("CameraEyes"));
+                foreach (var title in new[] { Loc.Get("LeftEye"), Loc.Get("RightEye"), Loc.Get("LeftFace"), Loc.Get("RightFace"), Loc.Get("Brow") })
+                    yield return new(title, Loc.Get("Cameras"), "Cameras", Loc.Get("CameraViewImage"));
             }
         }
-        yield return new("Search again", "Headset", "Setup", "find usb wi-fi wifi connect headset");
+        yield return new(Loc.Get("SearchAgain"), Loc.Get("Headset"), "Setup", Loc.Get("FindUsbWiFiWifiConnectHeadset"));
         foreach (var (_, title, _) in Uses)
-            yield return new(title, "What do you want to use?", "Settings", "use mode face hands controllers virtual desktop");
+            yield return new(title, Loc.Get("WhatDoYouWantToUse"), "Settings", Loc.Get("UseModeFaceHandsControllersVirtualDesktop"));
         if (face)
         {
-            yield return new("Independent eye gaze", null, "Settings", "eyes separately depth convergence");
+            yield return new(Loc.Get("IndependentEyeGaze"), null, "Settings", Loc.Get("EyesSeparatelyDepthConvergence"));
             if (onHeadset)
             {
-                yield return new("Send tracking to", null, "Settings", "output destination osc vrchat receiver");
-                foreach (var (title, words) in new[] { ("Tongue direction", "face calibration"), ("Pupil dilation", "eyes pupils"), ("Resume after restart", "boot startup reboot"),
-                             ("Update rate", "fps frame rate speed latency battery heat") })
+                yield return new(Loc.Get("SendTrackingTo"), null, "Settings", Loc.Get("OutputDestinationOscVrchatReceiver"));
+                foreach (var (title, words) in new[] { (Loc.Get("TongueDirection"), Loc.Get("FaceCalibration_bca2dbed")), (Loc.Get("PupilDilation"), Loc.Get("EyesPupils")), (Loc.Get("ResumeAfterRestart"), Loc.Get("BootStartupReboot")),
+                             (Loc.Get("UpdateRate"), Loc.Get("FpsFrameRateSpeedLatencyBatteryHeat")) })
                     yield return new(title, "QFT+ Headset", "Settings", words);
             }
             else
             {
-                yield return new("Tongue", null, "Settings", "output");
-                yield return new("Extra expressions", null, "Settings", "output face cheeks brows");
-                foreach (var group in CalibrationSettings.FaceGroups) yield return new(group.Title, "Extra expressions", "Settings", "output");
-                yield return new("Pupil dilation", null, "Settings", "output eyes pupils");
+                yield return new(Loc.Get("Tongue"), null, "Settings", "output");
+                yield return new(Loc.Get("ExtraExpressions"), null, "Settings", Loc.Get("OutputFaceCheeksBrows"));
+                foreach (var group in CalibrationSettings.FaceGroups) yield return new(Loc.Get(group.Title), Loc.Get("ExtraExpressions"), "Settings", "output");
+                yield return new(Loc.Get("PupilDilation"), null, "Settings", Loc.Get("OutputEyesPupils"));
             }
         }
-        foreach (var title in new[] { "Thumbrest and trigger", "Thumbrest mode", "Ignore a resting thumb", "Straighten scrolling", "Reverse trigger slide" })
-            yield return new(title, "Controllers", "Settings", "controllers touch thumbrest trigger scroll");
-        yield return new("Set up the headset on Start", "Startup", "Settings", "launch automatic");
+        foreach (var title in new[] { Loc.Get("ThumbrestAndTrigger"), Loc.Get("ThumbrestMode"), Loc.Get("IgnoreARestingThumb"), Loc.Get("StraightenScrolling"), Loc.Get("ReverseTriggerSlide") })
+            yield return new(title, Loc.Get("Controllers"), "Settings", Loc.Get("ControllersTouchThumbrestTriggerScroll"));
+        yield return new(Loc.Get("SetUpTheHeadsetOnStart"), Loc.Get("Startup"), "Settings", Loc.Get("LaunchAutomatic"));
         if (face)
         {
-            yield return new("Install the VRCFaceTracking module", "Startup", "Settings", "vrcft module");
-            yield return new("Start with VRCFaceTracking", "Startup", "Settings", "vrcft launch automatic");
+            yield return new(Loc.Get("InstallTheVRCFaceTrackingModule"), Loc.Get("Startup"), "Settings", Loc.Get("VrcftModule"));
+            yield return new(Loc.Get("StartWithVRCFaceTracking"), Loc.Get("Startup"), "Settings", Loc.Get("VrcftLaunchAutomatic"));
         }
-        yield return new("Open VR apps on Start", "Startup", "Settings", "steamvr virtual desktop launch");
+        yield return new(Loc.Get("OpenVRAppsOnStart"), Loc.Get("Startup"), "Settings", Loc.Get("SteamvrVirtualDesktopLaunch"));
         if (face)
         {
-            yield return new("Track on the headset (experimental)", null, "Settings", "standalone qft+ headset app on-device");
-            yield return new("Tracking processor", "Processing", "Settings", "gpu cpu directml graphics card performance");
-            yield return new("Save face-tracking logs", "Face calibration", "Settings", "logs diagnostics");
-            yield return new("Help improve tracking", null, "Settings", "tester share recordings benchmark");
+            yield return new(Loc.Get("TrackOnTheHeadsetExperimental"), null, "Settings", Loc.Get("StandaloneQftHeadsetAppOnDevice"));
+            yield return new(Loc.Get("TrackingProcessor"), Loc.Get("Processing"), "Settings", Loc.Get("GpuCpuDirectmlGraphicsCardPerformance"));
+            yield return new(Loc.Get("SaveFaceTrackingLogs"), Loc.Get("FaceCalibration"), "Settings", Loc.Get("LogsDiagnostics"));
+            yield return new(Loc.Get("HelpImproveTracking"), null, "Settings", Loc.Get("TesterShareRecordingsBenchmark"));
         }
-        yield return new("Log", null, "Settings", "logs errors diagnostics troubleshooting");
-        yield return new("Check for updates", "Updates", "Settings", "version update release");
-        yield return new("Uninstall QFT+", "Uninstall", "Settings", "remove delete");
+        yield return new(Loc.Get("Log"), null, "Settings", Loc.Get("LogsErrorsDiagnosticsTroubleshooting"));
+        yield return new(Loc.Get("CheckForUpdates"), Loc.Get("Updates"), "Settings", Loc.Get("VersionUpdateRelease"));
+        yield return new(Loc.Get("UninstallQFT"), Loc.Get("Uninstall"), "Settings", Loc.Get("RemoveDelete"));
     }
 
     List<Hit> Find(string text)
@@ -154,16 +154,16 @@ public partial class StudioWindow
     {
         if (recording)
         {
-            Error("Finish or cancel calibration first.");
+            Error(Loc.Get("FinishOrCancelCalibrationFirst"));
             return;
         }
         if (page != "Search") searchFrom = page;
         page = "Search";
-        Clear("Search results");
+        Clear(Loc.Get("SearchResults"));
         Navigation.SelectedItem = null;
         var hits = Find(SearchBox.Text);
         if (hits.Count == 0)
-            Page.Children.Add(Card(Text($"No results for “{SearchBox.Text.Trim()}”"), Muted("Check the spelling, or search for a setting, area or parameter name.")));
+            Page.Children.Add(Card(Text(Loc.Format("NoResultsFor", SearchBox.Text.Trim())), Muted(Loc.Get("CheckTheSpellingOrSearchForASettingArea"))));
         foreach (var group in hits.GroupBy(h => h.Page))
         {
             var list = new StackPanel();
@@ -183,7 +183,7 @@ public partial class StudioWindow
 
     void Go(Hit hit)
     {
-        if (recording) { Error("Finish or cancel calibration first."); return; }
+        if (recording) { Error(Loc.Get("FinishOrCancelCalibrationFirst")); return; }
         if (hit.Path is { } path)
         {
             if (hit.Page == "Calibration") kind = path;
