@@ -156,6 +156,10 @@
     <value>Builds the eye model from your headset. Keep the headset awake.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
+  <data name="SecondsRemaining" xml:space="preserve">
+    <value>{0:0} seconds</value>
+    <comment>QFT+ Windows app. Pupil calibration countdown. {0:0} is the remaining number of seconds, rounded to a whole number. Preserve the format placeholder.</comment>
+  </data>
   <data name="CalibrateGroup" xml:space="preserve">
     <value>Calibrate {0}</value>
     <comment>QFT+ Windows app. Calibration heading and button accessibility label. {0} is the translated area name, such as Face or Pupils. Preserve its casing; the placeholder may move.</comment>

@@ -334,7 +334,7 @@ public partial class StudioWindow
         if (cancelPending || !FreshState() || Ack < recordingCommand || state["kind"]?.GetValue<string>() != kind) return;
         poseTitle.Text = state["title"]?.GetValue<string>() ?? poseTitle.Text;
         poseDetail.Text = state["instruction"]?.GetValue<string>() ?? "";
-        cue.Text = kind == "pupils" ? $"{state["remaining"]?.GetValue<double>():0} seconds" : state["cue"]?.GetValue<string>() ?? Loc.Get("LookAtTheCircle");
+        cue.Text = kind == "pupils" ? Loc.Format("SecondsRemaining", state["remaining"]?.GetValue<double>()) : state["cue"]?.GetValue<string>() ?? Loc.Get("LookAtTheCircle");
         var index = state["index"]?.GetValue<int>() ?? 0;
         progress.Value = (state["progress"]?.GetValue<double>() ?? index / 4.0) * 100;
         count.Text = Loc.Format("Of", index + 1, state["total"]?.GetValue<int>() ?? 4);
