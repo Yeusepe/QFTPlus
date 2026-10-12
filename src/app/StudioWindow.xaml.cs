@@ -16,9 +16,10 @@ namespace QFTPlus;
 
 public partial class StudioWindow : Ui.FluentWindow
 {
-    static readonly string[] Pages = ["Tracking", "Adjustments", "Manual", "Calibration", "Cameras", "Setup", "Settings"];
-    static readonly string[] PageIcons = ["face", "tune", "experiment", "frame_person", "photo_camera", "head_mounted_device", "settings"];
+    static readonly string[] Pages = ["Tracking", "Adjustments", "LipSync", "Manual", "Calibration", "Cameras", "Setup", "Settings"];
+    static readonly string[] PageIcons = ["face", "tune", "mic", "experiment", "frame_person", "photo_camera", "head_mounted_device", "settings"];
     internal readonly Session session;
+    internal readonly LipSync lipSync;
     readonly bool preview;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) }, saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     readonly HashSet<Action> pendingSaves = [];
@@ -45,6 +46,8 @@ public partial class StudioWindow : Ui.FluentWindow
         DeviceGlow.Background = sidebarHero.Glow;
         this.preview = preview;
         session = new(root, config);
+        lipSync = new(root, () => session.Running && session.Use != "hands", () => new HeadsetMicrophone(session));
+        if (!preview) lipSync.Apply(LipSync.Load(LipSyncPath));
         saveTimer.Tick += (_, _) => SaveNow();
         Closed += (_, _) => SaveNow();
         session.Changed += _ => Dispatcher.Invoke(() =>
@@ -68,11 +71,12 @@ public partial class StudioWindow : Ui.FluentWindow
             TextSearch.SetText(item, TitleOf(name));
             Navigation.Items.Add(item);
         }
-        Navigation.SelectionChanged += (_, _) => { if (Navigation.SelectedItem is ListBoxItem { Tag: string name } && name != page) Navigate(name); };
+        Navigation.SelectionChanged += (_, _) => { if (Navigation.SelectedItem is ListBoxItem { Tag: string name } && name != ParentPage(page)) Navigate(name); };
         ApplyPreferences();
         InitializeUpdates();
         UseChanged(session.Use);
-        Navigate("Tracking");
+        var last = session.Config["window"]?["page"]?.GetValue<string>() ?? "";
+        Navigate(Pages.Concat(["LipSync/MouthShapes", "LipSync/Sound", "LipSync/VRChat"]).Contains(last) && last is not ("Setup" or "Calibration") ? last : "Tracking");
         RestorePlacement();
         SizeChanged += (_, _) => ResizeGuide();
         PageScroll.ScrollChanged += (_, _) => FadeEdges();
@@ -134,7 +138,11 @@ public partial class StudioWindow : Ui.FluentWindow
         PageScroll.OpacityMask = mask;
     }
 
-    static string TitleOf(string page) => Loc.Get(page == "Manual" ? "TestMovements" : page);
+    static string TitleOf(string page) => Loc.Get(page == "Manual" ? "TestMovements" : page.Split('/')[^1]);
+
+    static string ParentPage(string page) => page.Split('/')[0];
+
+    void BackClick(object sender, RoutedEventArgs e) => Navigate(ParentPage(page));
 
     internal void RestorePlacement()
     {
@@ -155,7 +163,7 @@ public partial class StudioWindow : Ui.FluentWindow
         try
         {
             session.Save("window", new JsonObject { ["left"] = bounds.Left, ["top"] = bounds.Top, ["width"] = bounds.Width, ["height"] = bounds.Height,
-                ["maximized"] = WindowState == WindowState.Maximized && restoreState is null });
+                ["maximized"] = WindowState == WindowState.Maximized && restoreState is null, ["page"] = page });
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
@@ -276,6 +284,7 @@ public partial class StudioWindow : Ui.FluentWindow
         {
             await session.Stop();
             quitting = true;
+            lipSync.Dispose();
             timer.Stop();
             tray?.Dispose();
             http.Dispose();
@@ -371,12 +380,13 @@ public partial class StudioWindow : Ui.FluentWindow
         page = name;
         SearchBox.Clear();
         Clear(TitleOf(name));
-        Navigation.SelectedItem = Navigation.Items.Cast<ListBoxItem>().Single(item => Equals(item.Tag, name));
+        Navigation.SelectedItem = Navigation.Items.Cast<ListBoxItem>().Single(item => Equals(item.Tag, ParentPage(name)));
         Navigation.ScrollIntoView(Navigation.SelectedItem);
         switch (name)
         {
             case "Tracking": Home(); break;
             case "Adjustments": Adjustments(); break;
+            case "LipSync" or "LipSync/MouthShapes" or "LipSync/Sound" or "LipSync/VRChat": LipSyncPage(); break;
             case "Manual": Manual(); break;
             case "Calibration": Calibration(); break;
             case "Cameras": Cameras(); break;
@@ -396,6 +406,9 @@ public partial class StudioWindow : Ui.FluentWindow
         cameras.Clear();
         ClearNotice();
         SaveNow();
+        Back.Visibility = Visible(page != ParentPage(page));
+        (Back.Content, Back.Icon) = (TitleOf(ParentPage(page)), Symbols.Icon("chevron_left", (Brush)FindResource("Ink")));
+        AutomationProperties.SetName(Back, Loc.Format("BackTo", TitleOf(ParentPage(page))));
         PageTitle.Text = title;
         Title = title + " — QFT+";
         Subtitle.Visibility = Visibility.Collapsed;
@@ -590,6 +603,26 @@ public partial class StudioWindow : Ui.FluentWindow
                 Show(pupils, Value("pupils"));
             };
         }
+        var lipSyncRow = Row(Loc.Get("LipSync"), "mic", () => Navigate("LipSync"));
+        var lipSyncShown = "";
+        void ShowLipSync()
+        {
+            var (value, problem) = !lipSync.Enabled ? (Loc.Get("Off"), false) : !lipSync.Listening ? (Loc.Get("CouldnTStart"), true) : lipSync.Matched switch
+            {
+                null => (Loc.Get("AvatarShortUnknown"), false),
+                0 => (Loc.Get("AvatarShortNone"), true),
+                var count => (Loc.Format("AvatarShortFound", count), false),
+            };
+            if (value != lipSyncShown) Show(lipSyncRow, lipSyncShown = value, problem);
+        }
+        ShowLipSync();
+        var lipSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        lipSyncTimer.Tick += (_, _) =>
+        {
+            if (page == "Tracking") ShowLipSync();
+            else lipSyncTimer.Stop();
+        };
+        lipSyncTimer.Start();
         var hybridStopped = false;
         var hybrid = Row(Loc.Get("HybridHands"), "front_hand", () =>
         {
