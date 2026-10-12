@@ -32,7 +32,7 @@ The native [Crowdin GitHub integration](https://support.crowdin.com/github-integ
 
 - Source changes merged into `main` sync continuously to Crowdin.
 - Crowdin's hourly **Sync Schedule** pushes approved translations to its `l10n_main` service branch and opens or updates **Update approved translations**. **Sync Now** runs it immediately.
-- GitHub's [localization workflow](.github/workflows/localization.yml) checks resources and builds the Windows app. A maintainer reviews and merges the pull request. This is separate from approving wording in Crowdin.
+- GitHub's [localization workflow](.github/workflows/localization.yml) checks resources and builds the Windows app. A maintainer reviews and merges the pull request, then deletes its service branch so Crowdin can recreate it for the next update. This is separate from approving wording in Crowdin.
 - Merged `Strings.<culture>.resx` files are compiled into the app by .NET. The app chooses the Windows display language at startup and falls back to English for missing text.
 
 ### Integration settings for maintainers

@@ -138,14 +138,15 @@ public partial class StudioWindow
 
     List<Hit> Find(string text)
     {
-        var phrase = text.Trim().ToLowerInvariant();
+        var culture = System.Globalization.CultureInfo.CurrentUICulture;
+        var phrase = text.Trim().ToLower(culture);
         var terms = phrase.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (terms.Length == 0) return [];
         return Index().Select(hit =>
         {
-            var title = hit.Title.ToLowerInvariant();
-            var all = $"{title} {hit.Where} {TitleOf(hit.Page)} {hit.Words}".ToLowerInvariant();
-            return (hit, rank: terms.Any(t => !all.Contains(t)) ? -1 : title.StartsWith(phrase) ? 0 : title.Split(' ').Any(w => w.StartsWith(terms[0])) ? 1
+            var title = hit.Title.ToLower(culture);
+            var all = $"{title} {hit.Where} {TitleOf(hit.Page)} {hit.Words}".ToLower(culture);
+            return (hit, rank: terms.Any(t => !all.Contains(t)) ? -1 : title.StartsWith(phrase, StringComparison.Ordinal) ? 0 : title.Split(' ').Any(w => w.StartsWith(terms[0], StringComparison.Ordinal)) ? 1
                 : terms.All(title.Contains) ? 2 : 3);
         }).Where(r => r.rank >= 0).OrderBy(r => r.rank).Select(r => r.hit).ToList();
     }
