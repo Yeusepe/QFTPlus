@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -138,16 +139,18 @@ public partial class StudioWindow
 
     List<Hit> Find(string text)
     {
-        var culture = System.Globalization.CultureInfo.CurrentUICulture;
-        var phrase = text.Trim().ToLower(culture);
+        var comparison = CultureInfo.CurrentUICulture.CompareInfo;
+        bool Contains(string value, string term) => comparison.IndexOf(value, term, CompareOptions.IgnoreCase) >= 0 || value.Contains(term, StringComparison.OrdinalIgnoreCase);
+        bool StartsWith(string value, string term) => comparison.IsPrefix(value, term, CompareOptions.IgnoreCase) || value.StartsWith(term, StringComparison.OrdinalIgnoreCase);
+        var phrase = text.Trim();
         var terms = phrase.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (terms.Length == 0) return [];
         return Index().Select(hit =>
         {
-            var title = hit.Title.ToLower(culture);
-            var all = $"{title} {hit.Where} {TitleOf(hit.Page)} {hit.Words}".ToLower(culture);
-            return (hit, rank: terms.Any(t => !all.Contains(t)) ? -1 : title.StartsWith(phrase, StringComparison.Ordinal) ? 0 : title.Split(' ').Any(w => w.StartsWith(terms[0], StringComparison.Ordinal)) ? 1
-                : terms.All(title.Contains) ? 2 : 3);
+            var title = hit.Title;
+            var all = $"{title} {hit.Where} {TitleOf(hit.Page)} {hit.Words}";
+            return (hit, rank: terms.Any(t => !Contains(all, t)) ? -1 : StartsWith(title, phrase) ? 0 : title.Split(' ').Any(w => StartsWith(w, terms[0])) ? 1
+                : terms.All(t => Contains(title, t)) ? 2 : 3);
         }).Where(r => r.rank >= 0).OrderBy(r => r.rank).Select(r => r.hit).ToList();
     }
 

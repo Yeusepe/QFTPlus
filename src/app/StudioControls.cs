@@ -170,8 +170,8 @@ public partial class StudioWindow
         }
         var modeled = names.Any(OutputAdjustments.Modeled);
         var scope = area is null ? Loc.Get("TheseSettingsApplyToEveryParameterUnlessAnArea")
-            : single ? Loc.Format("OnlySettingsYouChangeHereOverrideAndAllAreas", area)
-            : Loc.Format("TheseSettingsApplyToEveryParameterInOnlySettings", area);
+            : single ? Loc.Format("OnlySettingsYouChangeHereOverrideAndAllAreas", AreaTitle(area))
+            : Loc.Format("TheseSettingsApplyToEveryParameterInOnlySettings", AreaTitle(area));
         Page.Children.Add(Muted(modeled ? scope : scope + (single ? Loc.Get("QFTSCameraModelsDonTTrackThisParameter")
             : Loc.Get("QFTSCameraModelsDonTTrackTheseParameters"))));
         if (sides.Length > 1 && !JsonNode.DeepEquals(config[sides[0]], config[sides[1]]))
