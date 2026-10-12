@@ -39,7 +39,7 @@ internal static class CalibrationSettings
         byte[]? previousPupil = null;
         if (kind == "enroll")
         {
-            if (!File.Exists(result)) throw new IOException("The face setup file is missing.");
+            if (!File.Exists(result)) throw new IOException(Loc.Get("TheFaceSetupFileIsMissing"));
             string[] earlier = [config["faceEnrollment"]?.GetValue<string>() ?? "",
                 .. config["faceEnrollmentHistory"]?.AsArray().Select(node => node?.GetValue<string>() ?? "") ?? []];
             config["faceEnrollmentHistory"] = new JsonArray([.. earlier.Where(path => path.Length > 0 && path != result).Distinct().Take(4)
@@ -48,11 +48,11 @@ internal static class CalibrationSettings
         }
         else if (kind == "pupils")
         {
-            if (JsonNode.Parse(File.ReadAllText(result))?["format"]?.GetValue<string>() != "qpro-relative-pupil-v1") throw new IOException("The pupil calibration is invalid.");
+            if (JsonNode.Parse(File.ReadAllText(result))?["format"]?.GetValue<string>() != "qpro-relative-pupil-v1") throw new IOException(Loc.Get("ThePupilCalibrationIsInvalid"));
             previousPupil = File.Exists(pupilPath) ? File.ReadAllBytes(pupilPath) : null;
             config["pupilDilation"] = true;
         }
-        else throw new ArgumentException("Unknown calibration type.");
+        else throw new ArgumentException(Loc.Get("UnknownCalibrationType"));
         try
         {
             if (kind == "pupils")
@@ -79,7 +79,7 @@ internal static class CalibrationSettings
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return JsonNode.Parse(stream) as JsonObject ?? throw new JsonException("The file doesn't hold settings.");
+            return JsonNode.Parse(stream) as JsonObject ?? throw new JsonException(Loc.Get("TheFileDoesnTHoldSettings"));
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return new(); }
     }

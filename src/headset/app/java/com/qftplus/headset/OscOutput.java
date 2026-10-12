@@ -38,6 +38,7 @@ final class OscOutput implements AutoCloseable {
     private static final byte[][] ACTIVE = {path("ExpressionTrackingActive"), path("LipTrackingActive"), path("EyeTrackingActive")};
     private static final byte[] EYES = string("/tracking/eye/LeftRightPitchYaw"), CLOSED = string("/tracking/eye/EyesClosedAmount"), FOUR = string(",ffff");
     private static final class Packet extends ByteArrayOutputStream { Packet() { super(1200); } byte[] data() { return buf; } }
+    private final android.content.Context context;
     private final Packet bytes = new Packet();
     private final DataOutputStream out = new DataOutputStream(bytes);
     int messages;
@@ -51,6 +52,7 @@ final class OscOutput implements AutoCloseable {
         }
     }
     OscOutput(android.content.Context context, String host, int port, boolean vrchat, java.io.File adjustments) throws IOException {
+        this.context = context;
         this.host = InetAddress.getByName(host); this.port = port; this.vrchat = vrchat; this.adjustments = new OutputAdjustments(adjustments);
         AvatarParameters learned = null;
         if (vrchat) try { learned = new AvatarParameters(context, this.host); } catch (IOException e) { android.util.Log.w("QFT", "OSCQuery unavailable", e); }
@@ -72,7 +74,7 @@ final class OscOutput implements AutoCloseable {
         messages++;
     }
     private void value(String path, float value) throws IOException {
-        if (!Float.isFinite(value)) throw new IOException("Invalid tracking value");
+        if (!Float.isFinite(value)) throw new IOException(context.getString(R.string.invalid_tracking_value));
         byte[] address = string(path);
         if (bytes.size() + address.length + 12 > 1200) { flush(); begin(); }
         out.writeInt(address.length + 8); out.write(address); out.write(string(",f")); out.writeFloat(value);
@@ -140,7 +142,7 @@ final class OscOutput implements AutoCloseable {
         for (int i = 0; i < 3; i++) write(ACTIVE[i], (i == 2 ? eyes : face) ? TRUE : FALSE, false, 0);
     }
     void send(byte[] payload, long sequence, double ageMs) throws IOException {
-        if (payload.length != 608) throw new IOException("Unsupported headset packet");
+        if (payload.length != 608) throw new IOException(context.getString(R.string.unsupported_headset_packet));
         ByteBuffer p = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         int flags = p.getInt(4), status = p.getInt(12), nativeFlags = p.getInt(288);
         if (vrchat) {

@@ -40,12 +40,12 @@ public partial class StudioWindow
     sealed record ChoiceContent(string Title, string About);
 
     string[] Parameters() => JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(session.Root, "tracking-parameters.json"))) ?? [];
-    static string Label(string key) => Regex.Replace(key, "([a-z])([A-Z])", "$1 $2");
+    static string Label(string key) => Loc.Get("Parameter" + key);
     static string AreaTitle(string area) => Loc.Get(area == "Throat and neck" ? "ThroatAndNeck" : area);
     static double Neutral(string name) => name.StartsWith("Pupil") ? .5 : name.StartsWith("Openness") ? 1 : 0;
     static string? Pair(string name) => name.StartsWith("Gaze") ? Regex.Replace(name, "Left|Right", "")
         : OutputAdjustments.Partner(name) is null ? null : Regex.Replace(name, "(Left|Right)$", "");
-    static string Both(string pair) => Label(pair) + Loc.Get("BothSides");
+    static string Both(string pair) => Loc.Format("ParameterBothSides", Label(pair));
 
     void Field(Panel parent, string title, Control control)
     {
@@ -172,8 +172,7 @@ public partial class StudioWindow
         var scope = area is null ? Loc.Get("TheseSettingsApplyToEveryParameterUnlessAnArea")
             : single ? Loc.Format("OnlySettingsYouChangeHereOverrideAndAllAreas", AreaTitle(area))
             : Loc.Format("TheseSettingsApplyToEveryParameterInOnlySettings", AreaTitle(area));
-        Page.Children.Add(Muted(modeled ? scope : scope + (single ? Loc.Get("QFTSCameraModelsDonTTrackThisParameter")
-            : Loc.Get("QFTSCameraModelsDonTTrackTheseParameters"))));
+        Page.Children.Add(Muted(modeled ? scope : Loc.Format(single ? "UnmodeledParameterScope" : "UnmodeledParametersScope", scope)));
         if (sides.Length > 1 && !JsonNode.DeepEquals(config[sides[0]], config[sides[1]]))
             Page.Children.Add(Muted(Loc.Format("TheTwoSidesHaveDifferentSettingsValuesShownAre", Label(sides[0]))));
         var paired = (!single || sides.Length > 0) && names.Any(n => OutputAdjustments.Partner(n) is not null);
@@ -182,8 +181,7 @@ public partial class StudioWindow
             var input = new StackPanel();
             if (modeled)
             {
-                var about = Loc.Get("SendsTheHeadsetSOwnTrackingInsteadOfQFT")
-                    + (area is null or "Pupils" ? Loc.Get("TheHeadsetDoesnTMeasurePupilsSoTheyStay") : "");
+                var about = Loc.Get(area is null or "Pupils" ? "PassthroughWithPupils" : "SendsTheHeadsetSOwnTrackingInsteadOfQFT");
                 var passthrough = Toggle("passthrough", Loc.Get("HeadsetPassthrough"));
                 AutomationProperties.SetHelpText(passthrough, about);
                 passthrough.Margin = new(0, 4, 0, paired ? 20 : 4);
@@ -246,8 +244,7 @@ public partial class StudioWindow
         Page.Children.Add(Muted(Loc.Get("LiveValuesShowTheQFTModuleSOutputYour")));
         string[] own = single ? [] : members.Where(m => config[m] is JsonObject { Count: > 0 }).ToArray();
         if (own.Length > 0)
-            Page.Children.Add(Muted((own.Length == 1 ? Loc.Format("HasItsOwnSettingsWhichTakePrecedenceHere", Label(own[0])) : Loc.Format("ParametersHaveTheirOwnSettingsWhichTakePrecedenceHere", own.Length))
-                + Loc.Get("SelectOneAndChooseUseInheritedSettingsToRemove")));
+            Page.Children.Add(Muted(own.Length == 1 ? Loc.Format("OneParameterOverride", Label(own[0])) : Loc.Format("ParameterOverrides", own.Length)));
         adjustmentRefresh = () =>
         {
             try { File.WriteAllBytes(Path.Combine(session.Root, "output-status.lease"), []); }
@@ -278,7 +275,7 @@ public partial class StudioWindow
             var outputs = data["outputs"] as JsonObject ?? new();
             string Shown(JsonObject from, string name) => (OutputAdjustments.Number(from, name, 0) * scale).ToString(format);
             var missing = names.Where(name => !inputs.ContainsKey(name) || !outputs.ContainsKey(name)).ToArray();
-            readout.Text = string.Join("\n", names.Except(missing).Select(name => $"{Label(name)}: {Shown(inputs, name)} → {Shown(outputs, name)}")
+            readout.Text = string.Join("\n", names.Except(missing).Select(name => Loc.Format("ParameterValues", Label(name), Shown(inputs, name), Shown(outputs, name)))
                 .Concat(missing.Length == 0 ? [] : [Loc.Format("NotProvidedByTheQFTModuleCheckItsEye", string.Join(", ", missing.Select(Label)))]));
             var pupils = area == "Pupils" && data["pupilTracking"]?.GetValue<bool>() != true
                 ? Loc.Get("PupilTrackingIsOffOrHasNoFreshData") : "";
@@ -359,18 +356,20 @@ public partial class StudioWindow
     {
         if (HeadsetModelExperiment.Standalone(session)) return HeadsetEyeOptions();
         var enabled = new CheckBox { Content = Loc.Get("IndependentEyeGaze"), IsChecked = session.IndependentGaze };
-        AutomationProperties.SetHelpText(enabled, Loc.Get("TracksTheDirectionOfEachEyeSeparately"));
-        var status = Muted("", live: true);
         var setup = Button(Loc.Get("SetUpEyeTracking"), () => Navigate("Setup"));
         var convergence = Button(Loc.Get("AdjustConvergence"), () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
+        var actions = Buttons(setup, convergence);
+        actions.Margin = new(0, 8, 0, 0);
         trackingRefresh = () =>
         {
             var on = enabled.IsChecked == true;
             enabled.IsEnabled = setup.IsEnabled = !busy && !session.Running;
-            status.Text = busy ? Loc.Get("WaitForTheCurrentStepToFinishToChange_85f9003a") : session.Running ? Loc.Get("StopTrackingToChangeEyeGaze")
-                : on ? Loc.Get("StartsWithTracking") : Loc.Get("UsesStandardEyeTracking");
+            AutomationProperties.SetHelpText(enabled, Loc.Get("TracksTheDirectionOfEachEyeSeparately") + Environment.NewLine
+                + (busy ? Loc.Get("WaitForTheCurrentStepToFinishToChange_85f9003a") : session.Running ? Loc.Get("StopTrackingToChangeEyeGaze")
+                    : on ? Loc.Get("StartsWithTracking") : Loc.Get("UsesStandardEyeTracking")));
             setup.Visibility = Visible(on && !File.Exists(SetupService.EyeModel(session.Root)));
             convergence.Visibility = Visible(on);
+            actions.Visibility = Visible(on);
         };
         enabled.Click += (_, _) =>
         {
@@ -378,25 +377,26 @@ public partial class StudioWindow
             trackingRefresh?.Invoke();
         };
         trackingRefresh();
-        return Card(enabled, status, Buttons(setup, convergence));
+        return Card(enabled, actions);
     }
 
     UIElement HeadsetEyeOptions()
     {
         var sending = 0;
         var on = new CheckBox { Content = Loc.Get("IndependentEyeGaze") };
-        AutomationProperties.SetHelpText(on, Loc.Get("TracksTheDirectionOfEachEyeSeparately"));
-        var status = Muted("", live: true);
         var convergence = Button(Loc.Get("AdjustConvergence"), () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
+        var actions = Buttons(convergence);
+        actions.Margin = new(0, 8, 0, 0);
         void Refresh()
         {
             if (sending > 0) return;
             var settings = session.App?["settings"];
             on.IsEnabled = settings is not null;
             on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
-            convergence.Visibility = Visible(settings is not null && on.IsChecked == true);
-            status.Text = session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? Loc.Get("ReadingSettingsFromTheHeadset")
-                : Loc.Get("SavedInQFTHeadsetChangingItRestartsTrackingFor");
+            convergence.Visibility = actions.Visibility = Visible(settings is not null && on.IsChecked == true);
+            AutomationProperties.SetHelpText(on, Loc.Get("TracksTheDirectionOfEachEyeSeparately") + Environment.NewLine
+                + (session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? Loc.Get("ReadingSettingsFromTheHeadset")
+                    : Loc.Get("SavedInQFTHeadsetChangingItRestartsTrackingFor")));
         }
         on.Click += async (_, _) =>
         {
@@ -406,7 +406,7 @@ public partial class StudioWindow
         };
         trackingRefresh += Refresh;
         Refresh();
-        return Card(on, status, Buttons(convergence));
+        return Card(on, actions);
     }
 
     UIElement ConvergenceOptions()
@@ -534,7 +534,7 @@ public partial class StudioWindow
     {
         if (!session.SettingUp) return;
         if (session.Progress >= 100) (setupDone, setupStep) = (true, SetupSteps.Length);
-        else if (session.State is not ("Setup paused" or "Couldn’t connect")) setupStep = Array.FindLastIndex(SetupSteps, s => s.From <= session.Progress);
+        else if (session.State is not ("SetupPaused" or "CouldnTConnect")) setupStep = Array.FindLastIndex(SetupSteps, s => s.From <= session.Progress);
     }
 
     void SetupOptions()
@@ -545,7 +545,7 @@ public partial class StudioWindow
         {
             ContentTemplate = (DataTemplate)FindResource("SetupStatusRow"),
             Content = new { Glyph = glyph, Title = title, Detail = detail, Brush = brush, Muted = muted, Weight = current ? FontWeights.SemiBold : FontWeights.Normal,
-                Name = status.Length == 0 ? title : $"{title}, {status}" }
+                Name = status.Length == 0 ? title : Loc.Format("SetupStepStatus", title, status) }
         };
         Ui.Card Template(string name) => (Ui.Card)((DataTemplate)FindResource(name)).LoadContent();
         var use = session.Use;
@@ -574,7 +574,7 @@ public partial class StudioWindow
             found.Children.Add(Choice("headset", Loc.Get("AnyQuestPro"), Loc.Get("ConnectsToTheFirstQuestProItFinds"), preferred.Length == 0, () => session.Save("headsetSerial", "")));
             foreach (var group in headsets.Where(q => q.State == "device").GroupBy(q => q.Serial))
             {
-                var ways = string.Join(Loc.Get("And"), group.OrderBy(q => q.Wireless ? 0 : 1).Select(q => q.Wireless ? Loc.Format("WiFi", q.Target) : "USB"));
+                var ways = string.Join(Loc.Get("And"), group.OrderBy(q => q.Wireless ? 0 : 1).Select(q => q.Wireless ? Loc.Format("WiFi", q.Target) : Loc.Get("UsbConnection")));
                 found.Children.Add(Choice("headset", Loc.Get("QuestProReady"), Loc.Format("ConnectedBySerial", ways, group.Key), preferred == group.Key, () => session.Save("headsetSerial", group.Key)));
             }
             if (preferred.Length > 0 && !headsets.Any(q => q.State == "device" && q.Serial == preferred))
@@ -583,7 +583,7 @@ public partial class StudioWindow
             {
                 var (state, fix) = q.State == "unauthorized" ? (Loc.Get("WaitingForPermission"), Loc.Get("InTheHeadsetChooseAlwaysAllowFromThisComputer"))
                     : (Loc.Get("NotResponding"), Loc.Get("RestartTheHeadsetAndKeepUSBConnectedThenSearch"));
-                found.Children.Add(Row("⚠", Loc.Format("QuestPro", state), $"{(q.Wireless ? $"Wi-Fi ({q.Target})" : "USB")}. {fix}", "Ink"));
+                found.Children.Add(Row("⚠", Loc.Format("QuestPro", state), Loc.Format("HeadsetConnectionProblem", q.Wireless ? Loc.Format("WiFi", q.Target) : Loc.Get("UsbConnection"), fix), "Ink"));
             }
             if (!searching && headsetsChecked is not null && headsets.Count == 0)
                 found.Children.Add(Muted(Loc.Get("NoHeadsetsFoundPlugInAUSBDataCable")));
@@ -595,7 +595,7 @@ public partial class StudioWindow
                 searching = true;
                 ShowHeadsets();
                 try { (headsets, headsetsChecked) = (await session.Discover(), DateTime.Now); }
-                catch (Exception error) { Error(Loc.Get("CouldnTSearchForHeadsets") + error.Message); }
+                catch (Exception error) { Error(Loc.Format("HeadsetSearchFailure", error.Message)); }
                 finally { searching = false; }
             }
             if (page == "Setup") setupRefresh?.Invoke();
@@ -604,8 +604,8 @@ public partial class StudioWindow
         var connection = Card([Heading(Loc.Get("Connection")), .. new[]
         {
             ("auto", Loc.Get("Automatic"), Loc.Get("UsesWiFiWhenItSAvailableAndUSB")),
-            ("wifi", "Wi-Fi", Loc.Get("UnplugAfterSetupIfTheHeadsetRestartsConnectUSB")),
-            ("usb", "USB", Loc.Get("KeepsTheCableConnectedMostReliable"))
+            ("wifi", Loc.Get("WiFiConnection"), Loc.Get("UnplugAfterSetupIfTheHeadsetRestartsConnectUSB")),
+            ("usb", Loc.Get("UsbConnection"), Loc.Get("KeepsTheCableConnectedMostReliable"))
         }.Select(c => Choice("connection", c.Item2, c.Item3, connectionMode == c.Item1, () => session.Save("connectionMode", c.Item1)))]);
         var steps = Template("SetupStepsPanel");
         var (status, bar, list) = ((TextBlock)steps.FindName("Status"), (ProgressBar)steps.FindName("Progress"), (StackPanel)steps.FindName("Steps"));

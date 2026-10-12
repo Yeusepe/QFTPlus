@@ -343,7 +343,10 @@ class MainActivity : ComponentActivity() {
 
     private class Parameter(val name: String, val area: String, val minimum: Float, val maximum: Float, val neutral: Float, val modeled: Boolean, val partner: String?)
     private class Adjustable(val parameters: List<Parameter>, val areas: List<String>, val settings: JSONObject, val live: Map<String, FloatArray>, val sink: String)
-    private fun label(name: String) = name.replace(Regex("(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[XY]$)"), " ")
+    private fun label(name: String): String {
+        val id = resources.getIdentifier("parameter_" + name.lowercase(Locale.ROOT), "string", packageName)
+        return if (id != 0) getString(id) else name
+    }
     private fun pairTitle(id: String) = getString(R.string.both_sides, label(id.removeSuffix(":both")))
     private fun areaTitle(id: String) = when (id) {
         "Brows" -> getString(R.string.brows)
@@ -356,6 +359,7 @@ class MainActivity : ComponentActivity() {
         "Mouth" -> getString(R.string.mouth)
         "Jaw" -> getString(R.string.jaw)
         "Tongue" -> getString(R.string.tongue)
+        "Throat and neck" -> getString(R.string.throat_and_neck)
         else -> id
     }
     private fun pair(p: Parameter) = if (p.partner != null || p.area == "Gaze" && p.name.contains(Regex("Left|Right")))

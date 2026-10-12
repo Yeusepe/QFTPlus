@@ -52,13 +52,13 @@ internal static class Uninstall
             "[IO.Directory]::Delete($env:QFT_REMOVE, $true); break } catch { Start-Sleep 2 } }";
         var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell/v1.0/powershell.exe"), ["-NoProfile", "-NonInteractive", "-Command", script])
         { CreateNoWindow = true, WorkingDirectory = Path.GetTempPath(), Environment = { ["QFT_REMOVE"] = folder } };
-        using var process = Process.Start(info) ?? throw new IOException("Windows PowerShell didn’t start.");
+        using var process = Process.Start(info) ?? throw new IOException(Loc.Get("WindowsPowerShellDidnTStart"));
     }
 
     internal static string? Blocker()
     {
-        if (SteamVrDriver.Loaded()) return "Close SteamVR, which is using the QFT+ driver.";
-        return Processes.Running("VRCFaceTracking") ? "Quit VRCFaceTracking from its system tray menu; it has the QFT+ module loaded." : null;
+        if (SteamVrDriver.Loaded()) return Loc.Get("CloseSteamVRWhichIsUsingTheQFTDriver");
+        return Processes.Running("VRCFaceTracking") ? Loc.Get("QuitVRCFaceTrackingFromItsSystemTrayMenuItHasThe") : null;
     }
 
     static void Delete(string file) { if (File.Exists(file)) File.Delete(file); }

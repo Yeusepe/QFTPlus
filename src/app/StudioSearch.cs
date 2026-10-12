@@ -79,8 +79,8 @@ public partial class StudioWindow
             yield return new(Loc.Get("OverrideLiveTracking"), null, "Manual", Loc.Get("TestMovementsManualSlidersPreviewAvatar"));
             if (onHeadset)
             {
-                yield return new(Loc.Get("FaceAndTongue"), "QFT+ Headset", "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
-                yield return new(Loc.Get("PupilDilation"), "QFT+ Headset", "Calibration", Loc.Get("CalibratePupilsEyes"));
+                yield return new(Loc.Get("FaceAndTongue"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
+                yield return new(Loc.Get("PupilDilation"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibratePupilsEyes"));
             }
             else
             {
@@ -106,7 +106,7 @@ public partial class StudioWindow
                 yield return new(Loc.Get("SendTrackingTo"), null, "Settings", Loc.Get("OutputDestinationOscVrchatReceiver"));
                 foreach (var (title, words) in new[] { (Loc.Get("TongueDirection"), Loc.Get("FaceCalibration_bca2dbed")), (Loc.Get("PupilDilation"), Loc.Get("EyesPupils")), (Loc.Get("ResumeAfterRestart"), Loc.Get("BootStartupReboot")),
                              (Loc.Get("UpdateRate"), Loc.Get("FpsFrameRateSpeedLatencyBatteryHeat")) })
-                    yield return new(title, "QFT+ Headset", "Settings", words);
+                    yield return new(title, Loc.Get("HeadsetAppName"), "Settings", words);
             }
             else
             {
