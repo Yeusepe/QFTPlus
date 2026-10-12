@@ -22,7 +22,7 @@ public partial class StudioWindow
     long Ack => state["ack"]?.GetValue<long>() ?? 0;
     DateTime lastFresh = DateTime.UtcNow;
     bool FreshState() => state["time"]?.GetValue<double>() is { } time && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - time) < 3;
-    static string GroupTitle(string kind) => kind == "pupils" ? "Pupils" : kind.StartsWith("benchmark") ? "Benchmark" : "Face";
+    static string GroupTitle(string kind) => kind == "pupils" ? Loc.Get("Pupils") : kind.StartsWith("benchmark") ? Loc.Get("Benchmark") : Loc.Get("Face");
 
     void DrawFace(JsonObject targets) =>
         face.Show(targets, poseTitle.Text, kind, !preview, recording ? state["index"]?.GetValue<int>() ?? -1 : -1, state["count"]?.GetValue<int>() ?? 0);
@@ -51,28 +51,28 @@ public partial class StudioWindow
     {
         if (HeadsetModelExperiment.Standalone(session))
         {
-            Subtitle.Text = "Runs in QFT+ Headset, where an avatar shows each expression to copy.";
+            Subtitle.Text = Loc.Get("RunsInQFTHeadsetWhereAnAvatarShowsEach");
             Subtitle.Visibility = Visibility.Visible;
             var status = Muted("", live: true);
             var list = new StackPanel();
             var rows = new List<(TextBlock Value, string Kind, string About)>();
             var watching = false;
             foreach (var (kind, title, icon, about, primary) in new[] {
-                         ("face", "Face and tongue", "sentiment_satisfied", "Copy 12 expressions from a Meta avatar · about 75 seconds", true),
-                         ("pupils", "Pupil dilation", "adjust", "Follow a dot as the space darkens and brightens · about 80 seconds", false) })
+                         ("face", Loc.Get("FaceAndTongue"), "sentiment_satisfied", Loc.Get("Copy12ExpressionsFromAMetaAvatarAbout75"), true),
+                         ("pupils", Loc.Get("PupilDilation"), "adjust", Loc.Get("FollowADotAsTheSpaceDarkensAndBrightens"), false) })
             {
-                var start = AsyncButton("Calibrate", async () =>
+                var start = AsyncButton(Loc.Get("Calibrate_9604ba0c"), async () =>
                 {
                     try
                     {
                         session.App = await session.SendApp(CancellationToken.None, ("calibrate", kind));
                         watching = true;
-                        status.Text = "Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.";
+                        status.Text = Loc.Get("CalibrationStartedInTheHeadsetPutItOnAnd");
                     }
                     catch (IOException error) { status.Text = error.Message; }
                 });
                 start.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
-                AutomationProperties.SetName(start, "Calibrate " + title.ToLowerInvariant());
+                AutomationProperties.SetName(start, Loc.Format("CalibrateGroup", title));
                 var value = Text("", 14, true);
                 list.Children.Add(ActionRow(title, value, icon, start));
                 rows.Add((value, kind, about));
@@ -81,18 +81,18 @@ public partial class StudioWindow
             trackingRefresh += () =>
             {
                 foreach (var (value, kind, about) in rows)
-                    value.Text = (session.App is not { } app ? "" : HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated · " : "Not calibrated · ") + about;
-                if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : "Reading calibration from the headset…";
+                    value.Text = (session.App is not { } app ? "" : HeadsetApp.Flag(app, "calibrated", kind) ? Loc.Get("Calibrated") : Loc.Get("NotCalibrated")) + about;
+                if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : Loc.Get("ReadingCalibrationFromTheHeadset");
                 else if (session.App["calibration"] is JsonObject headset)
                 {
-                    const string calibrating = "Calibrating in the headset…";
+                    var calibrating = Loc.Get("CalibratingInTheHeadset");
                     var result = headset["result"]?.GetValue<string>() ?? "";
                     if (headset["running"]?.GetValue<bool>() == true) (status.Text, watching) = (calibrating, true);
                     else if (watching && (result.Length > 0 || status.Text == calibrating)) (status.Text, watching) = (result, false);
                 }
             };
             trackingRefresh();
-            var note = Muted("Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.");
+            var note = Muted(Loc.Get("CalibrateAfterChangingHowTheHeadsetFitsYourSaved"));
             note.Margin = new(0, 8, 0, 8);
             foreach (var element in new UIElement[] { list, note, status }) Page.Children.Add(element);
             return;
@@ -100,27 +100,27 @@ public partial class StudioWindow
         if (training) kind = trainingKind;
         calibrationModes.SelectionChanged -= CalibrationModeChanged;
         calibrationModes.Items.Clear();
-        foreach (var (id, title) in new[] { ("enroll", "Face"), ("pupils", "Pupils") }
-                     .Concat(session.Config["benchmarkMode"]?.GetValue<bool>() == true ? [("benchmark-quick", "Short benchmark"), ("benchmark", "Full benchmark")] : []))
+        foreach (var (id, title) in new[] { ("enroll", Loc.Get("Face")), ("pupils", Loc.Get("Pupils")) }
+                     .Concat(session.Config["benchmarkMode"]?.GetValue<bool>() == true ? [("benchmark-quick", Loc.Get("ShortBenchmark")), ("benchmark", Loc.Get("FullBenchmark"))] : []))
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
-        poseTitle.Text = "Calibrate " + GroupTitle(kind).ToLowerInvariant();
-        poseDetail.Text = (SetupFirst ? "Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. " : "") + (kind switch
+        poseTitle.Text = Loc.Format("CalibrateGroup", GroupTitle(kind));
+        poseDetail.Text = (SetupFirst ? Loc.Get("SetUpYourFaceFirstSoTheBenchmarkChecks") : "") + (kind switch
         {
-            "enroll" => "Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range.",
-            "benchmark-quick" => "For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change.",
-            "benchmark" => "For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change.",
-            _ => "Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start."
-        }) + " To see this window in the headset, open the desktop in the Steam overlay.";
-        cue.Text = kind switch { "pupils" => "About 80 seconds", "benchmark" => "About 18 minutes", "benchmark-quick" => "About 5 minutes", _ => EnrollLength };
+            "enroll" => Loc.Get("HoldAFewExpressionsForAFewSecondsEach"),
+            "benchmark-quick" => Loc.Get("ForTestersShortPromptsAndALittleReadingThat"),
+            "benchmark" => Loc.Get("ForTestersPromptsReadingAndTalkingThatCheckHow"),
+            _ => Loc.Get("LetsYourAvatarSPupilsFollowYoursDimThe")
+        }) + Loc.Get("ToSeeThisWindowInTheHeadsetOpenThe");
+        cue.Text = kind switch { "pupils" => Loc.Get("About80Seconds"), "benchmark" => Loc.Get("About18Minutes"), "benchmark-quick" => Loc.Get("About5Minutes"), _ => EnrollLength };
         CalibrationCard.Content = CalibrationGuide;
         (progress.IsIndeterminate, progress.Value) = (false, 0);
-        count.Text = kind == "pupils" ? "" : "Recordings stay on this PC.";
+        count.Text = kind == "pupils" ? "" : Loc.Get("RecordingsStayOnThisPC");
         count.Visibility = Visible(kind != "pupils");
         slowMode.IsChecked = slow;
-        begin.Content = SetupFirst ? "Start without setup" : "Start calibration";
+        begin.Content = SetupFirst ? Loc.Get("StartWithoutSetup") : Loc.Get("StartCalibration");
         begin.Appearance = SetupFirst ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
-        pause.Content = "Pause";
+        pause.Content = Loc.Get("Pause");
         cancel.IsEnabled = true;
         review.Visibility = Visibility.Collapsed;
         foreach (var element in new UIElement[] { CalibrationAreaLabel, calibrationModes, CalibrationCard, slowMode }) Page.Children.Add(element);
@@ -154,7 +154,7 @@ public partial class StudioWindow
         CalibrationReset();
     }
 
-    string EnrollLength => slow ? "About 2 minutes" : "About 1 minute";
+    string EnrollLength => slow ? Loc.Get("About2Minutes") : Loc.Get("About1Minute");
     void BeginCalibration(object sender, RoutedEventArgs e) => Begin();
     void GuideCommand(object sender, RoutedEventArgs e) => Send((string)((Button)sender).Tag);
     void ReviewCalibration(object sender, RoutedEventArgs e) => Open(prefix + ".avi");
@@ -170,7 +170,7 @@ public partial class StudioWindow
     {
         cancelPending = true;
         cancel.IsEnabled = false;
-        cue.Text = "Stopping calibration…";
+        cue.Text = Loc.Get("StoppingCalibration");
     }
 
     internal void Begin()
@@ -178,11 +178,11 @@ public partial class StudioWindow
         if (recording || training) return;
         if (HeadsetModelExperiment.Standalone(session))
         {
-            Error("Open Calibration in QFT+ Headset. This experiment records and processes calibration on the headset.");
+            Error(Loc.Get("OpenCalibrationInQFTHeadsetThisExperimentRecordsAnd"));
             return;
         }
-        if (!session.Running) Error("Start tracking, then start calibration.");
-        else if (runtimeId.Length == 0 || session.State != "Connected" || !FreshState()) Error("Waiting for the headset cameras. Make sure the headset is awake and connected.");
+        if (!session.Running) Error(Loc.Get("StartTrackingThenStartCalibration"));
+        else if (runtimeId.Length == 0 || session.State != "Connected" || !FreshState()) Error(Loc.Get("WaitingForTheHeadsetCamerasMakeSureTheHeadset"));
         else
         {
             ClearNotice();
@@ -203,7 +203,7 @@ public partial class StudioWindow
         if (Ack < command)
         {
             if (action == "reload") reloadPending = true;
-            else if (action != "heartbeat") Error("Waiting for the previous action…");
+            else if (action != "heartbeat") Error(Loc.Get("WaitingForThePreviousAction"));
             return false;
         }
         var data = fields ?? new JsonObject();
@@ -214,7 +214,7 @@ public partial class StudioWindow
         return true;
     }
 
-    async Task Conclude(Func<Task<string>> work, string title = "Creating your calibration", string detail = "This takes a few seconds. Tracking stays on.")
+    async Task Conclude(Func<Task<string>> work, string? title = null, string? detail = null)
     {
         (training, trainingKind) = (true, kind);
         ClearNotice();
@@ -224,17 +224,17 @@ public partial class StudioWindow
         try { result = (true, await work()); }
         catch (Exception error)
         {
-            result = trainingKind.StartsWith("benchmark") ? (true, "Benchmark recorded, but it couldn’t be prepared to share. " + error.Message) : (false, error.Message);
+            result = trainingKind.StartsWith("benchmark") ? (true, Loc.Get("BenchmarkRecordedButItCouldnTBePreparedTo") + error.Message) : (false, error.Message);
         }
         training = false;
         progress.IsIndeterminate = false;
         Finished(result.Passed, result.Message);
     }
 
-    void ShowWorking(string title = "Creating your calibration", string detail = "This takes a few seconds. Tracking stays on.")
+    void ShowWorking(string? title = null, string? detail = null)
     {
         if (page != "Calibration" || !training) return;
-        (poseTitle.Text, poseDetail.Text, cue.Text) = (title, detail, "");
+        (poseTitle.Text, poseDetail.Text, cue.Text) = (title ?? Loc.Get("CreatingYourCalibration"), detail ?? Loc.Get("ThisTakesAFewSecondsTrackingStaysOn"), "");
         progress.IsIndeterminate = true;
         progress.Visibility = Visibility.Visible;
         count.Visibility = Visibility.Collapsed;
@@ -253,22 +253,22 @@ public partial class StudioWindow
         RefreshCalibrationControls();
         if (page != "Calibration" || kind != trainingKind)
         {
-            Error(passed ? message : GroupTitle(trainingKind) + " calibration wasn't saved. Open Calibration for details.");
+            Error(passed ? message : GroupTitle(trainingKind) + Loc.Get("CalibrationWasnTSavedOpenCalibrationForDetails"));
             return;
         }
         CalibrationCard.Content = CalibrationResultPanel;
         var benchmark = passed && trainingKind.StartsWith("benchmark");
-        ResultTitle.Text = benchmark ? "Benchmark recorded" : passed ? "Calibration is on" : "Calibration wasn't saved";
-        ResultDetail.Text = benchmark ? message : passed ? "Check your avatar to see the difference." : "Your current calibration hasn't changed.";
+        ResultTitle.Text = benchmark ? Loc.Get("BenchmarkRecorded") : passed ? Loc.Get("CalibrationIsOn") : Loc.Get("CalibrationWasnTSaved");
+        ResultDetail.Text = benchmark ? message : passed ? Loc.Get("CheckYourAvatarToSeeTheDifference") : Loc.Get("YourCurrentCalibrationHasnTChanged");
         ResultFiles.Visibility = Visible(benchmark && File.Exists(candidate));
         var lines = passed ? [] : message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        ResultError.Text = lines.FirstOrDefault() ?? "Try recording your poses again.";
+        ResultError.Text = lines.FirstOrDefault() ?? Loc.Get("TryRecordingYourPosesAgain");
         ResultError.Visibility = Visible(!passed);
         ResultFindings.IsExpanded = false;
         ResultLines.ItemsSource = lines.Skip(1);
         ResultDetailsHost.Children.Clear();
         if (lines.Length > 1) ResultDetailsHost.Children.Add(ResultFindings);
-        begin.Content = passed ? "Calibrate again" : "Try again";
+        begin.Content = passed ? Loc.Get("CalibrateAgain") : Loc.Get("TryAgain");
         begin.Appearance = passed ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         review.Visibility = Visible(File.Exists(prefix + ".avi"));
         UIElementAutomationPeer.FromElement(ResultTitle)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
@@ -277,7 +277,7 @@ public partial class StudioWindow
     void ShowBenchmarkFile(object sender, RoutedEventArgs e)
     {
         try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{candidate}\"").Dispose(); }
-        catch (Exception) { Error("Couldn’t open File Explorer. The file is in " + Path.GetDirectoryName(candidate) + "."); }
+        catch (Exception) { Error(Loc.Get("CouldnTOpenFileExplorerTheFileIsIn") + Path.GetDirectoryName(candidate) + "."); }
     }
 
     internal async Task Tick()
@@ -304,7 +304,7 @@ public partial class StudioWindow
                 Theme("System");
                 if (restoreState is { } before) (WindowState, restoreState) = (before, null);
                 if (page == "Calibration") CalibrationReset(); else RefreshCalibrationControls();
-                Error("Calibration stopped because tracking stopped or the camera feed stayed paused. Your previous calibration is unchanged.");
+                Error(Loc.Get("CalibrationStoppedBecauseTrackingStoppedOrTheCameraFeed"));
             }
             var settled = FreshState() && Ack >= command;
             if (cancelPending && settled && Send("cancel"))
@@ -319,11 +319,11 @@ public partial class StudioWindow
             }
             if (recording && !cancelPending && DateTime.UtcNow - heartbeat > TimeSpan.FromMilliseconds(700)) Send("heartbeat");
             if (page == "Calibration" && recording) UpdateGuide();
-            if (recording && !FreshState()) Error("Camera feed paused. Make sure the headset is awake and connected, or cancel.");
+            if (recording && !FreshState()) Error(Loc.Get("CameraFeedPausedMakeSureTheHeadsetIsAwake"));
             if (page == "Cameras" && IsVisible) await UpdateCameras();
             if (IsVisible) adjustmentRefresh?.Invoke();
             if (state["error"]?.GetValue<string>() is { Length: > 0 } error && (recording ? Ack >= recordingCommand : page == "Calibration")) Error(error);
-            if (page != "Tracking" && session.Hybrid is not null && !Session.Alive(session.Hybrid)) Error("Hybrid hands stopped. The Hybrid hands log in Settings shows why.");
+            if (page != "Tracking" && session.Hybrid is not null && !Session.Alive(session.Hybrid)) Error(Loc.Get("HybridHandsStoppedTheHybridHandsLogInSettings"));
         }
         catch (Exception error) { Error(error.Message); }
         finally { polling = false; }
@@ -334,13 +334,13 @@ public partial class StudioWindow
         if (cancelPending || !FreshState() || Ack < recordingCommand || state["kind"]?.GetValue<string>() != kind) return;
         poseTitle.Text = state["title"]?.GetValue<string>() ?? poseTitle.Text;
         poseDetail.Text = state["instruction"]?.GetValue<string>() ?? "";
-        cue.Text = kind == "pupils" ? $"{state["remaining"]?.GetValue<double>():0} seconds" : state["cue"]?.GetValue<string>() ?? "Look at the circle";
+        cue.Text = kind == "pupils" ? Loc.Format("SecondsRemaining", state["remaining"]?.GetValue<double>()) : state["cue"]?.GetValue<string>() ?? Loc.Get("LookAtTheCircle");
         var index = state["index"]?.GetValue<int>() ?? 0;
         progress.Value = (state["progress"]?.GetValue<double>() ?? index / 4.0) * 100;
-        count.Text = $"{index + 1} of {state["total"]?.GetValue<int>() ?? 4}";
+        count.Text = Loc.Format("Of", index + 1, state["total"]?.GetValue<int>() ?? 4);
         if (kind == "pupils") SetPupilStimulus(state["level"]?.GetValue<double>() ?? 0);
         else DrawFace(state["targets"]?.AsObject() ?? new());
-        pause.Content = state["paused"]?.GetValue<bool>() == true ? "Resume" : "Pause";
+        pause.Content = state["paused"]?.GetValue<bool>() == true ? Loc.Get("Resume") : Loc.Get("Pause");
         if (state["phase"]?.GetValue<string>() is not ("complete" or "cancelled")) return;
         recording = false;
         Theme("System");
@@ -360,7 +360,7 @@ public partial class StudioWindow
             try
             {
                 Apply("pupils");
-                Finished(true, "Pupil calibration is on.");
+                Finished(true, Loc.Get("PupilCalibrationIsOn"));
             }
             catch (Exception error) { Finished(false, error.Message); }
         }
@@ -371,13 +371,13 @@ public partial class StudioWindow
                 {
                     candidate = await session.Enroll(prefix);
                     Apply("enroll");
-                    return "Face calibration is on.";
+                    return Loc.Get("FaceCalibrationIsOn");
                 });
         }
         else if (!session.Tester)
         {
             (candidate, trainingKind) = ("", kind);
-            Finished(true, "Benchmark recorded. Its files start with " + Path.GetFileName(prefix) + " in " + Path.GetDirectoryName(prefix) + ".");
+            Finished(true, Loc.Get("BenchmarkRecordedItsFilesStartWith") + Path.GetFileName(prefix) + Loc.Get("In") + Path.GetDirectoryName(prefix) + ".");
         }
         else
         {
@@ -385,9 +385,9 @@ public partial class StudioWindow
             _ = Conclude(async () =>
             {
                 candidate = await session.Package(prefix);
-                return $"Send this file to the QFT+ developer directly: {Path.GetFileName(candidate)} ({new FileInfo(candidate).Length / 1e6:0} MB). "
-                    + "If it’s too big to attach to a message, send a OneDrive or Google Drive link to it instead.";
-            }, "Preparing your recording", "This takes about a minute. Tracking stays on.");
+                return Loc.Format("SendThisFileToTheQFTDeveloperDirectlyMB", Path.GetFileName(candidate), new FileInfo(candidate).Length / 1e6)
+                    + Loc.Get("IfItSTooBigToAttachToA");
+            }, Loc.Get("PreparingYourRecording"), Loc.Get("ThisTakesAboutAMinuteTrackingStaysOn"));
         }
     }
 

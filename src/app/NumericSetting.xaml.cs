@@ -17,8 +17,8 @@ public partial class NumericSetting : UserControl
         (slider.Minimum, slider.Maximum, slider.Value, slider.SmallChange, slider.LargeChange) = (min, max, Math.Clamp(value, min, max), (max - min) / 100, (max - min) / 10);
         (number.Minimum, number.Maximum, number.SmallChange, number.LargeChange, number.MaxDecimalPlaces) = (min * scale, max * scale, (max - min) * scale / 100, (max - min) * scale / 10, decimals);
         (view.Title.Text, view.Unit.Text) = (title, unit);
-        number.ToolTip = $"Enter a value from {Math.Round(min * scale, decimals)} to {Math.Round(max * scale, decimals)}{unit}.";
-        AutomationProperties.SetName(number, title + " value");
+        number.ToolTip = Loc.Format("EnterAValueFromTo", Math.Round(min * scale, decimals), Math.Round(max * scale, decimals), unit);
+        AutomationProperties.SetName(number, Loc.Format("SettingValue", title));
         AutomationProperties.SetHelpText(number, (string)number.ToolTip);
         number.SetBinding(Wpf.Ui.Controls.NumberBox.ValueProperty, new Binding(nameof(Slider.Value)) { Source = slider, Converter = new Scale(scale), UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged });
         number.LostKeyboardFocus += (_, _) =>

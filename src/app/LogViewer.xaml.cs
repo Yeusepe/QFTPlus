@@ -9,13 +9,13 @@ public partial class LogViewer : UserControl
 {
     static readonly (string Title, string File, string Empty)[] Logs =
     {
-        ("Tracking (tracking.log)", "tracking.log", "Start tracking to create it."),
-        ("Eye tracking (eyes.log)", "eyes.log", "Start tracking with independent eye gaze on to create it."),
-        ("Face and tongue (face.log)", "face.log", "Start tracking to create it."),
-        ("Headset relay (questpro-live-relay.txt)", "questpro-live-relay.txt", "Start tracking to create it."),
-        ("Setup (setup.log)", "setup.log", "Run setup to create it."),
-        ("Components (studio.log)", "studio.log", "It’s created when calibration or hybrid hands run a step."),
-        ("Hybrid hands (hybrid.log)", "hybrid.log", "Turn on hybrid hands, then start tracking to create it.")
+        (Loc.Get("TrackingTrackingLog"), "tracking.log", Loc.Get("StartTrackingToCreateIt")),
+        (Loc.Get("EyeTrackingEyesLog"), "eyes.log", Loc.Get("StartTrackingWithIndependentEyeGazeOnToCreate")),
+        (Loc.Get("FaceAndTongueFaceLog"), "face.log", Loc.Get("StartTrackingToCreateIt")),
+        (Loc.Get("HeadsetRelayQuestproLiveRelayTxt"), "questpro-live-relay.txt", Loc.Get("StartTrackingToCreateIt")),
+        (Loc.Get("SetupSetupLog"), "setup.log", Loc.Get("RunSetupToCreateIt")),
+        (Loc.Get("ComponentsStudioLog"), "studio.log", Loc.Get("ItSCreatedWhenCalibrationOrHybridHandsRun")),
+        (Loc.Get("HybridHandsHybridLog"), "hybrid.log", Loc.Get("TurnOnHybridHandsThenStartTrackingToCreate"))
     };
     const int TailSize = 128 * 1024;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -63,7 +63,7 @@ public partial class LogViewer : UserControl
         {
             first = read = 0;
             LogText.Clear();
-            LogCaption.Text = "Nothing logged yet. " + Logs[LogPicker.SelectedIndex].Empty;
+            LogCaption.Text = Loc.Get("NothingLoggedYet") + Logs[LogPicker.SelectedIndex].Empty;
             return;
         }
         if (!force && info.Length == read) return;
@@ -84,16 +84,16 @@ public partial class LogViewer : UserControl
             else LogText.AppendText(text);
             read = stream.Position;
         }
-        catch (IOException error) { LogCaption.Text = "Couldn’t read the log. " + error.Message; return; }
+        catch (IOException error) { LogCaption.Text = Loc.Get("CouldnTReadTheLog") + error.Message; return; }
         if (following) LogText.ScrollToEnd();
         else LogText.ScrollToVerticalOffset(offset);
-        LogCaption.Text = $"Updates live. Last changed at {info.LastWriteTime:T}" + (first > 0 ? ". Showing the most recent part." : ".");
+        LogCaption.Text = Loc.Format("UpdatesLiveLastChangedAt", info.LastWriteTime) + (first > 0 ? Loc.Get("ShowingTheMostRecentPart") : ".");
     }
 
     void CopyLog(object sender, RoutedEventArgs e)
     {
-        try { Clipboard.SetText(LogText.Text); LogCaption.Text = "Copied to the clipboard."; }
-        catch (Exception error) { LogCaption.Text = "Couldn’t copy the log. " + error.Message; }
+        try { Clipboard.SetText(LogText.Text); LogCaption.Text = Loc.Get("CopiedToTheClipboard"); }
+        catch (Exception error) { LogCaption.Text = Loc.Get("CouldnTCopyTheLog") + error.Message; }
     }
 
     static void Launch(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();
