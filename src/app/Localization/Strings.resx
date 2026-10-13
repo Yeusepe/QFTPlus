@@ -57,7 +57,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="AlsoDeleteCalibrationsRecordingsFaceTrackingLogsAndSettings" xml:space="preserve">
-    <value>Also delete calibrations, recordings, face-tracking logs, and settings</value>
+    <value>Also delete PC calibrations, recordings, face-tracking logs, and settings</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="And" xml:space="preserve">
@@ -1345,7 +1345,7 @@
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="RemovesTheAppItsSteamVRDriverItsVRCFaceTrackingModule" xml:space="preserve">
-    <value>Removes the app, its SteamVR driver, its VRCFaceTracking module, and its shortcuts. Tracking stops.</value>
+    <value>Removes QFT+, its drivers, module, and shortcuts. Tracking stops. Headset backups are kept for reinstalling.</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="RequiresVirtualDesktop" xml:space="preserve">
@@ -1615,6 +1615,54 @@
   <data name="SmoothingWhenRelaxing" xml:space="preserve">
     <value>Smoothing when relaxing</value>
     <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="TrackingRunsOnThisPC" xml:space="preserve">
+    <value>Tracking runs on this PC.</value>
+  </data>
+  <data name="ThisTakesAMinuteOrTwoKeepTheHeadsetAwake" xml:space="preserve">
+    <value>This takes a minute or two. Keep the headset awake and connected.</value>
+  </data>
+  <data name="ConnectTheHeadsetThatHasQFTHeadsetInstalledToUpdate" xml:space="preserve">
+    <value>Connect the headset that has QFT+ Headset installed to update it.</value>
+  </data>
+  <data name="ConnectTheHeadsetThatHasTheExperimentInstalledToFinish" xml:space="preserve">
+    <value>Connect the headset that has the experiment installed to finish removing it.</value>
+  </data>
+  <data name="QFTHeadsetIsInstalledAndPairedPutOnTheHeadset" xml:space="preserve">
+    <value>QFT+ Headset is installed and paired. Put on the headset and allow its root request the first time, then start tracking here.</value>
+  </data>
+  <data name="QFTHeadsetAndItsCalibrationAreRemovedFromTheHeadset" xml:space="preserve">
+    <value>QFT+ Headset is removed. Settings and calibration are backed up on this PC for reinstalling.</value>
+  </data>
+  <data name="ConnectTheHeadsetAssociatedWithTheModelExperimentOrTurn" xml:space="preserve">
+    <value>Connect the headset associated with the model experiment, or turn the experiment off on that headset first.</value>
+  </data>
+  <data name="HeadsetAppSetupFailed" xml:space="preserve">
+    <value>Headset app setup failed.</value>
+  </data>
+  <data name="HeadsetModelSetupFailedSeeHeadsetModelLog" xml:space="preserve">
+    <value>Headset model setup failed. See headset-model.log.</value>
+  </data>
+  <data name="InstallingQFTHeadset" xml:space="preserve">
+    <value>Installing QFT+ Headset</value>
+  </data>
+  <data name="RemovingQFTHeadset" xml:space="preserve">
+    <value>Removing QFT+ Headset</value>
+  </data>
+  <data name="TheHeadsetDidNotConfirmCleanup" xml:space="preserve">
+    <value>The headset did not confirm cleanup.</value>
+  </data>
+  <data name="TheHeadsetDidNotConfirmModelSetup" xml:space="preserve">
+    <value>The headset did not confirm model setup.</value>
+  </data>
+  <data name="HeadsetBackupFailed" xml:space="preserve">
+    <value>Couldn’t back up headset settings. QFT+ Headset was kept installed. Reconnect the headset and try again.</value>
+  </data>
+  <data name="HeadsetRestoreFailed" xml:space="preserve">
+    <value>Couldn’t restore headset settings. Your backup is unchanged. Reconnect the headset and try installing again.</value>
+  </data>
+  <data name="HeadsetBackupWrongDevice" xml:space="preserve">
+    <value>Connect the headset associated with these settings to back up or restore them.</value>
   </data>
   <data name="SourceMetaNative" xml:space="preserve">
     <value>source meta native</value>
@@ -1929,7 +1977,7 @@
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
   </data>
   <data name="TurningItOnInstallsQFTHeadsetAndPairsIt" xml:space="preserve">
-    <value>Turning it on installs QFT+ Headset and pairs it with this PC; allow its root request in the headset the first time. Turning it off removes the app and its calibration. Accuracy and headset load are still being tested.</value>
+    <value>Installs QFT+ Headset and pairs it with this PC. Allow root access on first use. Turning it off backs up settings and calibration to this PC before removal; reinstalling restores them.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="TurnsTrackingBackOnIfItWasOnWhen" xml:space="preserve">

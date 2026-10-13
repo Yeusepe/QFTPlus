@@ -31,11 +31,12 @@ internal static class HeadsetModelExperiment
         if (!enabled && string.IsNullOrEmpty(previousDevice))
         {
             session.Save("headsetModelCleanupPending", false);
-            session.Notify("Ready", "Tracking runs on this PC.");
+            session.Notify("Ready", Loc.Get("TrackingRunsOnThisPC"));
             return;
         }
-        session.Notify(enabled ? "Installing QFT+ Headset" : "Removing QFT+ Headset", "This takes a minute or two. Keep the headset awake and connected.");
+        session.Notify(enabled ? "InstallingQFTHeadset" : "RemovingQFTHeadset", Loc.Get("ThisTakesAMinuteOrTwoKeepTheHeadsetAwake"));
         string? target = null;
+        var appInstalled = false;
         try
         {
             await Adb.EnsureAsync(Adb.Exe(session.Root), token: token);
@@ -43,7 +44,7 @@ internal static class HeadsetModelExperiment
             var device = await new SetupService(session.Root).ConnectQuestAsync(token,
                 config["connectionMode"]?.GetValue<string>() ?? "auto", config["headsetSerial"]?.GetValue<string>() ?? "");
             if (config["headsetModelDevice"]?.GetValue<string>() is { Length: > 0 } owner && owner != device.Serial)
-                throw new IOException(updatingApp ? "Connect the headset that has QFT+ Headset installed to update it." : "Connect the headset that has the experiment installed to finish removing it.");
+                throw new IOException(updatingApp ? Loc.Get("ConnectTheHeadsetThatHasQFTHeadsetInstalledToUpdate") : Loc.Get("ConnectTheHeadsetThatHasTheExperimentInstalledToFinish"));
             session.Save("adbTarget", device.Target);
             session.Save("headsetModelDevice", device.Serial);
             session.Save("headsetModelCleanupPending", true);
@@ -53,6 +54,7 @@ internal static class HeadsetModelExperiment
             if (enabled && session.Config["headsetPairKey"]?.GetValue<string>() is not { Length: 64 })
                 session.Save("headsetPairKey", Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)).ToLowerInvariant());
             await RunAppAsync(session, device.Target, enabled ? "setup" : "cleanup", token);
+            appInstalled = enabled;
             if (enabled)
             {
                 SetupService.ValidateModuleFiles(session.Root, true);
@@ -65,9 +67,9 @@ internal static class HeadsetModelExperiment
             if (!enabled) session.Save("headsetModelDevice", null);
             if (!enabled) session.Save("headsetPairKey", null);
             session.Save("headsetAppSha256", enabled ? AppHash(session) : null);
-            session.Notify("Ready", enabled ? "QFT+ Headset is installed and paired. Put on the headset and allow its root request the first time, then start tracking here." : "QFT+ Headset and its calibration are removed from the headset. Tracking runs on this PC.");
+            session.Notify("Ready", enabled ? Loc.Get("QFTHeadsetIsInstalledAndPairedPutOnTheHeadset") : Loc.Get("QFTHeadsetAndItsCalibrationAreRemovedFromTheHeadset"));
         }
-        catch
+        catch (Exception failure)
         {
             if (updatingApp)
             {
@@ -75,11 +77,11 @@ internal static class HeadsetModelExperiment
                 session.Save("headsetModelCleanupPending", false);
                 throw;
             }
-            if (target is null) throw;
+            if (target is null || !enabled || !(appInstalled || failure is HeadsetAppFailure { CanRollback: true })) throw;
             try
             {
                 await RunAsync(session, target, "cleanup", CancellationToken.None);
-                await RunAppAsync(session, target, "cleanup", CancellationToken.None);
+                await RunAppAsync(session, target, "rollback", CancellationToken.None);
                 session.Save("headsetModelCleanupPending", false);
                 session.Save("headsetModelDevice", null);
             }
@@ -93,7 +95,7 @@ internal static class HeadsetModelExperiment
         if (!Enabled(session) && !Pending(session)) return;
         var serial = (await Processes.RunAsync(Adb.Exe(session.Root), ["-s", target, "shell", "getprop", "ro.serialno"], token, 10)).Text.Trim();
         if (serial.Length == 0 || serial != session.Config["headsetModelDevice"]?.GetValue<string>())
-            throw new IOException("Connect the headset associated with the model experiment, or turn the experiment off on that headset first.");
+            throw new IOException(Loc.Get("ConnectTheHeadsetAssociatedWithTheModelExperimentOrTurn"));
         if (Pending(session))
         {
             await RunAsync(session, target, "cleanup", token);
@@ -109,14 +111,20 @@ internal static class HeadsetModelExperiment
         if (!Standalone(session)) await RunAsync(session, target, "ensure", token);
     }
 
+    sealed class HeadsetAppFailure(string message, bool canRollback) : IOException(Loc.Get(message))
+    {
+        internal bool CanRollback { get; } = canRollback;
+    }
+
     static async Task RunAppAsync(Session session, string target, string action, CancellationToken token)
     {
         var info = session.Info(session.Python, [Path.Combine(session.Root, "headset_app.py"), action, "--config", session.ConfigPath]);
         info.Environment["ANDROID_SERIAL"] = target;
         var result = await Processes.RunAsync(info, token, 240);
         Session.Log(Path.Combine(session.Root, "headset-model.log"), result.Text);
-        if (result.Code != 0 || !result.Text.Contains(action == "cleanup" ? "HEADSET_APP_REMOVED" : "HEADSET_APP_READY", StringComparison.Ordinal))
-            throw new IOException(result.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "Headset app setup failed.");
+        if (result.Code != 0 || !result.Text.Contains(action == "setup" ? "HEADSET_APP_READY" : "HEADSET_APP_REMOVED", StringComparison.Ordinal))
+            throw new HeadsetAppFailure(result.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "HeadsetAppSetupFailed",
+                action == "setup" && result.Text.Contains("HEADSET_APP_INSTALLING", StringComparison.Ordinal));
     }
 
     static async Task RunAsync(Session session, string target, string action, CancellationToken token)
@@ -127,9 +135,9 @@ internal static class HeadsetModelExperiment
         Session.Log(Path.Combine(session.Root, "headset-model.log"), result.Text);
         if (result.Code != 0)
             throw new IOException(result.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault()
-                ?? "Headset model setup failed. See headset-model.log.");
+                ?? Loc.Get("HeadsetModelSetupFailedSeeHeadsetModelLog"));
         var expected = action == "cleanup" ? "HEADSET_MODEL_REMOVED" : "HEADSET_MODEL_READY";
         if (!result.Text.Contains(expected, StringComparison.Ordinal))
-            throw new IOException("The headset did not confirm " + (action == "cleanup" ? "cleanup." : "model setup."));
+            throw new IOException(action == "cleanup" ? Loc.Get("TheHeadsetDidNotConfirmCleanup") : Loc.Get("TheHeadsetDidNotConfirmModelSetup"));
     }
 }
