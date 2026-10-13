@@ -488,7 +488,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_qftplus_headset_CalibrationActivit
                     auto sessionState = reinterpret_cast<XrEventDataSessionStateChanged*>(&event)->state; focused = sessionState == XR_SESSION_STATE_FOCUSED;
                     __android_log_print(ANDROID_LOG_INFO, "QFTCalibration", "OpenXR state=%d", sessionState);
                     if (sessionState == XR_SESSION_STATE_READY) { XrSessionBeginInfo begin{XR_TYPE_SESSION_BEGIN_INFO}; begin.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO; xr(xrBeginSession(s.session, &begin), "Begin calibration"); running = true; }
-                    if (sessionState == XR_SESSION_STATE_STOPPING) { xr(xrEndSession(s.session), "End calibration"); running = false; stopping = true; }
+                    if (sessionState == XR_SESSION_STATE_STOPPING) { xr(xrEndSession(s.session), "End calibration"); running = false; }
                     if (sessionState == XR_SESSION_STATE_EXITING || sessionState == XR_SESSION_STATE_LOSS_PENDING) stopping = true;
                 } else if (event.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
                     const auto* change = reinterpret_cast<XrEventDataReferenceSpaceChangePending*>(&event);
