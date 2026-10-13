@@ -254,7 +254,7 @@
        <TextBlock x:Name="poseTitle" FontSize="{DynamicResource Font23}" TextAlignment="Center" Margin="0,0,0,8"/>
        <TextBlock x:Name="poseDetail" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
        <TextBlock x:Name="cue" FontSize="{DynamicResource Font25}" FontWeight="SemiBold" TextAlignment="Center" Margin="0,4,0,0"/>
-       <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><local:FaceGuide x:Name="face" Width="360" Height="250" Foreground="{DynamicResource Ink}" Accent="{DynamicResource Accent}" Focusable="False"/></Viewbox>
+       <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><local:FaceGuide x:Name="face" Width="360" Height="250" Foreground="{DynamicResource Ink}" Focusable="False"/></Viewbox>
        <ProgressBar x:Name="progress" Margin="0,16,0,10"/>
        <TextBlock x:Name="count" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
       </StackPanel>

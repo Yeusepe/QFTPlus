@@ -816,6 +816,15 @@
     <value>Input minimum</value>
     <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
   </data>
+  <data name="AvatarPreviewLoading" xml:space="preserve">
+    <value>Loading the headset avatar…</value>
+  </data>
+  <data name="AvatarPreviewUnavailable" xml:space="preserve">
+    <value>Connect your headset and update QFT+ Headset to see the avatar. You can still follow the instructions.</value>
+  </data>
+  <data name="AvatarPreview" xml:space="preserve">
+    <value>Calibration avatar</value>
+  </data>
   <data name="InputMinimumMustBeBelowInputMaximumOutputMinimum" xml:space="preserve">
     <value>Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
