@@ -1971,6 +1971,9 @@
   <data name="HeadsetBackupWrongDevice" xml:space="preserve">
     <value>Connect the headset associated with these settings to back up or restore them.</value>
   </data>
+  <data name="HeadsetBackupUnreadable" xml:space="preserve">
+    <value>Couldn’t read the saved headset backup. Move this headset’s ZIP file out of %LOCALAPPDATA%\QFTPlus\headset-backups, then try installing again to use default settings. Keep the ZIP to recover your calibration later.</value>
+  </data>
   <data name="SourceMetaNative" xml:space="preserve">
     <value>source meta native</value>
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
