@@ -17,7 +17,7 @@ Use Virtual Desktop or Steam Link with a **[supported rooted Quest Pro](https://
 2. Open **Setup → Set up** in QFT+.
 3. Enable eye and face tracking on the headset. For Virtual Desktop, enable **Forward face/eye tracking to PC**. QFT+ sets up Steam Link sharing.
 4. Connect through Virtual Desktop or Steam Link. Select **Start**.
-5. Open **Calibration**. Use the Steam overlay to see the app in VR.
+5. Open **Calibration**. Use the Steam overlay to see the app in VR. Install or update QFT+ Headset for the avatar guide.
 
 Removing QFT+ Headset through Windows backs up settings and calibration to `%LOCALAPPDATA%\QFTPlus\headset-backups`. Reinstalling through the same PC restores them for that headset.
 
@@ -55,7 +55,7 @@ These credits cover shipped features. Each row links a source to its use in QFT+
 | [VRCFT-SteamLink, danwillm](https://github.com/danwillm/VRCFT-SteamLink); [LinkFT, ykeara](https://github.com/ykeara/LinkFT) | References for [Steam Link support](src/bridges/vrcft/SteamLinkState.cs) and [setup](src/app/SteamVr.cs). |
 | [OpenCV](https://github.com/opencv/opencv/blob/4.13.0/modules/imgproc/src/contours.cpp) | Adapted [pupil outline detection](src/headset/pupil_contours.hpp). |
 | [OpenVR, Valve](https://github.com/ValveSoftware/openvr) | [Driver header](src/steamvr/openvr_driver.h) and [API](src/steamvr/driver.cpp). [Input profiles](src/steamvr/qftplus/resources/input) adapt Valve's SteamVR Touch files. |
-| [Meta Avatars SDK](https://developers.meta.com/vr/downloads/package/meta-avatars-sdk/) | Adapted [shader](src/headset/calibration_scene.cpp) and [SDK mapping](src/headset/calibration_avatar.hpp). Includes avatar runtime and preset avatars. |
+| [Meta Avatars SDK](https://developers.meta.com/vr/downloads/package/meta-avatars-sdk/) | Adapted [shader](src/headset/calibration_render.hpp) and [SDK mapping](src/headset/calibration_avatar.hpp). The headset app includes the runtime and presets; Windows receives rendered frames. |
 | [1€ filter, Casiez, Roussel and Vogel](https://gery.casiez.net/1euro/) | Method for [Python](src/tracking/eye_signal_filter.py) and [Java](src/headset/app/java/com/qftplus/headset/Convergence.java) eye smoothing. |
 | [Ava-256, Meta](https://github.com/facebookresearch/ava-256) | Training data for the mouth-camera encoder. |
 | [GNM, Google](https://github.com/google/GNM) | Used to create the synthetic training dataset. |

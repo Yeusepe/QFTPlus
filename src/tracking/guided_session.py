@@ -175,7 +175,7 @@ class GuidedSession:
         s = self.current
         forming = 1. if s.ramp <= 0 else min(1., self.elapsed / s.ramp)
         remaining = max(0., s.seconds - self.elapsed)
-        return {"title": s.name, "instruction": s.instruction, "index": self.index, "total": len(self.steps),
+        return {"title": s.name, "instruction": s.instruction, "condition": s.condition, "index": self.index, "total": len(self.steps),
                 "targets": {k: (v if k in ("horizontal", "vertical", "visibility") else v * forming)
                             for k, v in {**GUIDE.get(s.condition, {}), **s.targets}.items()},
                 "progress": (self.index + min(1., self.elapsed / s.seconds)) / len(self.steps), "remaining": remaining,

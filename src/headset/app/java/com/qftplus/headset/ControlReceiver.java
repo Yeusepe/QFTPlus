@@ -9,6 +9,21 @@ public final class ControlReceiver extends BroadcastReceiver {
     static final int[] RATES = {0, 30, 20};
 
     public void onReceive(Context context, Intent intent) {
+        if (intent.getBooleanExtra("avatarWanted", false)) {
+            PendingResult reply = goAsync();
+            new Thread(() -> {
+                try {
+                    File preset = AvatarAssets.prepare(context, false);
+                    reply.setResultCode(0);
+                    reply.setResultData(new JSONObject().put("avatarPreset", preset.getPath())
+                        .put("avatarLibrary", context.getApplicationInfo().nativeLibraryDir).toString());
+                } catch (IOException | JSONException error) {
+                    android.util.Log.w("QFTCalibration", "Prepare avatar preview", error);
+                    reply.setResultCode(2); reply.setResultData(context.getString(R.string.avatar_preview_unavailable));
+                } finally { reply.finish(); }
+            }, "qft-avatar-assets").start();
+            return;
+        }
         SharedPreferences settings = context.getSharedPreferences("settings", 0);
         int capabilities = capabilities(context);
         String problem = intent.hasExtra("rate") && java.util.Arrays.stream(RATES).noneMatch(r -> r == intent.getIntExtra("rate", -1)) ? context.getString(R.string.choose_an_update_rate_of_0_fastest_30_or_20)
