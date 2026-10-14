@@ -174,6 +174,8 @@ def install(root, runtime, config):
         try:
             path, serial = backup_location(root, config)
         except Exception as error:
+            if str(error) == 'HeadsetBackupWrongDevice':
+                raise
             raise RuntimeError('HeadsetRestoreFailed') from error
         try:
             if path.exists():

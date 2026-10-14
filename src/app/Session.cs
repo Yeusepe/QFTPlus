@@ -297,14 +297,15 @@ internal sealed class Session
             var cleanupFailed = false;
             if (Hybrid is not null)
             {
-                await StopChild(Hybrid);
-                cleanupFailed = Alive(Hybrid) || Hybrid.ExitCode is not (0 or 1 or 4);
+                cleanupFailed = !await StopChild(Hybrid) || Hybrid.ExitCode is not (0 or 1 or 4);
                 Hybrid.Dispose(); Hybrid = null;
             }
             handsSession = hybridPending = false;
             await StopThumbrest();
-            if (tracking is not null) { await tracking.StopAsync(); tracking = null; }
+            var trackingStopped = true;
+            if (tracking is not null) { trackingStopped = await tracking.StopAsync(); tracking = null; }
             if (cleanupFailed) { HybridProblem = HybridCleanupProblem; Notify("CleanupNeedsAttention", HybridProblem); }
+            else if (!trackingStopped) Notify("CleanupNeedsAttention", Loc.Get("TrackingProcessesDidNotStop"));
             else Notify("Ready", appNote);
         }
         finally { stopping = false; }
@@ -453,7 +454,7 @@ internal sealed class Session
         async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(logPath,text); } }
         return process;
     }
-    internal static async Task StopChild(Process process)
+    internal static async Task<bool> StopChild(Process process)
     {
         try { process.StandardInput.Close(); } catch (Exception error) when (error is IOException or InvalidOperationException) { }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -465,6 +466,7 @@ internal sealed class Session
         }
         // A descendant may keep the pipes open after the worker exits; headset cleanup must still finish.
         if (outputDrains.TryGetValue(process, out var drain)) await Task.WhenAny(drain, Task.Delay(TimeSpan.FromSeconds(5)));
+        return !Alive(process);
     }
     static readonly Lock logLock = new();
     internal static void Log(string path, string text)
