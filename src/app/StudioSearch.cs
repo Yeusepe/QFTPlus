@@ -95,6 +95,10 @@ public partial class StudioWindow
                     yield return new(title, Loc.Get("Cameras"), "Cameras", Loc.Get("CameraViewImage"));
             }
         }
+        yield return new(Loc.Get("LipSync"), null, "LipSync", Loc.Get("LipSyncSearchWords"));
+        yield return new(Loc.Get("Microphone"), Loc.Get("LipSync"), "LipSync", Loc.Get("LipSyncSearchWords"));
+        foreach (var detail in new[] { "MouthShapes", "Sound", "VRChat" })
+            yield return new(Loc.Get(detail), Loc.Get("LipSync"), "LipSync/" + detail, Loc.Get("LipSyncSearchWords"));
         yield return new(Loc.Get("SearchAgain"), Loc.Get("Headset"), "Setup", Loc.Get("FindUsbWiFiWifiConnectHeadset"));
         foreach (var (_, title, _) in Uses)
             yield return new(title, Loc.Get("WhatDoYouWantToUse"), "Settings", Loc.Get("UseModeFaceHandsControllersVirtualDesktop"));

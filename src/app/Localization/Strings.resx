@@ -625,6 +625,295 @@
     <value>Finishing the current step before quitting.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
+  <data name="LipSync" xml:space="preserve">
+    <value>Lip sync</value>
+  </data>
+  <data name="LipSyncAbout" xml:space="preserve">
+    <value>Moves your avatar's mouth with your voice, alongside face tracking. QFT+ processes your voice on this PC and never saves it.</value>
+  </data>
+  <data name="LipSyncOff" xml:space="preserve">
+    <value>Off. The microphone is closed.</value>
+  </data>
+  <data name="LipSyncMissing" xml:space="preserve">
+    <value>OVR LipSync is missing from this installation. Reinstall QFT+ to restore it.</value>
+  </data>
+  <data name="Listening" xml:space="preserve">
+    <value>Listening.</value>
+  </data>
+  <data name="ListeningDelay" xml:space="preserve">
+    <value>Listening. About {0} ms from your voice to VRChat.</value>
+    <comment>{0} is a number of milliseconds.</comment>
+  </data>
+  <data name="MicrophoneUnavailable" xml:space="preserve">
+    <value>Couldn't open the microphone: {0}</value>
+    <comment>{0} is the system's error message.</comment>
+  </data>
+  <data name="Microphone" xml:space="preserve">
+    <value>Microphone</value>
+  </data>
+  <data name="WindowsDefault" xml:space="preserve">
+    <value>Windows default ({0})</value>
+    <comment>{0} is the name of the current default microphone.</comment>
+  </data>
+  <data name="InputLevel" xml:space="preserve">
+    <value>Input level</value>
+  </data>
+  <data name="VisemesAbout" xml:space="preserve">
+    <value>Choose when each sound moves your avatar's mouth, and how strongly. Vowels start at “{0}” because face tracking already shapes them.</value>
+  </data>
+  <data name="Consonants" xml:space="preserve">
+    <value>Consonants</value>
+  </data>
+  <data name="Vowels" xml:space="preserve">
+    <value>Vowels</value>
+  </data>
+  <data name="VisemeOutput" xml:space="preserve">
+    <value>{0} output</value>
+    <comment>Accessible name of a live level bar. {0} is a viseme name such as PP.</comment>
+  </data>
+  <data name="VisemeStrength" xml:space="preserve">
+    <value>{0} strength</value>
+    <comment>{0} is a viseme name such as PP.</comment>
+  </data>
+  <data name="Parameters" xml:space="preserve">
+    <value>Parameters</value>
+  </data>
+  <data name="OneParameterPerViseme" xml:space="preserve">
+    <value>One parameter per mouth shape</value>
+  </data>
+  <data name="VisemeIndexAndWeight" xml:space="preserve">
+    <value>Viseme index and weight</value>
+  </data>
+  <data name="SendsPerViseme" xml:space="preserve">
+    <value>Sends one value per mouth shape, {0} through {1}, to the matching parameters on your avatar, whatever their prefix.</value>
+    <comment>{0} and {1} are avatar parameter names.</comment>
+  </data>
+  <data name="SendsIndexAndWeight" xml:space="preserve">
+    <value>Sends {0} (int, VRChat's viseme numbering) and {1} (float). Point your avatar's existing viseme layer at these.</value>
+    <comment>{0} and {1} are avatar parameter names.</comment>
+  </data>
+  <data name="Advanced" xml:space="preserve">
+    <value>Advanced</value>
+  </data>
+  <data name="Engine" xml:space="preserve">
+    <value>Engine</value>
+  </data>
+  <data name="EngineOriginal" xml:space="preserve">
+    <value>Original</value>
+  </data>
+  <data name="EngineEnhanced" xml:space="preserve">
+    <value>Enhanced</value>
+  </data>
+  <data name="EngineLaughter" xml:space="preserve">
+    <value>Enhanced with laughter</value>
+  </data>
+  <data name="LipSyncSmoothingAbout" xml:space="preserve">
+    <value>Higher values steady the mouth but react later.</value>
+  </data>
+  <data name="VisemeFadeIn" xml:space="preserve">
+    <value>Fade in</value>
+  </data>
+  <data name="VisemeFadeInAbout" xml:space="preserve">
+    <value>How quickly a mouth shape comes in.</value>
+  </data>
+  <data name="VisemeFadeOut" xml:space="preserve">
+    <value>Fade out</value>
+  </data>
+  <data name="VisemeFadeOutAbout" xml:space="preserve">
+    <value>How slowly it lets go, so sounds blend into each other instead of jumping.</value>
+  </data>
+  <data name="InputGain" xml:space="preserve">
+    <value>Input gain</value>
+  </data>
+  <data name="NoiseGate" xml:space="preserve">
+    <value>Noise gate</value>
+  </data>
+  <data name="NoiseGateAbout" xml:space="preserve">
+    <value>How far above your room's background sound has to be to move your mouth, so background noise doesn't.</value>
+  </data>
+  <data name="FrameLength" xml:space="preserve">
+    <value>Frame length</value>
+  </data>
+  <data name="FrameLength10" xml:space="preserve">
+    <value>10 ms (quickest)</value>
+  </data>
+  <data name="FrameLength20" xml:space="preserve">
+    <value>20 ms (steadier)</value>
+  </data>
+  <data name="IndexParameter" xml:space="preserve">
+    <value>Index parameter</value>
+  </data>
+  <data name="WeightParameter" xml:space="preserve">
+    <value>Weight parameter</value>
+  </data>
+  <data name="LaughterParameter" xml:space="preserve">
+    <value>Laughter parameter</value>
+  </data>
+  <data name="LaughterAbout" xml:space="preserve">
+    <value>Needs the Enhanced with laughter engine; for example Laughter. Leave it empty to send none.</value>
+  </data>
+  <data name="LipSyncSearchWords" xml:space="preserve">
+    <value>visemes microphone mouth voice talking OVR LipSync</value>
+  </data>
+  <data name="OVRLipSyncError" xml:space="preserve">
+    <value>OVR LipSync error {0}</value>
+  </data>
+  <data name="VisemeSoundsPP" xml:space="preserve">
+    <value>P, B, M</value>
+  </data>
+  <data name="VisemeSoundsFF" xml:space="preserve">
+    <value>F, V</value>
+  </data>
+  <data name="VisemeSoundsTH" xml:space="preserve">
+    <value>TH</value>
+  </data>
+  <data name="VisemeSoundsDD" xml:space="preserve">
+    <value>T, D</value>
+  </data>
+  <data name="VisemeSoundskk" xml:space="preserve">
+    <value>K, G</value>
+  </data>
+  <data name="VisemeSoundsCH" xml:space="preserve">
+    <value>CH, J, SH</value>
+  </data>
+  <data name="VisemeSoundsSS" xml:space="preserve">
+    <value>S, Z</value>
+  </data>
+  <data name="VisemeSoundsnn" xml:space="preserve">
+    <value>N, L</value>
+  </data>
+  <data name="VisemeSoundsRR" xml:space="preserve">
+    <value>R</value>
+  </data>
+  <data name="VisemeSoundsaa" xml:space="preserve">
+    <value>AH</value>
+  </data>
+  <data name="VisemeSoundsE" xml:space="preserve">
+    <value>EH</value>
+  </data>
+  <data name="VisemeSoundsih" xml:space="preserve">
+    <value>IH</value>
+  </data>
+  <data name="VisemeSoundsoh" xml:space="preserve">
+    <value>OH</value>
+  </data>
+  <data name="VisemeSoundsou" xml:space="preserve">
+    <value>OO</value>
+  </data>
+  <data name="HeadsetMicrophone" xml:space="preserve">
+    <value>Headset microphone</value>
+  </data>
+  <data name="HeadsetMicrophoneCopyFailed" xml:space="preserve">
+    <value>Could not prepare the headset microphone. Reconnect the headset and try again.</value>
+  </data>
+  <data name="HeadsetMicrophoneStopped" xml:space="preserve">
+    <value>The headset microphone stopped: {0}</value>
+  </data>
+  <data name="HeadsetMicrophoneWaiting" xml:space="preserve">
+    <value>Waiting for the headset microphone…</value>
+  </data>
+  <data name="HeadsetMicrophoneDisconnected" xml:space="preserve">
+    <value>The connection to the headset ended. Make sure it's awake and connected, then turn lip sync off and on.</value>
+  </data>
+  <data name="HeadsetMicrophoneAbout" xml:space="preserve">
+    <value>QFT+ records the headset's microphone with root and streams it to this PC over your ADB connection. Virtual Desktop keeps its microphone.</value>
+  </data>
+  <data name="VisemeAlways" xml:space="preserve">
+    <value>Always</value>
+  </data>
+  <data name="VisemeWithoutTracking" xml:space="preserve">
+    <value>When face tracking is off</value>
+  </data>
+  <data name="VisemeOff" xml:space="preserve">
+    <value>Never</value>
+  </data>
+  <data name="VisemeWhen" xml:space="preserve">
+    <value>When to send {0}</value>
+  </data>
+  <data name="Sound" xml:space="preserve">
+    <value>Sound</value>
+  </data>
+  <data name="VisemeWordsPP" xml:space="preserve">
+    <value>put, bat, mat</value>
+  </data>
+  <data name="VisemeWordsFF" xml:space="preserve">
+    <value>fat, vat</value>
+  </data>
+  <data name="VisemeWordsTH" xml:space="preserve">
+    <value>think, that</value>
+  </data>
+  <data name="VisemeWordsDD" xml:space="preserve">
+    <value>tip, doll</value>
+  </data>
+  <data name="VisemeWordskk" xml:space="preserve">
+    <value>call, gas</value>
+  </data>
+  <data name="VisemeWordsCH" xml:space="preserve">
+    <value>chair, join, she</value>
+  </data>
+  <data name="VisemeWordsSS" xml:space="preserve">
+    <value>sir, zeal</value>
+  </data>
+  <data name="VisemeWordsnn" xml:space="preserve">
+    <value>lot, not</value>
+  </data>
+  <data name="VisemeWordsRR" xml:space="preserve">
+    <value>red</value>
+  </data>
+  <data name="VisemeWordsaa" xml:space="preserve">
+    <value>car</value>
+  </data>
+  <data name="VisemeWordsE" xml:space="preserve">
+    <value>bed</value>
+  </data>
+  <data name="VisemeWordsih" xml:space="preserve">
+    <value>tip</value>
+  </data>
+  <data name="VisemeWordsoh" xml:space="preserve">
+    <value>toe</value>
+  </data>
+  <data name="VisemeWordsou" xml:space="preserve">
+    <value>book</value>
+  </data>
+  <data name="VisemeExample" xml:space="preserve">
+    <value>as in {0}</value>
+  </data>
+  <data name="VisemeCode" xml:space="preserve">
+    <value>Viseme {0}</value>
+  </data>
+  <data name="MouthShapes" xml:space="preserve">
+    <value>Mouth shapes</value>
+  </data>
+  <data name="ListeningNoAvatarParameters" xml:space="preserve">
+    <value>Listening, but your current avatar has no lip sync parameters.</value>
+  </data>
+  <data name="AvatarParametersFound" xml:space="preserve">
+    <value>Your current avatar has {0} of them.</value>
+  </data>
+  <data name="AvatarParametersNone" xml:space="preserve">
+    <value>Your current avatar has none of them.</value>
+  </data>
+  <data name="AvatarParametersUnknown" xml:space="preserve">
+    <value>VRChat hasn't listed your avatar's parameters yet, so QFT+ uses the usual FT/v2/ and v2/ names.</value>
+  </data>
+  <data name="BackTo" xml:space="preserve">
+    <value>Back to {0}</value>
+  </data>
+  <data name="MouthShapesSummary" xml:space="preserve">
+    <value>{0} always, {1} when face tracking is off</value>
+  </data>
+  <data name="MouthShapesSummaryNever" xml:space="preserve">
+    <value>{0} always, {1} when face tracking is off, {2} never</value>
+  </data>
+  <data name="AvatarShortUnknown" xml:space="preserve">
+    <value>Waiting for VRChat</value>
+  </data>
+  <data name="AvatarShortNone" xml:space="preserve">
+    <value>No lip sync parameters on your avatar</value>
+  </data>
+  <data name="AvatarShortFound" xml:space="preserve">
+    <value>{0} parameters on your avatar</value>
+  </data>
   <data name="FollowADotAsTheSpaceDarkensAndBrightens" xml:space="preserve">
     <value>Follow a dot as the space darkens and brightens · about 80 seconds</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
