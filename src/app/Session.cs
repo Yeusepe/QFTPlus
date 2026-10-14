@@ -463,7 +463,8 @@ internal sealed class Session
             try { process.Kill(true); } catch (InvalidOperationException) { }
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
         }
-        if (outputDrains.TryGetValue(process, out var drain)) await drain.WaitAsync(TimeSpan.FromSeconds(5));
+        // A descendant may keep the pipes open after the worker exits; headset cleanup must still finish.
+        if (outputDrains.TryGetValue(process, out var drain)) await Task.WhenAny(drain, Task.Delay(TimeSpan.FromSeconds(5)));
     }
     static readonly Lock logLock = new();
     internal static void Log(string path, string text)
