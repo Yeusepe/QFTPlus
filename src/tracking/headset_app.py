@@ -175,11 +175,11 @@ def install(root, runtime, config):
             path, serial = backup_location(root, config)
         except Exception as error:
             raise RuntimeError('HeadsetRestoreFailed') from error
-        if path.exists():
-            try:
+        try:
+            if path.exists():
                 saved = read_backup(path, serial)
-            except Exception as error:
-                raise RuntimeError('HeadsetBackupUnreadable') from error
+        except Exception as error:
+            raise RuntimeError('HeadsetBackupUnreadable') from error
     if not fresh:
         stop(root)
         try:

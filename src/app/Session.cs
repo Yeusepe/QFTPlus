@@ -298,7 +298,7 @@ internal sealed class Session
             if (Hybrid is not null)
             {
                 await StopChild(Hybrid);
-                cleanupFailed = Hybrid.ExitCode is not (0 or 1 or 4);
+                cleanupFailed = Alive(Hybrid) || Hybrid.ExitCode is not (0 or 1 or 4);
                 Hybrid.Dispose(); Hybrid = null;
             }
             handsSession = hybridPending = false;
@@ -460,8 +460,8 @@ internal sealed class Session
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException)
         {
-            try { process.Kill(true); } catch (InvalidOperationException) { }
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
         }
         // A descendant may keep the pipes open after the worker exits; headset cleanup must still finish.
         if (outputDrains.TryGetValue(process, out var drain)) await Task.WhenAny(drain, Task.Delay(TimeSpan.FromSeconds(5)));
