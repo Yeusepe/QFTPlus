@@ -23,8 +23,8 @@ internal static class Processes
         info.RedirectStandardOutput = info.RedirectStandardError = true;
         Process? started;
         try { started = Process.Start(info); }
-        catch (Win32Exception failure) { throw new IOException(Path.GetFileName(info.FileName) + " couldn’t start: " + failure.Message, failure); }
-        using var process = started ?? throw new IOException(Path.GetFileName(info.FileName) + " didn’t start.");
+        catch (Win32Exception failure) { throw new IOException(Loc.Format("CouldnTStartMessage", Path.GetFileName(info.FileName), failure.Message), failure); }
+        using var process = started ?? throw new IOException(Loc.Format("DidnTStart", Path.GetFileName(info.FileName)));
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
         var error = process.StandardError.ReadToEndAsync(timeout.Token);
@@ -43,7 +43,7 @@ internal static class Processes
         catch (OperationCanceledException)
         {
             token.ThrowIfCancellationRequested();
-            return (-1, "Timed out");
+            return (-1, Loc.Get("TimedOut"));
         }
         finally { try { process.Kill(); } catch (Exception failure) when (failure is Win32Exception or InvalidOperationException) { } }
     }

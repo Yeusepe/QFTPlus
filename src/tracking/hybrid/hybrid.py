@@ -5,6 +5,7 @@ if this controller stops responding. No installed APK or DLL is patched.
 """
 import argparse
 import ctypes as C
+import faulthandler
 import hashlib
 import json
 import os
@@ -33,6 +34,33 @@ class HookCompatibilityError(RuntimeError):
 
 class HookCleanupError(RuntimeError):
     pass
+
+
+def report_stall(elapsed):
+    path = HERE.parent / 'hybrid-stall.log'
+    message = f'Hybrid control loop made no progress for {elapsed:.1f} s.'
+    try:
+        if path.exists() and path.stat().st_size > 4 << 20:
+            path.replace(path.with_suffix('.log.old'))
+        with path.open('a', encoding='utf-8') as output:
+            output.write(time.strftime('\n%Y-%m-%d %H:%M:%S ') + message + '\n')
+            output.flush()
+            faulthandler.dump_traceback(file=output, all_threads=True)
+        message += ' Thread stacks saved to hybrid-stall.log.'
+    except OSError as error:
+        message += ' Could not save thread stacks: ' + str(error)
+    print(message, file=sys.stderr, flush=True)
+
+
+def watchdog(progress, stopped):
+    while True:
+        time.sleep(1)
+        if progress[0] is not None and time.monotonic() - progress[0] > 20:
+            reporter = threading.Thread(target=report_stall, args=(time.monotonic() - progress[0],), daemon=True)
+            reporter.start()
+            stopped.wait(LEASE_WAIT)
+            reporter.join(timeout=2)
+            os._exit(1)
 
 
 def load_hand_hook(session, receive, filename='vd_hand_hook.js'):
@@ -188,14 +216,7 @@ def main():
         session.on('detached', on_detached)
         sessions.append((source, session))
         return session
-    def watchdog():
-        while True:
-            time.sleep(1)
-            if progress[0] is not None and time.monotonic() - progress[0] > 20:
-                print('Headset stopped responding (Virtual Desktop closed, headset asleep or Wi-Fi dropped).', flush=True)
-                stopped.wait(LEASE_WAIT)
-                os._exit(1)
-    threading.Thread(target=watchdog, daemon=True).start()
+    threading.Thread(target=watchdog, args=(progress, stopped), daemon=True).start()
 
     def message(source):
         def receive(event, data):

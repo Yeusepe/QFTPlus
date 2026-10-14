@@ -29,22 +29,22 @@ internal static class PythonRuntime
         var pip = Path.Combine(wheels, "pip-26.2.1-py3-none-any.whl");
         await Task.Run(() =>
         {
-            if (!File.Exists(archive) || !Directory.Exists(wheels)) throw new IOException("Bundled components are missing. Reinstall QFT+.");
-            if (WorkingCopy.Hash(archive) != ArchiveHash) throw new IOException("The Python archive failed verification. Reinstall QFT+.");
+            if (!File.Exists(archive) || !Directory.Exists(wheels)) throw new IOException(Loc.Get("BundledComponentsAreMissingReinstallQFT"));
+            if (WorkingCopy.Hash(archive) != ArchiveHash) throw new IOException(Loc.Get("ThePythonArchiveFailedVerificationReinstallQFT"));
             try { if (Directory.Exists(runtime)) Directory.Delete(runtime, true); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            { throw new IOException("The previous PC components are still in use. Wait a moment, then try again.", error); }
+            { throw new IOException(Loc.Get("ThePreviousPCComponentsAreStillInUseWaitA"), error); }
             Directory.CreateDirectory(runtime);
             ZipFile.ExtractToDirectory(archive, runtime, true);
             WritePythonPath(runtime);
             var pipHash = Regex.Match(File.ReadAllText(requirements), @"(?m)^pip==\S+ --hash=sha256:([0-9a-f]{64})").Groups[1].Value;
-            if (!File.Exists(pip) || WorkingCopy.Hash(pip) != pipHash) throw new IOException("The package installer failed verification. Reinstall QFT+.");
+            if (!File.Exists(pip) || WorkingCopy.Hash(pip) != pipHash) throw new IOException(Loc.Get("ThePackageInstallerFailedVerificationReinstallQFT"));
         }, token);
         if (await RunAsync(Exe(root), ["-c", "import sys,runpy; sys.path.insert(0,sys.argv.pop(1)); runpy.run_module('pip',run_name='__main__')", pip,
                 "install", "--require-hashes", "--no-deps", "--no-index", "--no-compile", "--no-cache-dir", "--disable-pip-version-check", "--upgrade",
                 "--find-links", wheels, "--target", Path.Combine(runtime, "Lib", "site-packages"), "-r", requirements], token) != 0)
-            throw new IOException("Package installation failed. The Setup log has the details.");
-        if (await RunAsync(Exe(root), ["-c", Check], token) != 0) throw new IOException("The PC components didn’t install correctly. The Setup log has the details.");
+            throw new IOException(Loc.Get("PackageInstallationFailedTheSetupLogHasTheDetails"));
+        if (await RunAsync(Exe(root), ["-c", Check], token) != 0) throw new IOException(Loc.Get("ThePCComponentsDidnTInstallCorrectlyTheSetupLog"));
         File.WriteAllText(Marker(root), new JsonObject { ["format"] = "qft-portable-runtime-v2", ["lockHash"] = LockHash(root) }.ToJsonString());
     }
 

@@ -79,8 +79,8 @@ public partial class StudioWindow
             yield return new(Loc.Get("OverrideLiveTracking"), null, "Manual", Loc.Get("TestMovementsManualSlidersPreviewAvatar"));
             if (onHeadset)
             {
-                yield return new(Loc.Get("FaceAndTongue"), "QFT+ Headset", "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
-                yield return new(Loc.Get("PupilDilation"), "QFT+ Headset", "Calibration", Loc.Get("CalibratePupilsEyes"));
+                yield return new(Loc.Get("FaceAndTongue"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
+                yield return new(Loc.Get("PupilDilation"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibratePupilsEyes"));
             }
             else
             {
@@ -95,6 +95,10 @@ public partial class StudioWindow
                     yield return new(title, Loc.Get("Cameras"), "Cameras", Loc.Get("CameraViewImage"));
             }
         }
+        yield return new(Loc.Get("LipSync"), null, "LipSync", Loc.Get("LipSyncSearchWords"));
+        yield return new(Loc.Get("Microphone"), Loc.Get("LipSync"), "LipSync", Loc.Get("LipSyncSearchWords"));
+        foreach (var detail in new[] { "MouthShapes", "Sound", "VRChat" })
+            yield return new(Loc.Get(detail), Loc.Get("LipSync"), "LipSync/" + detail, Loc.Get("LipSyncSearchWords"));
         yield return new(Loc.Get("SearchAgain"), Loc.Get("Headset"), "Setup", Loc.Get("FindUsbWiFiWifiConnectHeadset"));
         foreach (var (_, title, _) in Uses)
             yield return new(title, Loc.Get("WhatDoYouWantToUse"), "Settings", Loc.Get("UseModeFaceHandsControllersVirtualDesktop"));
@@ -106,7 +110,7 @@ public partial class StudioWindow
                 yield return new(Loc.Get("SendTrackingTo"), null, "Settings", Loc.Get("OutputDestinationOscVrchatReceiver"));
                 foreach (var (title, words) in new[] { (Loc.Get("TongueDirection"), Loc.Get("FaceCalibration_bca2dbed")), (Loc.Get("PupilDilation"), Loc.Get("EyesPupils")), (Loc.Get("ResumeAfterRestart"), Loc.Get("BootStartupReboot")),
                              (Loc.Get("UpdateRate"), Loc.Get("FpsFrameRateSpeedLatencyBatteryHeat")) })
-                    yield return new(title, "QFT+ Headset", "Settings", words);
+                    yield return new(title, Loc.Get("HeadsetAppName"), "Settings", words);
             }
             else
             {

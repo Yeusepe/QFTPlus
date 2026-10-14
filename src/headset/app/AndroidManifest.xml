@@ -16,7 +16,7 @@
     <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
     <uses-feature android:name="oculus.software.handtracking" android:required="false" />
     <queries><package android:name="com.oculus.panelapp.settings" /></queries>
-    <application android:label="QFT+ Headset" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:extractNativeLibs="true" android:supportsRtl="true" android:usesCleartextTraffic="true">
+    <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.NoActionBar" android:allowBackup="false" android:extractNativeLibs="true" android:supportsRtl="true" android:usesCleartextTraffic="true">
         <meta-data android:name="com.oculus.supportedDevices" android:value="questpro" />
         <activity android:name=".MainActivity" android:exported="true" android:resizeableActivity="true">
             <layout android:defaultWidth="1024dp" android:defaultHeight="640dp" android:minWidth="360dp" android:minHeight="225dp" />

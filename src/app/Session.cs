@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 namespace QFTPlus;
 internal sealed class Session
 {
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, Task> outputDrains = new();
     internal readonly string Root;
     internal string ConfigPath;
     internal event Action<string>? Changed;
@@ -44,24 +45,27 @@ internal sealed class Session
         }
         finally { appGate.Release(); }
     }
-    bool hybridReady, hybridPending, stopping;
+    volatile bool hybridReady;
+    bool hybridPending, stopping;
     string lastSlow = "";
-    const string HybridCleanupProblem = "Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.";
+    static string HybridCleanupProblem => Loc.Get("HybridTrackingCouldNotConfirmCleanupRestartVirtualDesktopOn");
     internal string HybridProblem = "";
-    string? hybridIncompatible;
+    volatile string? hybridIncompatible;
     internal string State = "Ready", Detail = "";
+    internal string StateTitle => Loc.Get(State);
+    internal bool Wireless => (Config["adbTarget"]?.GetValue<string>() ?? "").Contains(':');
     internal int Progress;
     internal string? HelpTarget;
-    internal string HelpCaption = "Help";
+    internal string HelpCaption = Loc.Get("Help");
     internal string ErrorLog = "tracking.log";
     internal Session(string root, string? configPath = null) { Root = root; ConfigPath = configPath ?? SetupService.AutoPath; }
     internal static JsonObject Read(string path)
     {
         try { return CalibrationSettings.ReadJson(path); }
         catch (JsonException error)
-        { throw new InvalidDataException($"{Path.GetFileName(path)} is damaged; QFT+ left it as it is. Delete it to go back to the defaults. ({error.Message})", error); }
+        { throw new InvalidDataException(Loc.Format("IsDamagedQFTLeftItAsItIsDeleteIt", Path.GetFileName(path), error.Message), error); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        { throw new InvalidDataException($"QFT+ couldn’t read {Path.GetFileName(path)}. Try again in a moment. ({error.Message})", error); }
+        { throw new InvalidDataException(Loc.Format("QFTCouldnTReadTryAgainInAMoment", Path.GetFileName(path), error.Message), error); }
     }
     readonly Lock configLock = new();
     (DateTime, long) configStamp;
@@ -122,14 +126,14 @@ internal sealed class Session
         using var socket = new UdpClient();
         var data = Encoding.ASCII.GetBytes(value.ToString(CultureInfo.InvariantCulture));
         try { socket.Send(data, data.Length, "127.0.0.1", 27277); }
-        catch (SocketException error) { throw new IOException("Your change was saved. Stop and start tracking to apply it.", error); }
+        catch (SocketException error) { throw new IOException(Loc.Get("YourChangeWasSavedStopAndStartTrackingToApply"), error); }
     }
     internal static bool Alive(Process? process) { try { return process is not null && !process.HasExited; } catch { return false; } }
     internal bool Running => tracking?.Running == true || handsSession || headsetSession;
     internal bool SettingUp => setup is not null;
     internal async Task Prepare()
     {
-        if (Running) throw new IOException("Stop tracking before running setup.");
+        if (Running) throw new IOException(Loc.Get("StopTrackingBeforeRunningSetup"));
         setup = new SetupService(Root);
         setup.StageChanged += (title, detail) => { HelpTarget=setup.HelpTarget; HelpCaption=setup.HelpCaption; Progress=setup.StageProgress; Notify(title,detail); };
         try { await setup.SetupAsync(Config["connectionMode"]?.GetValue<string>()??"auto",
@@ -157,7 +161,7 @@ internal sealed class Session
             headsetSession = true;
             if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: true);
             appVersion++;
-            Notify("Connecting", "Turning on tracking in QFT+ Headset…");
+            Notify("Connecting", Loc.Get("TurningOnTrackingInQFTHeadset"));
             appWanted = true;
             try { (App, AppProblem) = (await SendApp(token), ""); }
             catch (IOException error) { AppProblem = error.Message; }
@@ -177,7 +181,7 @@ internal sealed class Session
         }
         await StopThumbrest();
         if (use == "hands" && SteamVr.IsSteamLink)
-            throw new IOException("Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.");
+            throw new IOException(Loc.Get("HandTrackingNeedsVirtualDesktopAndSteamVRIsUsingSteam"));
         if (!fromModule && (Config["setupOnStart"]?.GetValue<bool>()??true))
         {
             await Prepare();
@@ -197,23 +201,23 @@ internal sealed class Session
         SteamVr.ConfigureSteamLink();
         var config = Config;
         if (!string.Equals(config["root"]?.GetValue<string>(), Root, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Complete setup in this app before enabling auto-start.");
+            throw new IOException(Loc.Get("CompleteSetupInThisAppBeforeEnablingAutoStart"));
         HybridProblem = "";
-        if (!PythonRuntime.Ready(Root)) { Notify("Preparing components", "One-time setup…"); await PythonRuntime.EnsureAsync(Root, token); }
+        if (!PythonRuntime.Ready(Root)) { Notify("PreparingComponents", Loc.Get("OneTimeSetup")); await PythonRuntime.EnsureAsync(Root, token); }
         await Adb.EnsureAsync(Adb.Exe(Root), config["adbTarget"]?.GetValue<string>(), token);
         await HeadsetModelExperiment.EnsureAsync(this, config["adbTarget"]?.GetValue<string>() ?? "", token);
         StartThumbrest();
         if (use == "hands")
         {
             handsSession = true;
-            Notify("Connecting", "Starting hand tracking…");
+            Notify("Connecting", Loc.Get("StartingHandTracking"));
             if (config["openVrApps"]?.GetValue<bool>()??true) OpenVrApps(face: false);
             try { await StartHybrid(); }
             catch { handsSession = false; throw; }
             return;
         }
         tracking = new Tracking(this, config["adbTarget"]?.GetValue<string>() ?? "", IndependentGaze, VergenceGain);
-        Notify("Connecting", "Starting the headset cameras…");
+        Notify("Connecting", Loc.Get("StartingTheHeadsetCameras"));
         if (!fromModule && (config["openVrApps"]?.GetValue<bool>()??true)) OpenVrApps(face: true);
         hybridPending = use == "both" && !SteamVr.IsSteamLink;
     }
@@ -232,11 +236,11 @@ internal sealed class Session
         if (!Running)
         {
             ErrorLog = tracking!.ErrorLog;
-            Notify("Tracking stopped", tracking.Error.Length > 0 ? tracking.Error : "Tracking ended unexpectedly.");
+            Notify("TrackingStopped", tracking.Error.Length > 0 ? tracking.Error : Loc.Get("TrackingEndedUnexpectedly"));
             return;
         }
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode == 4)
-            HybridProblem = hybridIncompatible ?? "This headset's controller runtime is not supported by hybrid tracking. See the Hybrid log for details.";
+            HybridProblem = hybridIncompatible ?? Loc.Get("ThisHeadsetSControllerRuntimeIsNotSupportedByHybrid");
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode is not (0 or 1 or 4))
             HybridProblem = HybridCleanupProblem;
         if (Hybrid is not null && !Alive(Hybrid) && Hybrid.ExitCode is (0 or 1) && hybridRestart is null && DateTime.UtcNow >= hybridRetry && Hands)
@@ -244,25 +248,25 @@ internal sealed class Session
             hybridRetry = DateTime.UtcNow.AddSeconds(15);
             hybridRestart = TryStartHybrid();
         }
-        var via = (Config["adbTarget"]?.GetValue<string>()??"").Contains(':')?"Wi-Fi":"USB";
+        var via = Wireless ? Loc.Get("WiFiConnection") : Loc.Get("UsbConnection");
         if (headsetSession) { NotifyApp(); return; }
         if (handsSession)
         {
-            if (HybridProblem.Length > 0) Notify("Hybrid tracking unavailable", HybridProblem);
-            else if (HybridReady) Notify("Connected", "Quest Pro · "+via);
-            else Notify("Waiting for headset", "Put on the headset, connect to this PC in Virtual Desktop, and enter SteamVR.");
+            if (HybridProblem.Length > 0) Notify("HybridTrackingUnavailable", HybridProblem);
+            else if (HybridReady) Notify("Connected", Loc.Format("QuestConnection", via));
+            else Notify("WaitingForHeadset", Loc.Get("PutOnTheHeadsetConnectToThisPCInVirtual"));
             return;
         }
         switch (tracking!.State)
         {
             case "running":
-                Notify("Connected", "Quest Pro · "+via);
+                Notify("Connected", Loc.Format("QuestConnection", via));
                 var slow = tracking.SlowCause is { Length: > 0 } cause ? cause + tracking.Stream!.Fps.ToString("0") : "";
                 if (slow != lastSlow) { lastSlow = slow; Changed?.Invoke(State); }
                 if (hybridPending && hybridRestart is null) { hybridPending = false; hybridRestart = TryStartHybrid(); }
                 break;
-            case "waiting": Notify("Waiting for headset", "Connect to this PC in Steam Link or Virtual Desktop and enter SteamVR."); break;
-            case "starting": Notify("Connecting", "Starting the headset cameras…"); break;
+            case "waiting": Notify("WaitingForHeadset", Loc.Get("ConnectToThisPCInSteamLinkOrVirtualDesktop")); break;
+            case "starting": Notify("Connecting", Loc.Get("StartingTheHeadsetCameras")); break;
         }
     }
     Task? stopTask;
@@ -272,7 +276,7 @@ internal sealed class Session
         stopping = true;
         try
         {
-            Notify("Stopping", "Restoring headset tracking…");
+            Notify("Stopping", Loc.Get("RestoringHeadsetTracking"));
             var appNote = "";
             if (headsetSession)
             {
@@ -284,7 +288,7 @@ internal sealed class Session
                     (App, AppProblem) = (await SendApp(timeout.Token), "");
                 }
                 catch (Exception error) when (error is IOException or OperationCanceledException)
-                { appNote ="This PC stopped receiving, but the headset couldn’t be reached. Turn off tracking in QFT+ Headset to save battery."; }
+                { appNote =Loc.Get("ThisPCStoppedReceivingButTheHeadsetCouldnTBe"); }
                 Save("headsetReceiverEnabled", false);
                 Save("headsetDirect", false);
                 headsetSession = false;
@@ -300,7 +304,7 @@ internal sealed class Session
             handsSession = hybridPending = false;
             await StopThumbrest();
             if (tracking is not null) { await tracking.StopAsync(); tracking = null; }
-            if (cleanupFailed) { HybridProblem = HybridCleanupProblem; Notify("Cleanup needs attention", HybridProblem); }
+            if (cleanupFailed) { HybridProblem = HybridCleanupProblem; Notify("CleanupNeedsAttention", HybridProblem); }
             else Notify("Ready", appNote);
         }
         finally { stopping = false; }
@@ -324,7 +328,7 @@ internal sealed class Session
             AppProblem = "";
         }
         catch (Exception error) when (error is IOException or OperationCanceledException)
-        { AppProblem = error is IOException ? error.Message : "The headset isn’t answering. Make sure it’s awake."; }
+        { AppProblem = error is IOException ? error.Message : Loc.Get("TheHeadsetIsnTAnsweringMakeSureItSAwake"); }
         appPolled = DateTime.UtcNow;
         if (version != appVersion || stopping || setup is not null || AppProblem.Length > 0) { Changed?.Invoke(State); return; }
         var on = App?["tracking"]?.GetValue<bool>() == true;
@@ -332,10 +336,10 @@ internal sealed class Session
         var closed = notRunning >= 2;
         if (headsetSession && (!on || closed))
         {
-            var error = closed ? "QFT+ Headset closed unexpectedly. Start tracking again." : App?["error"]?.GetValue<string>() ?? "";
+            var error = closed ? Loc.Get("QFTHeadsetClosedUnexpectedlyStartTrackingAgain") : App?["error"]?.GetValue<string>() ?? "";
             await Stop();
             if (HybridProblem.Length == 0)
-                Notify(error.Length > 0 ? "Tracking stopped" : "Ready", error.Length > 0 ? error : "Tracking was turned off in QFT+ Headset.");
+                Notify(error.Length > 0 ? "TrackingStopped" : "Ready", error.Length > 0 ? error : Loc.Get("TrackingWasTurnedOffInQFTHeadset"));
             return;
         }
         var direct = on && HeadsetApp.Destination(App).Length > 0 && App?["settings"]?["oscHost"]?.GetValue<string>() is { Length: > 0 };
@@ -382,13 +386,15 @@ internal sealed class Session
     void NotifyApp()
     {
         var status = App?["status"]?.GetValue<string>() ?? "";
-        if (AppProblem.Length > 0) Notify("Waiting for headset", AppProblem);
+        if (AppProblem.Length > 0) Notify("WaitingForHeadset", AppProblem);
         else if (App?["pcConnected"]?.GetValue<bool>() == true) Notify("Connected", status);
-        else if (status.StartsWith("Tracking on headset", StringComparison.Ordinal) && HeadsetApp.Destination(App) is { Length: > 0 } destination)
-            Notify("Connected", status + ". " + destination.Split(". ")[0] + ".");
-        else if (status.StartsWith("Tracking on headset", StringComparison.Ordinal))
-            Notify("Connecting", "QFT+ Headset is tracking. Waiting for VRCFaceTracking on this PC to receive it.");
-        else Notify("Connecting", status.Length > 0 ? status : "Starting QFT+ Headset…");
+        else if (App?["receiving"]?.GetValue<bool>() == true
+            && App?["settings"]?["oscHost"]?.GetValue<string>() is { Length: > 0 }
+            && HeadsetApp.Destination(App) is { Length: > 0 } destination)
+            Notify("Connected", Loc.Format("StatusDetail", status, destination));
+        else if (App?["receiving"]?.GetValue<bool>() == true)
+            Notify("Connected", status);
+        else Notify("Connecting", status.Length > 0 ? status : Loc.Get("StartingQFTHeadset"));
     }
     void StartThumbrest()
     {
@@ -410,8 +416,14 @@ internal sealed class Session
         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
             if (await new SetupService(Root).HandSettingsProblemAsync(target, timeout.Token) is {} problem) throw new IOException(problem);
         if (stopping) return;
+        if (Hybrid is { } previous)
+        {
+            await StopChild(previous);
+            previous.Dispose(); Hybrid = null;
+        }
+        if (stopping) return;
         hybridReady = false; HybridProblem = ""; hybridIncompatible = null;
-        Hybrid?.Dispose(); Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
+        Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
         {
             if (line == "QROOT_READY") hybridReady = true;
             else if (line.StartsWith("QROOT_INCOMPATIBLE ")) hybridIncompatible = line["QROOT_INCOMPATIBLE ".Length..];
@@ -429,12 +441,16 @@ internal sealed class Session
         info.RedirectStandardInput = info.RedirectStandardOutput = info.RedirectStandardError = true;
         foreach (var (key, value) in variables) info.Environment[key] = value;
         var temp = OwnTemp(info);
-        Rotate(Path.Combine(Root,log), clear: true);
+        var logPath = Path.Combine(Root, log);
+        Rotate(logPath, clear: log != "hybrid.log");
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
         process.Exited += (_, _) => _ = DeleteTemp(temp);
-        if (!process.Start()) throw new IOException("Could not start "+Path.GetFileName(exe));
-        _ = Drain(process.StandardOutput); _ = Drain(process.StandardError);
-        async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(Path.Combine(Root,log),text); } }
+        if (!process.Start()) throw new IOException(Loc.Format("CouldNotStart", Path.GetFileName(exe)));
+        if (log == "hybrid.log") Log(logPath, $"{DateTimeOffset.Now:O} Starting hybrid hands (PID {process.Id}).");
+        var stdout = process.StandardOutput;
+        var stderr = process.StandardError;
+        outputDrains.Add(process, Task.WhenAll(Task.Run(() => Drain(stdout)), Task.Run(() => Drain(stderr))));
+        async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(logPath,text); } }
         return process;
     }
     internal static async Task StopChild(Process process)
@@ -443,6 +459,8 @@ internal sealed class Session
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
+        await process.WaitForExitAsync();
+        if (outputDrains.TryGetValue(process, out var drain)) await drain;
     }
     static readonly Lock logLock = new();
     internal static void Log(string path, string text)
@@ -492,13 +510,13 @@ internal sealed class Session
         var (code,text)=await Processes.RunAsync(info,default,seconds);
         _ = DeleteTemp(temp);
         Rotate(Path.Combine(Root,"studio.log")); Log(Path.Combine(Root,"studio.log"),text);
-        if(code!=0&&!allowFailure) throw new IOException("Couldn’t finish this step. The Components log in Settings has the details.");
+        if(code!=0&&!allowFailure) throw new IOException(Loc.Get("CouldnTFinishThisStepTheComponentsLogInSettings"));
         return (code,text);
     }
     internal async Task<string> Enroll(string prefix)
     {
         var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix],allowFailure:true);
-        if(anchors.Code!=0) throw new IOException(anchors.Output.Trim());
+        if(anchors.Code!=0) throw new IOException(Loc.Get(anchors.Output.Trim()));
         return prefix+".anchors.npz";
     }
     internal const int ConsentVersion=1;
@@ -513,14 +531,14 @@ internal sealed class Session
     internal void LeaveTesting(){Save("testerConsent",null);Save("benchmarkMode",false);}
     internal async Task<string> Package(string prefix)
     {
-        var consent=Config["testerConsent"]??throw new InvalidOperationException("Become a tester first.");
+        var consent=Config["testerConsent"]??throw new InvalidOperationException(Loc.Get("BecomeATesterFirst"));
         var args=new System.Collections.Generic.List<string>{Path.Combine(Root,"contribution.py"),prefix,"--tester",consent["tester"]!.GetValue<string>(),
             "--consent-version",consent["version"]!.GetValue<int>().ToString(),"--consent-time",consent["time"]!.GetValue<string>()};
         if(Config["faceEnrollment"]?.GetValue<string>() is {Length:>0} enrollment&&File.Exists(enrollment))args.AddRange(["--enrollment",enrollment]);
         if(Updates.Installed() is {} version)args.AddRange(["--version",version.ToString()]);
         var run=await Run(Python,args.ToArray(),allowFailure:true);
         var match=System.Text.RegularExpressions.Regex.Match(run.Output,@"^PACKAGE (.+) \d+\s*$",System.Text.RegularExpressions.RegexOptions.Multiline);
-        if(run.Code!=0||!match.Success)throw new IOException("Couldn’t prepare the recording to share. "+run.Output.Trim().Split('\n').LastOrDefault());
+        if(run.Code!=0||!match.Success)throw new IOException(Loc.Format("CouldnTPrepareTheRecordingToShare", run.Output.Trim().Split('\n').LastOrDefault()));
         return match.Groups[1].Value.Trim();
     }
     internal void Apply(string kind,string result) { CalibrationSettings.SaveCalibration(Root,kind,result,ConfigPath); Saved(); }

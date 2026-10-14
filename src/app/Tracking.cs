@@ -123,14 +123,14 @@ internal sealed class Tracking
         foreach (var (local, remote) in new[] { ("libquestpro-camera-streamer-v10.so", Streamer), ("questpro-camera-relay-v10", Relay) })
         {
             var file = Path.Combine(session.Root, local);
-            if (!File.Exists(file)) throw new IOException($"A packaged headset component is missing: {local}. Reinstall QFT+.");
-            if ((await Processes.RunAsync(adb, ["-s", target, "push", file, remote], stop.Token, 60)).Code != 0) throw new IOException("Copying the camera components to the headset failed. Check the connection, then try again.");
+            if (!File.Exists(file)) throw new IOException(Loc.Format("APackagedHeadsetComponentIsMissingReinstallQFT", local));
+            if ((await Processes.RunAsync(adb, ["-s", target, "push", file, remote], stop.Token, 60)).Code != 0) throw new IOException(Loc.Get("CopyingTheCameraComponentsToTheHeadsetFailedCheckThe"));
         }
         await Root($"chmod 755 {Relay}; chmod 644 {Streamer}; rm -f {CameraLog}; touch {CameraLog}; chmod 666 {CameraLog}");
         await Processes.RunAsync(adb, ["-s", target, "forward", "--remove", $"tcp:{StreamPort}"]);
         var inject = await session.Run(session.Python, [Path.Combine(session.Root, "camera_injector.py")], allowFailure: true, seconds: 90);
         Write(inject.Output);
-        if (inject.Code != 0) throw new IOException("Starting the headset camera stream failed. The Tracking log shows why.");
+        if (inject.Code != 0) throw new IOException(Loc.Get("StartingTheHeadsetCameraStreamFailedTheTrackingLogShows"));
         var bind = Direct is { } address ? $" --bind {address}" : "";
         var command = headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --model {HeadsetModelExperiment.Directory}" : Relay;
         relay = session.Launch(adb, Adb.Su(target, $"{command} --max-fps {MaxFps} --token {token}{bind}"), "questpro-live-relay.txt");
@@ -138,28 +138,28 @@ internal sealed class Tracking
         if (relay.HasExited)
         {
             var log = Read("questpro-live-relay.txt");
-            throw new IOException((Regex.Match(log, @"(?m)^SHARED_MEMORY_FAILED\b.*$") is { Success: true } failure
-                ? "The headset camera relay could not prepare shared memory. " + failure.Value : "The headset camera relay exited during startup.") + " Send questpro-live-relay.txt.");
+            throw new IOException(Regex.Match(log, @"(?m)^SHARED_MEMORY_FAILED\b.*$") is { Success: true } failure
+                ? Loc.Format("TheHeadsetCameraRelayCouldNotPrepareSharedMemorySend", failure.Value) : Loc.Get("TheHeadsetCameraRelayExitedDuringStartupSendQuestproLive"));
         }
         await Task.Delay(800, stop.Token);
         Write((await Root($"cat {CameraLog}", allowFailure: true)).Text);
-        if (Direct is null && (await Processes.RunAsync(adb, ["-s", target, "forward", $"tcp:{StreamPort}", $"tcp:{StreamPort}"])).Code != 0) throw new IOException("ADB port forwarding failed. Reconnect the headset, then try again.");
+        if (Direct is null && (await Processes.RunAsync(adb, ["-s", target, "forward", $"tcp:{StreamPort}", $"tcp:{StreamPort}"])).Code != 0) throw new IOException(Loc.Get("ADBPortForwardingFailedReconnectTheHeadsetThenTryAgain"));
     }
 
     async Task MountEyeModel()
     {
         Write("Mounting the independent eye model");
         var local = SetupService.EyeModel(session.Root);
-        if (!File.Exists(local)) throw new IOException("The independent eye model is missing. Run setup again to rebuild it.");
+        if (!File.Exists(local)) throw new IOException(Loc.Get("TheIndependentEyeModelIsMissingRunSetupAgainTo"));
         if (!File.Exists(Path.Combine(session.Root, "calibration/qpro-independent-visual-axis-v2.json")))
-            throw new IOException("Independent eye calibration is missing. To use standard eye tracking, turn off Independent eye gaze in Settings.");
+            throw new IOException(Loc.Get("IndependentEyeCalibrationIsMissingToUseStandardEyeTracking"));
         if ((await Root($"grep -F '{EyeTarget}' /proc/mounts", allowFailure: true)).Text.Trim().Length > 0) await RestoreEyeModel();
         await Root($"umount '{EyeTarget}'", allowFailure: true);
         mounted = true;
-        if ((await Processes.RunAsync(adb, ["-s", target, "push", local, EyeCopy], stop.Token, 60)).Code != 0) throw new IOException("Couldn't copy the eye model to the headset. Check the connection, then try again.");
+        if ((await Processes.RunAsync(adb, ["-s", target, "push", local, EyeCopy], stop.Token, 60)).Code != 0) throw new IOException(Loc.Get("CouldnTCopyTheEyeModelToTheHeadsetCheck"));
         await Root($"chown root:root '{EyeCopy}' && chmod 0644 '{EyeCopy}' && chcon u:object_r:vendor_configs_file:s0 '{EyeCopy}' && mount --bind '{EyeCopy}' '{EyeTarget}'");
         if (!(await Root($"sha256sum '{EyeTarget}'")).Text.StartsWith(WorkingCopy.Hash(local), StringComparison.Ordinal))
-            throw new IOException("The eye model on the headset didn't match the one on this PC. Try again.");
+            throw new IOException(Loc.Get("TheEyeModelOnTheHeadsetDidnTMatchThe"));
         await Root($"setprop {EyeProperty} true && stop trackingservice && start trackingservice");
         await WaitForTrackingService();
     }
@@ -178,14 +178,14 @@ internal sealed class Tracking
             if ((await Root("getprop init.svc.trackingservice", allowFailure: true)).Text.Trim() == "running") { await Task.Delay(1500); return; }
             await Task.Delay(250);
         }
-        throw new IOException("The headset's tracking service didn't restart. Restart the headset, then try again.");
+        throw new IOException(Loc.Get("TheHeadsetSTrackingServiceDidnTRestartRestartThe"));
     }
 
     async Task<(int Code, string Text)> Root(string command, bool allowFailure = false)
     {
         var result = await Processes.RunAsync(adb, Adb.Su(target, command), default, 30);
         if (result.Code != 0 && !allowFailure)
-            throw new IOException($"The headset didn't accept a command. Make sure it's awake and connected, then try again. ({command}: {result.Text.Trim()})");
+            throw new IOException(Loc.Format("TheHeadsetDidnTAcceptACommandMakeSureIt", command, result.Text.Trim()));
         return result;
     }
 
@@ -194,9 +194,9 @@ internal sealed class Tracking
         if (!child.HasExited || stop.IsCancellationRequested) return;
         var lines = Read(log).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var reason = lines.LastOrDefault(l => l.StartsWith("QFT_ERROR:"))?["QFT_ERROR:".Length..].Trim()
-            ?? (child == relay ? "The connection to the headset ended. Make sure it’s awake and connected, then start tracking again." : lines.LastOrDefault()) ?? "";
+            ?? (child == relay ? Loc.Get("TheConnectionToTheHeadsetEndedMakeSureItS") : lines.LastOrDefault()) ?? "";
         ErrorLog = log;
-        throw new IOException(Regex.Replace(reason, @"^\w+(Error|Exception): ", "") is { Length: > 0 } text ? text : $"{log} stopped unexpectedly.");
+        throw new IOException(Regex.Replace(reason, @"^\w+(Error|Exception): ", "") is { Length: > 0 } text ? text : Loc.Format("StoppedUnexpectedly", log));
     }
 
     static void Kill(Process? process)

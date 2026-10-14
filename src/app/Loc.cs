@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Resources;
+using System.Text.Json.Nodes;
 using System.Windows.Markup;
 
 namespace QFTPlus;
@@ -16,10 +17,13 @@ internal static class Loc
         try { return string.Format(CultureInfo.CurrentCulture, Get(key), args); }
         catch (FormatException)
         {
-            // A malformed community translation must not interrupt tracking or setup.
             return string.Format(CultureInfo.CurrentCulture, Resources.GetString(key, CultureInfo.InvariantCulture) ?? key, args);
         }
     }
+
+    internal static string Text(JsonNode? value) => value is JsonObject message
+        ? Format(message["key"]!.GetValue<string>(), message["args"]!.AsArray().Select(arg => (object?)Text(arg)).ToArray())
+        : value is null ? "" : Get(value.GetValue<string>());
 }
 
 [MarkupExtensionReturnType(typeof(string))]
