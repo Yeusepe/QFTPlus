@@ -410,6 +410,7 @@ public partial class StudioWindow : Ui.FluentWindow
     void DeviceClick(object sender, RoutedEventArgs e) => deviceGo();
 
     string AppIssue => session.State == "Connected" && HeadsetModelExperiment.Standalone(session)
+        && session.App?["receiving"]?.GetValue<bool>() == true
         ? session.App?["faceAvailable"]?.GetValue<bool>() == false ? Loc.Get("MetaFaceTrackingUnavailable")
         : session.App?["eyesAvailable"]?.GetValue<bool>() == false ? Loc.Get("MetaEyeGazeUnavailable") : "" : "";
 

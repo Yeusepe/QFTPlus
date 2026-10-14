@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 namespace QFTPlus;
 internal sealed class Session
 {
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, Task> outputDrains = new();
     internal readonly string Root;
     internal string ConfigPath;
     internal event Action<string>? Changed;
@@ -387,10 +388,12 @@ internal sealed class Session
         var status = App?["status"]?.GetValue<string>() ?? "";
         if (AppProblem.Length > 0) Notify("WaitingForHeadset", AppProblem);
         else if (App?["pcConnected"]?.GetValue<bool>() == true) Notify("Connected", status);
-        else if (App?["receiving"]?.GetValue<bool>() == true && HeadsetApp.Destination(App) is { Length: > 0 } destination)
+        else if (App?["receiving"]?.GetValue<bool>() == true
+            && App?["settings"]?["oscHost"]?.GetValue<string>() is { Length: > 0 }
+            && HeadsetApp.Destination(App) is { Length: > 0 } destination)
             Notify("Connected", Loc.Format("StatusDetail", status, destination));
         else if (App?["receiving"]?.GetValue<bool>() == true)
-            Notify("Connecting", Loc.Get("QFTHeadsetIsTrackingWaitingForVRCFaceTrackingOnThisPC"));
+            Notify("Connected", status);
         else Notify("Connecting", status.Length > 0 ? status : Loc.Get("StartingQFTHeadset"));
     }
     void StartThumbrest()
@@ -413,8 +416,14 @@ internal sealed class Session
         using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
             if (await new SetupService(Root).HandSettingsProblemAsync(target, timeout.Token) is {} problem) throw new IOException(problem);
         if (stopping) return;
+        if (Hybrid is { } previous)
+        {
+            await StopChild(previous);
+            previous.Dispose(); Hybrid = null;
+        }
+        if (stopping) return;
         hybridReady = false; HybridProblem = ""; hybridIncompatible = null;
-        Hybrid?.Dispose(); Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
+        Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
         {
             if (line == "QROOT_READY") hybridReady = true;
             else if (line.StartsWith("QROOT_INCOMPATIBLE ")) hybridIncompatible = line["QROOT_INCOMPATIBLE ".Length..];
@@ -440,7 +449,7 @@ internal sealed class Session
         if (log == "hybrid.log") Log(logPath, $"{DateTimeOffset.Now:O} Starting hybrid hands (PID {process.Id}).");
         var stdout = process.StandardOutput;
         var stderr = process.StandardError;
-        _ = Task.Run(() => Drain(stdout)); _ = Task.Run(() => Drain(stderr));
+        outputDrains.Add(process, Task.WhenAll(Task.Run(() => Drain(stdout)), Task.Run(() => Drain(stderr))));
         async Task Drain(StreamReader reader) { while (await reader.ReadLineAsync() is {} text) { line?.Invoke(text); Log(logPath,text); } }
         return process;
     }
@@ -450,6 +459,8 @@ internal sealed class Session
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
+        await process.WaitForExitAsync();
+        if (outputDrains.TryGetValue(process, out var drain)) await drain;
     }
     static readonly Lock logLock = new();
     internal static void Log(string path, string text)
@@ -505,7 +516,7 @@ internal sealed class Session
     internal async Task<string> Enroll(string prefix)
     {
         var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix],allowFailure:true);
-        if(anchors.Code!=0) throw new IOException(anchors.Output.Trim());
+        if(anchors.Code!=0) throw new IOException(Loc.Get(anchors.Output.Trim()));
         return prefix+".anchors.npz";
     }
     internal const int ConsentVersion=1;

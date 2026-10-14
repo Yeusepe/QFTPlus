@@ -56,8 +56,10 @@ def watchdog(progress, stopped):
     while True:
         time.sleep(1)
         if progress[0] is not None and time.monotonic() - progress[0] > 20:
-            threading.Thread(target=report_stall, args=(time.monotonic() - progress[0],), daemon=True).start()
+            reporter = threading.Thread(target=report_stall, args=(time.monotonic() - progress[0],), daemon=True)
+            reporter.start()
             stopped.wait(LEASE_WAIT)
+            reporter.join(timeout=2)
             os._exit(1)
 
 
