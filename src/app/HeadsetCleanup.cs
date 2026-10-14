@@ -23,7 +23,7 @@ internal sealed class HeadsetCleanup
         var cleanup = new HeadsetCleanup(session, target, restore, log);
         if (await Task.WhenAny(cleanup.armed.Task, cleanup.shell.WaitForExitAsync(), Task.Delay(15000)) == cleanup.armed.Task) return cleanup;
         cleanup.Kill();
-        throw new IOException("The headset didn't start its cleanup shell. Make sure it's awake and Magisk allows Shell, then try again.");
+        throw new IOException(Loc.Get("TheHeadsetDidnTStartItsCleanupShellMakeSure"));
     }
 
     internal async Task<bool> StopAsync()

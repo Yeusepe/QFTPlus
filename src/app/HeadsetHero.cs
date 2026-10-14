@@ -60,7 +60,7 @@ internal sealed class HeadsetHero : Grid
     {
         this.variant = variant;
         Height = height; Width = height * 1.6;
-        AutomationProperties.SetName(this, variant == "touch" ? "Quest Touch Pro controllers" : "Quest Pro");
+        AutomationProperties.SetName(this, variant == "touch" ? Loc.Get("QuestTouchProControllers") : Loc.Get("QuestProMessage"));
         Glow = new LinearGradientBrush { StartPoint = new(.5, 1), EndPoint = new(.5, 0), GradientStops = { core, rim } };
         image.Source = Still();
         Children.Add(image);

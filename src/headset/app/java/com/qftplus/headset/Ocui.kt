@@ -41,10 +41,10 @@ internal class Ocui(private val host: Context) {
     init {
         val info = host.packageManager.getPackageInfo(PROVIDER, 0)
         require((info.applicationInfo!!.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) {
-            "OCUI must come from the headset's system Settings app."
+            host.getString(R.string.ocui_system_settings_required)
         }
         require(info.longVersionCode == SETTINGS_VERSION) {
-            "Settings ${info.versionName} (${info.longVersionCode}) needs an updated QFT+ OCUI adapter."
+            host.getString(R.string.ocui_update_required , info.versionName, info.longVersionCode)
         }
         val loaded = host.createPackageContext(PROVIDER, Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
         loaded.classLoader
@@ -81,7 +81,7 @@ internal class Ocui(private val host: Context) {
         }
     private fun drawable(name: String): Drawable {
         val id = context.resources.getIdentifier(name, "drawable", PROVIDER)
-        require(id != 0) { "Missing OCUI resource: $name" }
+        require(id != 0) { host.getString(R.string.ocui_resource_missing , name) }
         return context.resources.getDrawable(id, context.theme)
     }
     fun icon(name: String): Drawable = if (name.startsWith("oc_icon_")) drawable(name) else Symbols.drawable(name, px(24))
@@ -324,7 +324,7 @@ internal class Ocui(private val host: Context) {
         }
     }
 
-    private fun attribute(id: Int) = android.util.TypedValue().also { require(context.theme.resolveAttribute(id, it, true)) { "Missing OCUI attribute ${Integer.toHexString(id)}" } }
+    private fun attribute(id: Int) = android.util.TypedValue().also { require(context.theme.resolveAttribute(id, it, true)) { host.getString(R.string.ocui_attribute_missing , Integer.toHexString(id)) } }
     private fun px(dp: Int) = (dp * context.resources.displayMetrics.density).toInt()
     private val surface = 0x0EFFFFFF
     private val secondaryText by lazy { attribute(0x7f0402d6).data }

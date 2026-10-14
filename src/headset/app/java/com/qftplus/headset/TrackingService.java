@@ -120,7 +120,10 @@ public final class TrackingService extends Service {
         try {
             if (!p.waitFor(seconds, TimeUnit.SECONDS)) throw new IOException(getString(R.string.headset_setup_timed_out));
             reader.join(1000);
-            if (p.exitValue() != 0) throw new IOException(log.toString(StandardCharsets.UTF_8.name()));
+            if (p.exitValue() != 0) {
+                android.util.Log.e("QFT", log.toString(StandardCharsets.UTF_8.name()));
+                throw new IOException(getString(R.string.headset_command_failed));
+            }
         } finally { p.destroy(); }
     }
     private void prepare() throws Exception {
@@ -174,7 +177,7 @@ public final class TrackingService extends Service {
                 while (!stopping) {
                     if (!tracking() && calibration == null) break;
                     if (link == null && tracking() && outputMode(settings).equals("pc") && !pairKey.isEmpty())
-                        link = new HeadsetLink(pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
+                        link = new HeadsetLink(this, pairKey, settings.getString("host", ""), settings.getInt("port", 27276));
                     poll(System.nanoTime());
                     if (!connected(System.nanoTime()) && !direct() && calibration == null) {
                         status = outputMode(settings).equals("pc") ? getString(R.string.waiting_for_qft_on_your_pc) : getString(R.string.choose_a_destination_in_connections);
@@ -211,7 +214,7 @@ public final class TrackingService extends Service {
         while (offset < count && !stopping) {
             try {
                 int n = input.read(data, offset, count - offset);
-                if (n < 0) throw new EOFException("Headset worker stopped");
+                if (n < 0) throw new EOFException(getString(R.string.headset_worker_stopped));
                 offset += n;
             } catch (SocketTimeoutException error) {
                 if (eyes != null) eyes.check();
@@ -220,7 +223,7 @@ public final class TrackingService extends Service {
                 if (sessionControl != null) connection.getOutputStream().write(sessionControl);
                 poll(System.nanoTime());
                 if (!connected(System.nanoTime()) && !direct() && calibration == null) return null;
-                if (offset > 0 && SystemClock.elapsedRealtime() >= deadline) throw new IOException("Incomplete camera frame");
+                if (offset > 0 && SystemClock.elapsedRealtime() >= deadline) throw new IOException(getString(R.string.incomplete_camera_frame));
             }
         }
         if (stopping) throw new EOFException("Stopped");
@@ -237,8 +240,8 @@ public final class TrackingService extends Service {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(worker.getInputStream()))) {
                 String line; while ((line = reader.readLine()) != null) {
                     android.util.Log.i("QFTWorker", line);
-                    if (line.startsWith("QFT_ERROR: ")) workerError = line.substring(11);
-                    if (!started.get() && (line.contains("FAILED") || line.contains("UNSUPPORTED") || line.contains("CANNOT LINK") || line.contains("not found") || line.contains("No such file"))) status = line;
+                    if (line.startsWith("QFT_ERROR: ")) workerError = getString(R.string.tracking_worker_failed);
+                    if (!started.get() && (line.contains("FAILED") || line.contains("UNSUPPORTED") || line.contains("CANNOT LINK") || line.contains("not found") || line.contains("No such file"))) status = getString(R.string.tracking_worker_failed);
                 }
             } catch (IOException ignored) {}
         });
@@ -248,11 +251,11 @@ public final class TrackingService extends Service {
             command(quote(libraries + "/libqft_attach.so") + " " + quote(libraries + "/libqft_capture_export.so") + " " + key, 25);
             Socket socket = null;
             for (int i = 0; i < 90 && !stopping; i++) {
-                if (!worker.isAlive()) throw new IOException("Worker exited " + worker.exitValue() + ": " + status);
+                if (!worker.isAlive()) throw new IOException(getString(R.string.worker_exited , worker.exitValue(), status));
                 try { socket = new Socket(); socket.connect(new InetSocketAddress("127.0.0.1", 27273), 200); break; }
                 catch (IOException error) { if (socket != null) socket.close(); socket = null; Thread.sleep(500); }
             }
-            if (socket == null) throw new IOException("Headset worker did not start");
+            if (socket == null) throw new IOException(getString(R.string.headset_worker_did_not_start));
             connection = socket; started.set(true); socket.setSoTimeout(1000); socket.setTcpNoDelay(true);
             OutputStream output = socket.getOutputStream(); InputStream input = socket.getInputStream();
             output.write(key.toString().getBytes(StandardCharsets.US_ASCII));
@@ -279,9 +282,9 @@ public final class TrackingService extends Service {
                 byte[] header = exact(input, 64, eyes);
                 if (header == null) break;
                 ByteBuffer h = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
-                if (h.getLong(0) != 0x00334556494c5051L || h.getInt(8) != 3 || h.getInt(12) != 64) throw new IOException("Invalid headset header");
+                if (h.getLong(0) != 0x00334556494c5051L || h.getInt(8) != 3 || h.getInt(12) != 64) throw new IOException(getString(R.string.invalid_headset_header));
                 int kind = h.getInt(44), bytes = h.getInt(48);
-                if (!((kind == 4 && bytes == 608) || (kind == 5 && bytes == Calibration.FEATURES * 4))) throw new IOException("Invalid headset payload");
+                if (!((kind == 4 && bytes == 608) || (kind == 5 && bytes == Calibration.FEATURES * 4))) throw new IOException(getString(R.string.invalid_headset_payload));
                 byte[] payload = exact(input, bytes, eyes);
                 if (payload == null) break;
                 long captured = h.getLong(24), finished = h.getLong(56);
@@ -334,9 +337,8 @@ public final class TrackingService extends Service {
                                     command(environment() + quote(libraries + "/libqft_worker.so") + " --stop-token " + key, 8);
                                 try { command(environment() + quote(libraries + "/libqft_calibrate.so") + " " + quote(directory.toString()), 45); }
                                 catch (IOException fit) {
-                                    String why = String.valueOf(fit.getMessage()).trim(); int at = why.lastIndexOf("CALIBRATION_FAILED ");
-                                    why = at >= 0 ? why.substring(at + 19) : why.substring(why.lastIndexOf('\n') + 1);
-                                    c.fail(getString(R.string.calibration_failure_retained, why.trim().replaceAll("\\.$", "")));
+                                    android.util.Log.w("QFT", "Calibration fit failed", fit);
+                                    c.fail(getString(R.string.calibration_fit_failed));
                                 }
                                 synchronized (c) {
                                     if (c.cancelled()) Files.deleteIfExists(new File(directory, "profile.pending").toPath());

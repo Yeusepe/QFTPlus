@@ -47,10 +47,10 @@ class StudioCapture:
         action = command.get('action')
         if action == 'begin':
             if self.writer is not None or self.pupil is not None:
-                raise ValueError('A calibration is already recording')
+                raise ValueError("GuideACalibrationIsAlreadyRecording")
             kind = command.get('kind')
             if kind not in ('pupils', 'benchmark', 'benchmark-quick', 'enroll'):
-                raise ValueError('Unknown calibration')
+                raise ValueError("GuideUnknownCalibration")
             self.kind = kind
             self.prefix = self.root / 'captures' / (kind+'-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
             self.prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -125,7 +125,7 @@ class StudioCapture:
     def pupil_state(self, now):
         if now-self.last_ui > 3:
             self.finish(False)
-            self.state['error'] = 'Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.'
+            self.state['error'] = "GuideCalibrationStoppedBecauseTheStudioWindowStoppedRespondingYourPrevious"
             return
         phase = self.pupil.phase
         elapsed = min(DURATION, max(0, now-self.pupil.started))
@@ -138,7 +138,7 @@ class StudioCapture:
     def open_video(self):
         self.video = cv2.VideoWriter(str(self.prefix)+'.avi', cv2.VideoWriter_fourcc(*'MJPG'), 8., (1000, 200), True)
         if not self.video.isOpened():
-            raise OSError('Couldn’t save the recording. Make sure this PC has free disk space, then try again.')
+            raise OSError("GuideCouldnTSaveTheRecordingMakeSureThisPCHas")
 
     def update_guided(self, strip, header, payload, monotonic_ns, labels, now):
         if now-self.last_ui > 3:
@@ -173,7 +173,7 @@ class StudioCapture:
                 self.last_video = now
         self.state.update(guided.ui(), paused=self.paused, automatic=True, ready=True, count=0)
         if self.paused:
-            self.state['cue'] = 'Paused'
+            self.state['cue'] = "GuidePaused"
 
     def finish(self, complete):
         if self.guided:
