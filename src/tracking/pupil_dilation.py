@@ -16,7 +16,7 @@ CYCLE = 2*RAMP+BRIGHT+DARK
 DURATION = ADAPT+2*CYCLE
 LAG = .8
 HOLD = 1.
-STAGES = ["Let your eyes adjust", "Look at the circle", "Look at the circle"]
+STAGES = ["GuideLetYourEyesAdjust", "GuideLookAtTheCircle", "GuideLookAtTheCircle"]
 
 
 def stimulus(t):
@@ -37,26 +37,26 @@ def fit_calibration(samples):
     eyes = np.asarray([s[1] for s in samples], dtype=float)
     cycles = [times < ADAPT+CYCLE, times >= ADAPT+CYCLE]
     if any(c.sum() < 80 for c in cycles):
-        raise ValueError("Your pupils were hidden too often. Adjust the headset so it sits level, then try again")
+        raise ValueError("GuideYourPupilsWereHiddenTooOftenAdjustTheHeadsetSo")
     if eyes.ndim != 3 or eyes.shape[1:] != (2, 4) or not np.isfinite(eyes).all() or not np.isfinite(times).all():
-        raise ValueError("Invalid pupil calibration samples")
+        raise ValueError("GuideInvalidPupilCalibrationSamples")
     diameter = eyes[:, :, 0]
     small, large = np.percentile(diameter, (5, 95), axis=0)
     span = large-small
     if np.any((small < 10) | (large > 60) | (span < np.maximum(3, small*.1))):
-        raise ValueError("Your pupils changed size too little. Dim the room lights, then try again")
+        raise ValueError("GuideYourPupilsChangedSizeTooLittleDimTheRoomLights")
     levels = np.asarray([stimulus(t-LAG) for t in times])
     response = []
     for c in cycles:
         low, high = np.percentile(diameter[c], (5, 95), axis=0)
         response.append([np.corrcoef(levels[c], diameter[c, i])[0, 1] for i in range(2)])
         if np.any(np.abs(low-small) > .35*span) or np.any(np.abs(high-large) > .35*span):
-            raise ValueError("The two rounds didn't match. Keep your head still and look at the circle, then try again")
+            raise ValueError("GuideTheTwoRoundsDidnTMatchKeepYourHeadStill")
     if not np.all(np.asarray(response) < -.5):
-        raise ValueError("Pupil size didn't follow the screen brightness. Keep looking at the circle, then try again")
+        raise ValueError("GuidePupilSizeDidnTFollowTheScreenBrightnessKeepLooking")
     centers = np.median(eyes[:, :, 1:3], axis=0)
     if np.any(np.percentile(np.linalg.norm(eyes[:, :, 1:3]-centers, axis=2), 90, axis=0) > 15):
-        raise ValueError("Keep looking at the circle the whole time, then try again")
+        raise ValueError("GuideKeepLookingAtTheCircleTheWholeTimeThenTry")
     return {"format": "qpro-relative-pupil-v1", "small": small.tolist(), "large": large.tolist(),
             "centers": centers.tolist(), "ratios": np.median(eyes[:, :, 3], axis=0).tolist(),
             "response": response, "samplesPerCycle": [int(c.sum()) for c in cycles]}
@@ -71,7 +71,7 @@ def read_calibration(path):
             or not all(np.isfinite(v).all() for v in (small, large, centers, ratios))
             or np.any((small < 10) | (large > 60) | (large-small < np.maximum(3, small*.1)))
             or np.any((centers < 8) | (centers > 392)) or np.any((ratios < .45) | (ratios > 1))):
-        raise ValueError("Invalid relative-pupil calibration")
+        raise ValueError("GuideInvalidRelativePupilCalibration")
     return profile
 
 
@@ -97,7 +97,7 @@ class PupilDilation:
             try:
                 self.profile = read_calibration(self.path)
             except (ValueError, KeyError, TypeError, OSError) as error:
-                self.message = f"Calibration unavailable: {error}."
+                self.message = {"key": "GuideCalibrationUnavailableReason", "args": [str(error)]}
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.phase = None
         self.level = 0.
@@ -133,7 +133,7 @@ class PupilDilation:
         self.profile = None
         self.filtered = None
         self.last_valid = -1
-        self.message = "Look at the circle. Keep your head still and blink normally."
+        self.message = "GuideLookAtTheCircleKeepYourHeadStillAndBlink"
         self.send(False)
 
     def update(self, strip, *, preview=False):
@@ -197,10 +197,10 @@ class PupilDilation:
                 if elapsed >= ADAPT-15:
                     self.samples.append((elapsed, [[p.diameter_px, *p.ellipse[0], min(p.ellipse[1])/max(p.ellipse[1])]
                                                    for p in pupils]))
-            self.message = ("Your pupils aren't visible. Open your eyes naturally and make sure the headset sits level."
+            self.message = ("GuideYourPupilsArenTVisibleOpenYourEyesNaturallyAnd"
                             if now-self.last_pair > 2 else
-                            "Relax and look at the circle. The screen stays dark while your eyes adjust." if elapsed < ADAPT else
-                            "Keep looking at the circle as the screen fades. Blink normally.")
+                            "GuideRelaxAndLookAtTheCircleTheScreenStaysDark" if elapsed < ADAPT else
+                            "GuideKeepLookingAtTheCircleAsTheScreenFadesBlink")
             if elapsed >= DURATION:
                 self.phase = None
                 self.level = 0.
@@ -212,11 +212,11 @@ class PupilDilation:
                     pending.replace(self.path)
                     self.profile = profile
                     self.result = "passed"
-                    self.message = "Calibration passed and saved."
+                    self.message = "GuideCalibrationPassedAndSaved"
                     print("PUPIL_CALIBRATION_SAVED " + str(self.path.resolve()), flush=True)
                 except (ValueError, OSError) as error:
                     self.result = "failed"
-                    self.message = str(error) + "."
+                    self.message = str(error)
                     print("PUPIL_CALIBRATION_FAILED " + str(error), flush=True)
         values = relative_values(pupils, self.profile)
         if values is not None:

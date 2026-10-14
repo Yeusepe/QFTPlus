@@ -87,7 +87,7 @@ public partial class ThumbrestSettings : UserControl
             session.Save("thumbrest", saved);
             Status.Text = live ? Loc.Get("Applied") : Loc.Get("AppliesWhenSteamVRStarts");
         }
-        catch (Exception error) { Status.Text = Loc.Get("CouldnTChangeTheThumbrest") + error.Message; }
+        catch (Exception error) { Status.Text = Loc.Format("ThumbrestChangeFailure", error.Message); }
         finally { applying = false; }
         if (pending.Count > 0) timer.Start();
     }
@@ -105,7 +105,7 @@ public partial class ThumbrestSettings : UserControl
             if (!on) await session.StopThumbrest();
             Status.Text = note ?? (on ? Loc.Get("TheDriverIsInstalledStartTrackingToUseIt") : Loc.Get("TheDriverIsRemoved"));
         }
-        catch (Exception error) { Status.Text = Loc.Get("CouldnTChangeTheSteamVRDriver") + error.Message; }
+        catch (Exception error) { Status.Text = Loc.Format("SteamVrChangeFailure", error.Message); }
         finally { Driver.IsEnabled = true; }
     }
 }

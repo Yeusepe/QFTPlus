@@ -7,9 +7,9 @@ namespace QFTPlus;
 internal static partial class HeadsetApp
 {
     internal static readonly int[] Rates = [0, 30, 20];
-    internal static readonly string[] RateNames = ["Fastest", "30 per second", "20 per second"];
-    internal static readonly (string Id, string Title)[] Outputs = [("pc", "QFT+ on this PC"), ("vrchat", "VRChat"), ("raw", "OSC apps")];
-    internal const string Outdated = "QFT+ Headset needs an update to work with this PC. Update it, then try again.";
+    internal static readonly string[] RateNames = [Loc.Get("Fastest"), Loc.Get("30PerSecond"), Loc.Get("20PerSecond")];
+    internal static readonly (string Id, string Title)[] Outputs = [("pc", Loc.Get("QFTOnThisPC")), ("vrchat", Loc.Get("VRChat")), ("raw", Loc.Get("OSCApps"))];
+    internal static string Outdated => Loc.Get("QFTHeadsetNeedsAnUpdateToWorkWithThisPC");
 
     internal static async Task<JsonObject> SendAsync(Session session, CancellationToken token, params (string Key, object Value)[] changes)
     {
@@ -32,14 +32,14 @@ internal static partial class HeadsetApp
             await Adb.EnsureAsync(adb, target, token);
             (code, text) = await Processes.RunAsync(adb, command, token, 10);
         }
-        if (code != 0) throw new IOException("Can’t reach the headset. Make sure it’s on and connected to this PC with USB or Wi-Fi.");
+        if (code != 0) throw new IOException(Loc.Get("CanTReachTheHeadsetMakeSureItSOn"));
         return Parse(text);
     }
 
     internal static JsonObject Parse(string text)
     {
         var reply = Reply().Match(text);
-        if (!reply.Success) throw new IOException("Can’t reach the headset. Make sure it’s on and connected to this PC with USB or Wi-Fi.");
+        if (!reply.Success) throw new IOException(Loc.Get("CanTReachTheHeadsetMakeSureItSOn"));
         if (reply.Groups[1].Value != "0") throw new Refused(reply.Groups[2].Value.Length > 0 ? reply.Groups[2].Value : Outdated);
         try { return JsonNode.Parse(reply.Groups[2].Value) as JsonObject ?? throw new IOException(Outdated); }
         catch (JsonException error) { throw new IOException(Outdated, error); }
@@ -53,10 +53,10 @@ internal static partial class HeadsetApp
     {
         if (state?["settings"] is not JsonObject settings || settings["output"]?.GetValue<string>() is not ("vrchat" or "raw")) return "";
         var host = settings["oscHost"]?.GetValue<string>() ?? "";
-        if (host.Length == 0) return "No receiver chosen yet. Choose one in QFT+ Headset, under Connections.";
+        if (host.Length == 0) return Loc.Get("NoReceiverChosenYetChooseOneInQFTHeadsetUnder");
         var name = settings["oscName"]?.GetValue<string>() ?? "";
         var address = $"{host}:{settings["oscPort"]?.GetValue<int>() ?? 9000}";
-        return $"Sends to {(name.Length > 0 ? $"{name} ({address})" : address)}. Choose another receiver in QFT+ Headset, under Connections.";
+        return Loc.Format("SendsToChooseAnotherReceiverInQFTHeadsetUnderConnections", (name.Length > 0 ? $"{name} ({address})" : address));
     }
 
     [GeneratedRegex("result=(-?\\d+)(?:, data=\"(.*)\")?", RegexOptions.Singleline)]
