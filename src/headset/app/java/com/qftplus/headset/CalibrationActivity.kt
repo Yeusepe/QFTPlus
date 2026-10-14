@@ -135,6 +135,7 @@ class CalibrationActivity : ComponentActivity() {
         R.string.calibration_input_select, R.string.calibration_input_point)[index])
 
     @Suppress("unused") private fun updateScene(focused: Boolean): Int {
+        if (isDestroyed) return -1
         val now = SystemClock.elapsedRealtime()
         if (focused) { focusedOnce = true; unfocused = 0L }
         else if (focusedOnce) {
@@ -168,6 +169,7 @@ class CalibrationActivity : ComponentActivity() {
         return 1
     }
     @Suppress("unused") private fun panelSurface(surface: Surface, width: Int, height: Int) = runOnUiThread {
+        if (isDestroyed) return@runOnUiThread
         try {
         val virtual = getSystemService(DisplayManager::class.java).createVirtualDisplay("qft-calibration-panel", width, height, 400, surface, 0)
         display = virtual
@@ -298,5 +300,10 @@ class CalibrationActivity : ComponentActivity() {
         finishAndRemoveTask()
     }
     override fun onPause() { resumed = false; super.onPause() }
+    override fun onDestroy() {
+        if (renderer != null) { cancelCalibration(); stopScene() }
+        closePanel()
+        super.onDestroy()
+    }
     @Deprecated("System back leaves calibration") override fun onBackPressed() { if (renderer != null) leave() else returnToPanel(getString(R.string.calibration_cancelled)) }
 }
