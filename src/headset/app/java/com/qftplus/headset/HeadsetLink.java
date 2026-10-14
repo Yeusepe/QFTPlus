@@ -18,8 +18,8 @@ final class HeadsetLink implements AutoCloseable {
     private long discovery, received, adjustSequence;
     private final byte[] response = new byte[65536];
     volatile String adjustments; volatile long adjustmentsTime;
-    HeadsetLink(String key,String initialHost,int port) throws Exception {
-        if(!key.matches("[0-9a-f]{64}"))throw new IOException("Enable the experiment in desktop Settings to pair this headset");
+    HeadsetLink(android.content.Context context,String key,String initialHost,int port) throws Exception {
+        if(!key.matches("[0-9a-f]{64}"))throw new IOException(context.getString(R.string.pair_headset_from_desktop));
         byte[] secret=new byte[32];for(int i=0;i<32;i++)secret[i]=(byte)Integer.parseInt(key.substring(2*i,2*i+2),16);
         mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(secret,"HmacSHA256"));
         host=initialHost.isEmpty()?null:InetAddress.getByName(initialHost);this.port=port;

@@ -9,26 +9,41 @@ public final class ControlReceiver extends BroadcastReceiver {
     static final int[] RATES = {0, 30, 20};
 
     public void onReceive(Context context, Intent intent) {
+        if (intent.getBooleanExtra("avatarWanted", false)) {
+            PendingResult reply = goAsync();
+            new Thread(() -> {
+                try {
+                    File preset = AvatarAssets.prepare(context, false);
+                    reply.setResultCode(0);
+                    reply.setResultData(new JSONObject().put("avatarPreset", preset.getPath())
+                        .put("avatarLibrary", context.getApplicationInfo().nativeLibraryDir).toString());
+                } catch (IOException | JSONException error) {
+                    android.util.Log.w("QFTCalibration", "Prepare avatar preview", error);
+                    reply.setResultCode(2); reply.setResultData(context.getString(R.string.avatar_preview_unavailable));
+                } finally { reply.finish(); }
+            }, "qft-avatar-assets").start();
+            return;
+        }
         SharedPreferences settings = context.getSharedPreferences("settings", 0);
         int capabilities = capabilities(context);
-        String problem = intent.hasExtra("rate") && java.util.Arrays.stream(RATES).noneMatch(r -> r == intent.getIntExtra("rate", -1)) ? "Choose an update rate of 0 (fastest), 30 or 20."
-            : intent.hasExtra("vergenceGain") && (!Float.isFinite(intent.getFloatExtra("vergenceGain", Float.NaN)) || intent.getFloatExtra("vergenceGain", -1) < 0 || intent.getFloatExtra("vergenceGain", 4) > 3) ? "Choose a convergence strength between 0 and 300%."
-            : intent.hasExtra("output") && !java.util.Arrays.asList("pc", "vrchat", "raw").contains(intent.getStringExtra("output")) ? "Choose QFT+ on your PC, VRChat or OSC apps."
-            : intent.hasExtra("oscHost") && !String.valueOf(intent.getStringExtra("oscHost")).matches("((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)") ? "Enter the receiver's IPv4 address, like 192.168.1.20."
-            : intent.hasExtra("oscPort") && (intent.getIntExtra("oscPort", 0) < 1 || intent.getIntExtra("oscPort", 0) > 65535) ? "Choose a port from 1 to 65535."
-            : intent.hasExtra("calibrate") && !java.util.Arrays.asList("face", "pupils").contains(intent.getStringExtra("calibrate")) ? "Choose face or pupil calibration."
-            : intent.getBooleanExtra("tongue", false) && (capabilities & 1) == 0 ? "Calibrate your face in QFT+ Headset to use tongue direction."
-            : intent.getBooleanExtra("pupils", false) && (capabilities & 8) == 0 ? "Calibrate your pupils in QFT+ Headset to use pupil dilation." : null;
+        String problem = intent.hasExtra("rate") && java.util.Arrays.stream(RATES).noneMatch(r -> r == intent.getIntExtra("rate", -1)) ? context.getString(R.string.choose_an_update_rate_of_0_fastest_30_or_20)
+            : intent.hasExtra("vergenceGain") && (!Float.isFinite(intent.getFloatExtra("vergenceGain", Float.NaN)) || intent.getFloatExtra("vergenceGain", -1) < 0 || intent.getFloatExtra("vergenceGain", 4) > 3) ? context.getString(R.string.choose_a_convergence_strength_between_0_and_300)
+            : intent.hasExtra("output") && !java.util.Arrays.asList("pc", "vrchat", "raw").contains(intent.getStringExtra("output")) ? context.getString(R.string.choose_qft_on_your_pc_vrchat_or_osc_apps)
+            : intent.hasExtra("oscHost") && !String.valueOf(intent.getStringExtra("oscHost")).matches("((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)") ? context.getString(R.string.enter_the_receiver_s_ipv4_address_like_192_168_1)
+            : intent.hasExtra("oscPort") && (intent.getIntExtra("oscPort", 0) < 1 || intent.getIntExtra("oscPort", 0) > 65535) ? context.getString(R.string.choose_a_port_from_1_to_65535)
+            : intent.hasExtra("calibrate") && !java.util.Arrays.asList("face", "pupils").contains(intent.getStringExtra("calibrate")) ? context.getString(R.string.choose_face_or_pupil_calibration)
+            : intent.getBooleanExtra("tongue", false) && (capabilities & 1) == 0 ? context.getString(R.string.calibrate_your_face_in_qft_headset_to_use_tongue_direction)
+            : intent.getBooleanExtra("pupils", false) && (capabilities & 8) == 0 ? context.getString(R.string.calibrate_your_pupils_in_qft_headset_to_use_pupil_dilation) : null;
         byte[] adjustments = null;
         if (problem == null && intent.hasExtra("adjustments"))
             try {
                 adjustments = android.util.Base64.decode(intent.getStringExtra("adjustments"), android.util.Base64.DEFAULT);
                 new JSONObject(new String(adjustments, java.nio.charset.StandardCharsets.UTF_8));
-            } catch (IllegalArgumentException | NullPointerException | JSONException unreadable) { problem = "The adjustments from your PC couldn't be read."; }
+            } catch (IllegalArgumentException | NullPointerException | JSONException unreadable) { problem = context.getString(R.string.the_adjustments_from_your_pc_couldn_t_be_read); }
         if (problem != null) { setResultCode(2); setResultData(problem); return; }
         if (adjustments != null)
             try { OutputAdjustments.write(TrackingService.adjustmentsFile(context), adjustments); }
-            catch (IOException error) { setResultCode(2); setResultData("Couldn't save the adjustments on the headset: " + error.getMessage()); return; }
+            catch (IOException error) { setResultCode(2); setResultData(context.getString(R.string.could_not_save_headset_adjustments , error.getMessage())); return; }
         boolean restart = intent.hasExtra("rate") && intent.getIntExtra("rate", 0) != settings.getInt("rate", 0);
         restart |= intent.hasExtra("convergence") && intent.getBooleanExtra("convergence", true) != settings.getBoolean("convergence", true);
         SharedPreferences.Editor edit = settings.edit();
@@ -45,7 +60,7 @@ public final class ControlReceiver extends BroadcastReceiver {
             edit.remove("oscService").remove("oscServiceType").remove("oscName");
         }
         boolean calibrating = TrackingService.calibration != null;
-        if (calibrating && restart) { setResultCode(2); setResultData("Finish or leave calibration in the headset, then change this setting."); return; }
+        if (calibrating && restart) { setResultCode(2); setResultData(context.getString(R.string.finish_or_leave_calibration_in_the_headset_then_change_this)); return; }
         if (intent.hasExtra("tracking")) edit.putBoolean("enabled", intent.getBooleanExtra("tracking", false));
         edit.commit();
         Intent service = new Intent(context, TrackingService.class);
@@ -55,12 +70,12 @@ public final class ControlReceiver extends BroadcastReceiver {
             try { context.startForegroundService(service); }
             catch (IllegalStateException notAllowed) {
                 settings.edit().putBoolean("enabled", false).commit();
-                setResultCode(2); setResultData("The headset didn't let QFT+ Headset start from this PC. Turn on tracking in QFT+ Headset."); return;
+                setResultCode(2); setResultData(context.getString(R.string.the_headset_didn_t_let_qft_headset_start_from_this)); return;
             }
         if (intent.hasExtra("calibrate")) {
             String refused;
             try { refused = CalibrationActivityKt.startCalibration(context, intent.getStringExtra("calibrate").equals("pupils")); }
-            catch (RuntimeException notAllowed) { refused = "The headset didn't let QFT+ Headset start calibration from this PC. Start it in QFT+ Headset."; }
+            catch (RuntimeException notAllowed) { refused = context.getString(R.string.the_headset_didn_t_let_qft_headset_start_calibration_from); }
             if (refused != null) { setResultCode(2); setResultData(refused); return; }
         }
         try {
@@ -71,7 +86,7 @@ public final class ControlReceiver extends BroadcastReceiver {
             }
             setResultCode(0); setResultData(state.toString());
         }
-        catch (IOException error) { setResultCode(2); setResultData("Couldn't read the adjustments on the headset: " + error.getMessage()); }
+        catch (IOException error) { setResultCode(2); setResultData(context.getString(R.string.could_not_read_headset_adjustments , error.getMessage())); }
         catch (JSONException error) { setResultCode(2); setResultData(error.getMessage()); }
     }
 
@@ -96,8 +111,12 @@ public final class ControlReceiver extends BroadcastReceiver {
         try { version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName; }
         catch (Exception unknown) { version = ""; }
         boolean enabled = settings.getBoolean("enabled", false);
+        byte[] frame = TrackingService.latest;
+        boolean receiving = enabled && frame != null && android.os.SystemClock.elapsedRealtime() - TrackingService.lastFrame < 2000;
+        int nativeFlags = receiving ? ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN).getInt(288) : 0;
         return new JSONObject().put("v", 1).put("version", version).put("tracking", enabled).put("running", TrackingService.running)
-            .put("status", enabled ? TrackingService.status : "Off").put("error", enabled || TrackingService.error == null ? "" : TrackingService.error).put("pcConnected", enabled && TrackingService.pcConnected)
+            .put("receiving", receiving).put("faceAvailable", (nativeFlags & 1) != 0).put("eyesAvailable", (nativeFlags & 6) == 6)
+            .put("status", enabled ? TrackingService.status : context.getString(R.string.off)).put("error", enabled || TrackingService.error == null ? "" : TrackingService.error).put("pcConnected", enabled && TrackingService.pcConnected)
             .put("settings", new JSONObject().put("enabled", enabled).put("output", TrackingService.outputMode(settings))
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))
                 .put("tongue", settings.getBoolean("tongue", false)).put("pupils", settings.getBoolean("pupils", false))

@@ -23,7 +23,7 @@ internal static class Adb
         {
             Stop();
             if ((await Processes.RunAsync(adb, ["start-server"], token, 15)).Code != 0)
-                throw new IOException("adb didn’t start. Unplug the headset and plug it back in, or restart the PC, then try again.");
+                throw new IOException(Loc.Get("AdbDidnTStartUnplugTheHeadsetAndPlugIt"));
         }
         if (target is { Length: > 0 } && target.Contains(':')) await Processes.RunAsync(adb, ["connect", target], token, 10);
     }

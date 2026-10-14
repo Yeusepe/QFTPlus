@@ -201,7 +201,7 @@
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="Calibrated" xml:space="preserve">
-    <value>Calibrated · </value>
+    <value>Calibrated</value>
     <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
   </data>
   <data name="Calibrated_0c66fb7b" xml:space="preserve">
@@ -416,6 +416,15 @@
     <value>Couldn’t install the update. Check the internet connection, then try again. (</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
+  <data name="APackagedHeadsetComponentIsMissingReinstallQFT" xml:space="preserve">
+    <value>A packaged headset component is missing: {0}. Reinstall QFT+.</value>
+  </data>
+  <data name="VRChat" xml:space="preserve">
+    <value>VRChat</value>
+  </data>
+  <data name="CouldNotStart" xml:space="preserve">
+    <value>Could not start {0}</value>
+  </data>
   <data name="CouldnTOpenFileExplorerTheFileIsIn" xml:space="preserve">
     <value>Couldn’t open File Explorer. The file is in </value>
     <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
@@ -616,6 +625,295 @@
     <value>Finishing the current step before quitting.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
+  <data name="LipSync" xml:space="preserve">
+    <value>Lip sync</value>
+  </data>
+  <data name="LipSyncAbout" xml:space="preserve">
+    <value>Moves your avatar's mouth with your voice, alongside face tracking. QFT+ processes your voice on this PC and never saves it.</value>
+  </data>
+  <data name="LipSyncOff" xml:space="preserve">
+    <value>Off. The microphone is closed.</value>
+  </data>
+  <data name="LipSyncMissing" xml:space="preserve">
+    <value>OVR LipSync is missing from this installation. Reinstall QFT+ to restore it.</value>
+  </data>
+  <data name="Listening" xml:space="preserve">
+    <value>Listening.</value>
+  </data>
+  <data name="ListeningDelay" xml:space="preserve">
+    <value>Listening. About {0} ms from your voice to VRChat.</value>
+    <comment>{0} is a number of milliseconds.</comment>
+  </data>
+  <data name="MicrophoneUnavailable" xml:space="preserve">
+    <value>Couldn't open the microphone: {0}</value>
+    <comment>{0} is the system's error message.</comment>
+  </data>
+  <data name="Microphone" xml:space="preserve">
+    <value>Microphone</value>
+  </data>
+  <data name="WindowsDefault" xml:space="preserve">
+    <value>Windows default ({0})</value>
+    <comment>{0} is the name of the current default microphone.</comment>
+  </data>
+  <data name="InputLevel" xml:space="preserve">
+    <value>Input level</value>
+  </data>
+  <data name="VisemesAbout" xml:space="preserve">
+    <value>Choose when each sound moves your avatar's mouth, and how strongly. Vowels start at “{0}” because face tracking already shapes them.</value>
+  </data>
+  <data name="Consonants" xml:space="preserve">
+    <value>Consonants</value>
+  </data>
+  <data name="Vowels" xml:space="preserve">
+    <value>Vowels</value>
+  </data>
+  <data name="VisemeOutput" xml:space="preserve">
+    <value>{0} output</value>
+    <comment>Accessible name of a live level bar. {0} is a viseme name such as PP.</comment>
+  </data>
+  <data name="VisemeStrength" xml:space="preserve">
+    <value>{0} strength</value>
+    <comment>{0} is a viseme name such as PP.</comment>
+  </data>
+  <data name="Parameters" xml:space="preserve">
+    <value>Parameters</value>
+  </data>
+  <data name="OneParameterPerViseme" xml:space="preserve">
+    <value>One parameter per mouth shape</value>
+  </data>
+  <data name="VisemeIndexAndWeight" xml:space="preserve">
+    <value>Viseme index and weight</value>
+  </data>
+  <data name="SendsPerViseme" xml:space="preserve">
+    <value>Sends one value per mouth shape, {0} through {1}, to the matching parameters on your avatar, whatever their prefix.</value>
+    <comment>{0} and {1} are avatar parameter names.</comment>
+  </data>
+  <data name="SendsIndexAndWeight" xml:space="preserve">
+    <value>Sends {0} (int, VRChat's viseme numbering) and {1} (float). Point your avatar's existing viseme layer at these.</value>
+    <comment>{0} and {1} are avatar parameter names.</comment>
+  </data>
+  <data name="Advanced" xml:space="preserve">
+    <value>Advanced</value>
+  </data>
+  <data name="Engine" xml:space="preserve">
+    <value>Engine</value>
+  </data>
+  <data name="EngineOriginal" xml:space="preserve">
+    <value>Original</value>
+  </data>
+  <data name="EngineEnhanced" xml:space="preserve">
+    <value>Enhanced</value>
+  </data>
+  <data name="EngineLaughter" xml:space="preserve">
+    <value>Enhanced with laughter</value>
+  </data>
+  <data name="LipSyncSmoothingAbout" xml:space="preserve">
+    <value>Higher values steady the mouth but react later.</value>
+  </data>
+  <data name="VisemeFadeIn" xml:space="preserve">
+    <value>Fade in</value>
+  </data>
+  <data name="VisemeFadeInAbout" xml:space="preserve">
+    <value>How quickly a mouth shape comes in.</value>
+  </data>
+  <data name="VisemeFadeOut" xml:space="preserve">
+    <value>Fade out</value>
+  </data>
+  <data name="VisemeFadeOutAbout" xml:space="preserve">
+    <value>How slowly it lets go, so sounds blend into each other instead of jumping.</value>
+  </data>
+  <data name="InputGain" xml:space="preserve">
+    <value>Input gain</value>
+  </data>
+  <data name="NoiseGate" xml:space="preserve">
+    <value>Noise gate</value>
+  </data>
+  <data name="NoiseGateAbout" xml:space="preserve">
+    <value>How far above your room's background sound has to be to move your mouth, so background noise doesn't.</value>
+  </data>
+  <data name="FrameLength" xml:space="preserve">
+    <value>Frame length</value>
+  </data>
+  <data name="FrameLength10" xml:space="preserve">
+    <value>10 ms (quickest)</value>
+  </data>
+  <data name="FrameLength20" xml:space="preserve">
+    <value>20 ms (steadier)</value>
+  </data>
+  <data name="IndexParameter" xml:space="preserve">
+    <value>Index parameter</value>
+  </data>
+  <data name="WeightParameter" xml:space="preserve">
+    <value>Weight parameter</value>
+  </data>
+  <data name="LaughterParameter" xml:space="preserve">
+    <value>Laughter parameter</value>
+  </data>
+  <data name="LaughterAbout" xml:space="preserve">
+    <value>Needs the Enhanced with laughter engine; for example Laughter. Leave it empty to send none.</value>
+  </data>
+  <data name="LipSyncSearchWords" xml:space="preserve">
+    <value>visemes microphone mouth voice talking OVR LipSync</value>
+  </data>
+  <data name="OVRLipSyncError" xml:space="preserve">
+    <value>OVR LipSync error {0}</value>
+  </data>
+  <data name="VisemeSoundsPP" xml:space="preserve">
+    <value>P, B, M</value>
+  </data>
+  <data name="VisemeSoundsFF" xml:space="preserve">
+    <value>F, V</value>
+  </data>
+  <data name="VisemeSoundsTH" xml:space="preserve">
+    <value>TH</value>
+  </data>
+  <data name="VisemeSoundsDD" xml:space="preserve">
+    <value>T, D</value>
+  </data>
+  <data name="VisemeSoundskk" xml:space="preserve">
+    <value>K, G</value>
+  </data>
+  <data name="VisemeSoundsCH" xml:space="preserve">
+    <value>CH, J, SH</value>
+  </data>
+  <data name="VisemeSoundsSS" xml:space="preserve">
+    <value>S, Z</value>
+  </data>
+  <data name="VisemeSoundsnn" xml:space="preserve">
+    <value>N, L</value>
+  </data>
+  <data name="VisemeSoundsRR" xml:space="preserve">
+    <value>R</value>
+  </data>
+  <data name="VisemeSoundsaa" xml:space="preserve">
+    <value>AH</value>
+  </data>
+  <data name="VisemeSoundsE" xml:space="preserve">
+    <value>EH</value>
+  </data>
+  <data name="VisemeSoundsih" xml:space="preserve">
+    <value>IH</value>
+  </data>
+  <data name="VisemeSoundsoh" xml:space="preserve">
+    <value>OH</value>
+  </data>
+  <data name="VisemeSoundsou" xml:space="preserve">
+    <value>OO</value>
+  </data>
+  <data name="HeadsetMicrophone" xml:space="preserve">
+    <value>Headset microphone</value>
+  </data>
+  <data name="HeadsetMicrophoneCopyFailed" xml:space="preserve">
+    <value>Could not prepare the headset microphone. Reconnect the headset and try again.</value>
+  </data>
+  <data name="HeadsetMicrophoneStopped" xml:space="preserve">
+    <value>The headset microphone stopped: {0}</value>
+  </data>
+  <data name="HeadsetMicrophoneWaiting" xml:space="preserve">
+    <value>Waiting for the headset microphone…</value>
+  </data>
+  <data name="HeadsetMicrophoneDisconnected" xml:space="preserve">
+    <value>The connection to the headset ended. Make sure it's awake and connected, then turn lip sync off and on.</value>
+  </data>
+  <data name="HeadsetMicrophoneAbout" xml:space="preserve">
+    <value>QFT+ records the headset's microphone with root and streams it to this PC over your ADB connection. Virtual Desktop keeps its microphone.</value>
+  </data>
+  <data name="VisemeAlways" xml:space="preserve">
+    <value>Always</value>
+  </data>
+  <data name="VisemeWithoutTracking" xml:space="preserve">
+    <value>When face tracking is off</value>
+  </data>
+  <data name="VisemeOff" xml:space="preserve">
+    <value>Never</value>
+  </data>
+  <data name="VisemeWhen" xml:space="preserve">
+    <value>When to send {0}</value>
+  </data>
+  <data name="Sound" xml:space="preserve">
+    <value>Sound</value>
+  </data>
+  <data name="VisemeWordsPP" xml:space="preserve">
+    <value>put, bat, mat</value>
+  </data>
+  <data name="VisemeWordsFF" xml:space="preserve">
+    <value>fat, vat</value>
+  </data>
+  <data name="VisemeWordsTH" xml:space="preserve">
+    <value>think, that</value>
+  </data>
+  <data name="VisemeWordsDD" xml:space="preserve">
+    <value>tip, doll</value>
+  </data>
+  <data name="VisemeWordskk" xml:space="preserve">
+    <value>call, gas</value>
+  </data>
+  <data name="VisemeWordsCH" xml:space="preserve">
+    <value>chair, join, she</value>
+  </data>
+  <data name="VisemeWordsSS" xml:space="preserve">
+    <value>sir, zeal</value>
+  </data>
+  <data name="VisemeWordsnn" xml:space="preserve">
+    <value>lot, not</value>
+  </data>
+  <data name="VisemeWordsRR" xml:space="preserve">
+    <value>red</value>
+  </data>
+  <data name="VisemeWordsaa" xml:space="preserve">
+    <value>car</value>
+  </data>
+  <data name="VisemeWordsE" xml:space="preserve">
+    <value>bed</value>
+  </data>
+  <data name="VisemeWordsih" xml:space="preserve">
+    <value>tip</value>
+  </data>
+  <data name="VisemeWordsoh" xml:space="preserve">
+    <value>toe</value>
+  </data>
+  <data name="VisemeWordsou" xml:space="preserve">
+    <value>book</value>
+  </data>
+  <data name="VisemeExample" xml:space="preserve">
+    <value>as in {0}</value>
+  </data>
+  <data name="VisemeCode" xml:space="preserve">
+    <value>Viseme {0}</value>
+  </data>
+  <data name="MouthShapes" xml:space="preserve">
+    <value>Mouth shapes</value>
+  </data>
+  <data name="ListeningNoAvatarParameters" xml:space="preserve">
+    <value>Listening, but your current avatar has no lip sync parameters.</value>
+  </data>
+  <data name="AvatarParametersFound" xml:space="preserve">
+    <value>Your current avatar has {0} of them.</value>
+  </data>
+  <data name="AvatarParametersNone" xml:space="preserve">
+    <value>Your current avatar has none of them.</value>
+  </data>
+  <data name="AvatarParametersUnknown" xml:space="preserve">
+    <value>VRChat hasn't listed your avatar's parameters yet, so QFT+ uses the usual FT/v2/ and v2/ names.</value>
+  </data>
+  <data name="BackTo" xml:space="preserve">
+    <value>Back to {0}</value>
+  </data>
+  <data name="MouthShapesSummary" xml:space="preserve">
+    <value>{0} always, {1} when face tracking is off</value>
+  </data>
+  <data name="MouthShapesSummaryNever" xml:space="preserve">
+    <value>{0} always, {1} when face tracking is off, {2} never</value>
+  </data>
+  <data name="AvatarShortUnknown" xml:space="preserve">
+    <value>Waiting for VRChat</value>
+  </data>
+  <data name="AvatarShortNone" xml:space="preserve">
+    <value>No lip sync parameters on your avatar</value>
+  </data>
+  <data name="AvatarShortFound" xml:space="preserve">
+    <value>{0} parameters on your avatar</value>
+  </data>
   <data name="FollowADotAsTheSpaceDarkensAndBrightens" xml:space="preserve">
     <value>Follow a dot as the space darkens and brightens · about 80 seconds</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
@@ -815,6 +1113,15 @@
   <data name="InputMinimum" xml:space="preserve">
     <value>Input minimum</value>
     <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="AvatarPreviewLoading" xml:space="preserve">
+    <value>Loading the headset avatar…</value>
+  </data>
+  <data name="AvatarPreviewUnavailable" xml:space="preserve">
+    <value>Connect your headset and update QFT+ Headset to see the avatar. You can still follow the instructions.</value>
+  </data>
+  <data name="AvatarPreview" xml:space="preserve">
+    <value>Calibration avatar</value>
   </data>
   <data name="InputMinimumMustBeBelowInputMaximumOutputMinimum" xml:space="preserve">
     <value>Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.</value>
@@ -1017,7 +1324,7 @@
     <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
   </data>
   <data name="NotCalibrated" xml:space="preserve">
-    <value>Not calibrated · </value>
+    <value>Not calibrated</value>
     <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
   </data>
   <data name="NotCalibrated_8eadca56" xml:space="preserve">
@@ -2139,5 +2446,1446 @@
   <data name="SettingValue" xml:space="preserve">
     <value>{0} value</value>
     <comment>Accessible numeric input name. {0} is the localized setting title.</comment>
+  </data>
+  <data name="QFTCouldnTReadTryAgainInAMoment" xml:space="preserve">
+    <value>QFT+ couldn’t read {0}. Try again in a moment. ({1})</value>
+  </data>
+  <data name="CopyingTheCameraComponentsToTheHeadsetFailedCheckThe" xml:space="preserve">
+    <value>Copying the camera components to the headset failed. Check the connection, then try again.</value>
+  </data>
+  <data name="StartingTheHeadsetCameraStreamFailedTheTrackingLogShows" xml:space="preserve">
+    <value>Starting the headset camera stream failed. The Tracking log shows why.</value>
+  </data>
+  <data name="AdbDidnTStartUnplugTheHeadsetAndPlugIt" xml:space="preserve">
+    <value>adb didn’t start. Unplug the headset and plug it back in, or restart the PC, then try again.</value>
+  </data>
+  <data name="YourChangeWasSavedStopAndStartTrackingToApply" xml:space="preserve">
+    <value>Your change was saved. Stop and start tracking to apply it.</value>
+  </data>
+  <data name="StopTrackingBeforeRunningSetup" xml:space="preserve">
+    <value>Stop tracking before running setup.</value>
+  </data>
+  <data name="ADBPortForwardingFailedReconnectTheHeadsetThenTryAgain" xml:space="preserve">
+    <value>ADB port forwarding failed. Reconnect the headset, then try again.</value>
+  </data>
+  <data name="TheIndependentEyeModelIsMissingRunSetupAgainTo" xml:space="preserve">
+    <value>The independent eye model is missing. Run setup again to rebuild it.</value>
+  </data>
+  <data name="IndependentEyeCalibrationIsMissingToUseStandardEyeTracking" xml:space="preserve">
+    <value>Independent eye calibration is missing. To use standard eye tracking, turn off Independent eye gaze in Settings.</value>
+  </data>
+  <data name="TurningOnTrackingInQFTHeadset" xml:space="preserve">
+    <value>Turning on tracking in QFT+ Headset…</value>
+  </data>
+  <data name="CouldnTCopyTheEyeModelToTheHeadsetCheck" xml:space="preserve">
+    <value>Couldn't copy the eye model to the headset. Check the connection, then try again.</value>
+  </data>
+  <data name="HandTrackingNeedsVirtualDesktopAndSteamVRIsUsingSteam" xml:space="preserve">
+    <value>Hand tracking needs Virtual Desktop, and SteamVR is using Steam Link. Connect with Virtual Desktop, or choose face tracking in Settings.</value>
+  </data>
+  <data name="TheEyeModelOnTheHeadsetDidnTMatchThe" xml:space="preserve">
+    <value>The eye model on the headset didn't match the one on this PC. Try again.</value>
+  </data>
+  <data name="TheHeadsetSTrackingServiceDidnTRestartRestartThe" xml:space="preserve">
+    <value>The headset's tracking service didn't restart. Restart the headset, then try again.</value>
+  </data>
+  <data name="TheHeadsetDidnTAcceptACommandMakeSureIt" xml:space="preserve">
+    <value>The headset didn't accept a command. Make sure it's awake and connected, then try again. ({0}: {1})</value>
+  </data>
+  <data name="TheConnectionToTheHeadsetEndedMakeSureItS" xml:space="preserve">
+    <value>The connection to the headset ended. Make sure it’s awake and connected, then start tracking again.</value>
+  </data>
+  <data name="CompleteSetupInThisAppBeforeEnablingAutoStart" xml:space="preserve">
+    <value>Complete setup in this app before enabling auto-start.</value>
+  </data>
+  <data name="OneTimeSetup" xml:space="preserve">
+    <value>One-time setup…</value>
+  </data>
+  <data name="StoppedUnexpectedly" xml:space="preserve">
+    <value>{0} stopped unexpectedly.</value>
+  </data>
+  <data name="TheFaceSetupFileIsMissing" xml:space="preserve">
+    <value>The face setup file is missing.</value>
+  </data>
+  <data name="StartingHandTracking" xml:space="preserve">
+    <value>Starting hand tracking…</value>
+  </data>
+  <data name="StartingTheHeadsetCameras" xml:space="preserve">
+    <value>Starting the headset cameras…</value>
+  </data>
+  <data name="ThePupilCalibrationIsInvalid" xml:space="preserve">
+    <value>The pupil calibration is invalid.</value>
+  </data>
+  <data name="UnknownCalibrationType" xml:space="preserve">
+    <value>Unknown calibration type.</value>
+  </data>
+  <data name="TrackingEndedUnexpectedly" xml:space="preserve">
+    <value>Tracking ended unexpectedly.</value>
+  </data>
+  <data name="ThisHeadsetSControllerRuntimeIsNotSupportedByHybrid" xml:space="preserve">
+    <value>This headset's controller runtime is not supported by hybrid tracking. See the Hybrid log for details.</value>
+  </data>
+  <data name="WindowsPowerShellDidnTStart" xml:space="preserve">
+    <value>Windows PowerShell didn’t start.</value>
+  </data>
+  <data name="TheFileDoesnTHoldSettings" xml:space="preserve">
+    <value>The file doesn't hold settings.</value>
+  </data>
+  <data name="CloseSteamVRWhichIsUsingTheQFTDriver" xml:space="preserve">
+    <value>Close SteamVR, which is using the QFT+ driver.</value>
+  </data>
+  <data name="QuitVRCFaceTrackingFromItsSystemTrayMenuItHasThe" xml:space="preserve">
+    <value>Quit VRCFaceTracking from its system tray menu; it has the QFT+ module loaded.</value>
+  </data>
+  <data name="PutOnTheHeadsetConnectToThisPCInVirtual" xml:space="preserve">
+    <value>Put on the headset, connect to this PC in Virtual Desktop, and enter SteamVR.</value>
+  </data>
+  <data name="ConnectToThisPCInSteamLinkOrVirtualDesktop" xml:space="preserve">
+    <value>Connect to this PC in Steam Link or Virtual Desktop and enter SteamVR.</value>
+  </data>
+  <data name="RestoringHeadsetTracking" xml:space="preserve">
+    <value>Restoring headset tracking…</value>
+  </data>
+  <data name="ThisPCStoppedReceivingButTheHeadsetCouldnTBe" xml:space="preserve">
+    <value>This PC stopped receiving, but the headset couldn’t be reached. Turn off tracking in QFT+ Headset to save battery.</value>
+  </data>
+  <data name="TheHeadsetIsnTAnsweringMakeSureItSAwake" xml:space="preserve">
+    <value>The headset isn’t answering. Make sure it’s awake.</value>
+  </data>
+  <data name="QFTHeadsetClosedUnexpectedlyStartTrackingAgain" xml:space="preserve">
+    <value>QFT+ Headset closed unexpectedly. Start tracking again.</value>
+  </data>
+  <data name="TrackingWasTurnedOffInQFTHeadset" xml:space="preserve">
+    <value>Tracking was turned off in QFT+ Headset.</value>
+  </data>
+  <data name="QFTHeadsetIsTrackingWaitingForVRCFaceTrackingOnThisPC" xml:space="preserve">
+    <value>QFT+ Headset is tracking. Waiting for VRCFaceTracking on this PC to receive it.</value>
+  </data>
+  <data name="StartingQFTHeadset" xml:space="preserve">
+    <value>Starting QFT+ Headset…</value>
+  </data>
+  <data name="Fastest" xml:space="preserve">
+    <value>Fastest</value>
+  </data>
+  <data name="30PerSecond" xml:space="preserve">
+    <value>30 per second</value>
+  </data>
+  <data name="20PerSecond" xml:space="preserve">
+    <value>20 per second</value>
+  </data>
+  <data name="QFTOnThisPC" xml:space="preserve">
+    <value>QFT+ on this PC</value>
+  </data>
+  <data name="OSCApps" xml:space="preserve">
+    <value>OSC apps</value>
+  </data>
+  <data name="QFTHeadsetNeedsAnUpdateToWorkWithThisPC" xml:space="preserve">
+    <value>QFT+ Headset needs an update to work with this PC. Update it, then try again.</value>
+  </data>
+  <data name="CouldnTFinishThisStepTheComponentsLogInSettings" xml:space="preserve">
+    <value>Couldn’t finish this step. The Components log in Settings has the details.</value>
+  </data>
+  <data name="CanTReachTheHeadsetMakeSureItSOn" xml:space="preserve">
+    <value>Can’t reach the headset. Make sure it’s on and connected to this PC with USB or Wi-Fi.</value>
+  </data>
+  <data name="NoReceiverChosenYetChooseOneInQFTHeadsetUnder" xml:space="preserve">
+    <value>No receiver chosen yet. Choose one in QFT+ Headset, under Connections.</value>
+  </data>
+  <data name="BecomeATesterFirst" xml:space="preserve">
+    <value>Become a tester first.</value>
+  </data>
+  <data name="SendsToChooseAnotherReceiverInQFTHeadsetUnderConnections" xml:space="preserve">
+    <value>Sends to {0}. Choose another receiver in QFT+ Headset, under Connections.</value>
+  </data>
+  <data name="TheHeadsetDidnTStartItsCleanupShellMakeSure" xml:space="preserve">
+    <value>The headset didn't start its cleanup shell. Make sure it's awake and Magisk allows Shell, then try again.</value>
+  </data>
+  <data name="QuestTouchProControllers" xml:space="preserve">
+    <value>Quest Touch Pro controllers</value>
+  </data>
+  <data name="QuestProMessage" xml:space="preserve">
+    <value>Quest Pro</value>
+  </data>
+  <data name="FeatureStatus" xml:space="preserve">
+    <value>{0}, {1}</value>
+  </data>
+  <data name="TheAppIsMissingARequiredFileRunTheComplete" xml:space="preserve">
+    <value>The app is missing a required file. Run the complete installer again.</value>
+  </data>
+  <data name="LookingForYourQuestPro" xml:space="preserve">
+    <value>Looking for your Quest Pro…</value>
+  </data>
+  <data name="ThePCComponentsDidnTFinishInstallingMakeSureThis" xml:space="preserve">
+    <value>The PC components didn’t finish installing. Make sure this PC has free disk space, then try again.</value>
+  </data>
+  <data name="FaceTrackingIsnTSelected" xml:space="preserve">
+    <value>Face tracking isn’t selected.</value>
+  </data>
+  <data name="KeepYourHeadsetAwake" xml:space="preserve">
+    <value>Keep your headset awake.</value>
+  </data>
+  <data name="IndependentEyeGazeIsOff" xml:space="preserve">
+    <value>Independent eye gaze is off.</value>
+  </data>
+  <data name="InstallingTheUpdatedVRCFaceTrackingBridge" xml:space="preserve">
+    <value>Installing the updated VRCFaceTracking bridge…</value>
+  </data>
+  <data name="TheVRCFaceTrackingModuleDidNotFinishInstallingTryAgainOpen" xml:space="preserve">
+    <value>The VRCFaceTracking module did not finish installing. Try again. Open the setup log for details.</value>
+  </data>
+  <data name="FaceTrackingNeedsTheQFTModuleInVRCFaceTrackingAndAutomatic" xml:space="preserve">
+    <value>Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it to continue.</value>
+  </data>
+  <data name="FaceTrackingNeedsTheQFTModuleInVRCFaceTrackingAndAutomaticMessage" xml:space="preserve">
+    <value>Face tracking needs the QFT+ module in VRCFaceTracking, and automatic install is off. Install it, or use hand tracking only.</value>
+  </data>
+  <data name="YourProgressIsSaved" xml:space="preserve">
+    <value>Your progress is saved.</value>
+  </data>
+  <data name="TheQFTVRCFaceTrackingModuleIsMissingOrIncompleteRepairOr" xml:space="preserve">
+    <value>The QFT+ VRCFaceTracking module is missing or incomplete. Repair or reinstall QFT+ before trying setup again.</value>
+  </data>
+  <data name="TheModuleCopyCouldNotBeVerifiedTryAgain" xml:space="preserve">
+    <value>The module copy could not be verified. Try again.</value>
+  </data>
+  <data name="TheModuleFileIsStillInUseQuitVRCFaceTrackingFrom" xml:space="preserve">
+    <value>The module file is still in use. Quit VRCFaceTracking from its system tray menu, then try again.</value>
+  </data>
+  <data name="WindowsBlockedTheModuleUpdateCheckAccessToTheVRCFaceTracking" xml:space="preserve">
+    <value>Windows blocked the module update. Check access to the VRCFaceTracking CustomLibs folder and try again.</value>
+  </data>
+  <data name="CreatingTheLocalIndependentEyePatchFailed" xml:space="preserve">
+    <value>Creating the local independent-eye patch failed.</value>
+  </data>
+  <data name="CouldnTPrepareEyeTrackingForThisHeadsetMakeSure" xml:space="preserve">
+    <value>Couldn’t prepare eye tracking for this headset. Make sure it’s awake and Magisk allows Shell, then try again. The Setup log has the exact error.</value>
+  </data>
+  <data name="CouldnTReachTheHeadsetOverWiFiKeepUSB" xml:space="preserve">
+    <value>Couldn’t reach the headset over Wi-Fi. Keep USB connected, put the PC and headset on the same home network (not guest Wi-Fi), then try again.</value>
+  </data>
+  <data name="RootAccessIsUnavailableOverWiFiInMagiskSuperuser" xml:space="preserve">
+    <value>Root access is unavailable over Wi-Fi. In Magisk → Superuser, allow Shell, then try again.</value>
+  </data>
+  <data name="HandTrackingUsesVirtualDesktopInstallTheVirtualDesktopStreamer" xml:space="preserve">
+    <value>Hand tracking uses Virtual Desktop. Install the Virtual Desktop Streamer on this PC to continue.</value>
+  </data>
+  <data name="GetVirtualDesktop" xml:space="preserve">
+    <value>Get Virtual Desktop</value>
+  </data>
+  <data name="ParameterValues" xml:space="preserve">
+    <value>{0}: {1} → {2}</value>
+  </data>
+  <data name="TurnOnHandTrackingInTheHeadsetSettingsMovementTracking" xml:space="preserve">
+    <value>Turn on hand tracking in the headset: Settings → Movement tracking → Hand tracking.</value>
+  </data>
+  <data name="InSingularityTurnOnSimultaneousHandsControllers" xml:space="preserve">
+    <value>In Singularity, turn on Simultaneous Hands &amp; Controllers.</value>
+  </data>
+  <data name="InSingularityTurnOffFridaServerHybridTrackingStartsIts" xml:space="preserve">
+    <value>In Singularity, turn off Frida Server. Hybrid tracking starts its own.</value>
+  </data>
+  <data name="UnknownConnectionPreference" xml:space="preserve">
+    <value>Unknown connection preference</value>
+  </data>
+  <data name="InMagiskSuperuserAllowShellAccess" xml:space="preserve">
+    <value>In Magisk → Superuser, allow Shell access.</value>
+  </data>
+  <data name="RootingInformation" xml:space="preserve">
+    <value>Rooting information</value>
+  </data>
+  <data name="KeepUSBConnectedForThisStep" xml:space="preserve">
+    <value>Keep USB connected for this step.</value>
+  </data>
+  <data name="RootYourQuestProBeforeSetupOpenRootingInformationTo" xml:space="preserve">
+    <value>Root your Quest Pro before setup. Open Rooting information to check compatibility.</value>
+  </data>
+  <data name="ChooseAHeadsetInSetup" xml:space="preserve">
+    <value>Choose a headset in Setup.</value>
+  </data>
+  <data name="YourQuestProIsConnectedButNotRespondingRestartIt" xml:space="preserve">
+    <value>Your Quest Pro is connected but not responding. Restart it and keep USB connected. Setup continues on its own.</value>
+  </data>
+  <data name="PlugInAUSBDataCableAndWakeTheHeadset" xml:space="preserve">
+    <value>Plug in a USB data cable and wake the headset. Developer Mode must be enabled.</value>
+  </data>
+  <data name="InstallSteamAndSignInToContinue" xml:space="preserve">
+    <value>Install Steam and sign in to continue.</value>
+  </data>
+  <data name="GetSteam" xml:space="preserve">
+    <value>Get Steam</value>
+  </data>
+  <data name="Install" xml:space="preserve">
+    <value>Install {0}</value>
+  </data>
+  <data name="InstallThroughSteamToContinue" xml:space="preserve">
+    <value>Install {0} through Steam to continue.</value>
+  </data>
+  <data name="ChooseQuitFromItsSystemTrayMenuItWillReopen" xml:space="preserve">
+    <value>Choose Quit from its system tray menu. It will reopen automatically.</value>
+  </data>
+  <data name="SetupStepStatus" xml:space="preserve">
+    <value>{0}, {1}</value>
+  </data>
+  <data name="SteamLinkSettings" xml:space="preserve">
+    <value>Steam Link settings</value>
+  </data>
+  <data name="RestoringSteamLinkSettings" xml:space="preserve">
+    <value>Restoring Steam Link settings</value>
+  </data>
+  <data name="SteamLinkDidnTAccept" xml:space="preserve">
+    <value>Steam Link didn’t accept {0} ({1}).</value>
+  </data>
+  <data name="TheThumbrestSetting" xml:space="preserve">
+    <value>The thumbrest setting</value>
+  </data>
+  <data name="SteamVRDidnTAcceptTheThumbrestSetting" xml:space="preserve">
+    <value>SteamVR didn’t accept the thumbrest setting {0} ({1}).</value>
+  </data>
+  <data name="SteamVRIsnTSetUpYetStartSteamVROnceThen" xml:space="preserve">
+    <value>SteamVR isn’t set up yet. Start SteamVR once, then try again.</value>
+  </data>
+  <data name="UnblockingTheDriver" xml:space="preserve">
+    <value>Unblocking the driver</value>
+  </data>
+  <data name="SteamVRDidnTLiftItsSafeModeBlockOnThe" xml:space="preserve">
+    <value>SteamVR didn’t lift its safe-mode block on the driver ({0}).</value>
+  </data>
+  <data name="RemovingTheQFTSettings" xml:space="preserve">
+    <value>Removing the QFT+ settings</value>
+  </data>
+  <data name="BundledComponentsAreMissingReinstallQFT" xml:space="preserve">
+    <value>Bundled components are missing. Reinstall QFT+.</value>
+  </data>
+  <data name="ThePythonArchiveFailedVerificationReinstallQFT" xml:space="preserve">
+    <value>The Python archive failed verification. Reinstall QFT+.</value>
+  </data>
+  <data name="ThePreviousPCComponentsAreStillInUseWaitA" xml:space="preserve">
+    <value>The previous PC components are still in use. Wait a moment, then try again.</value>
+  </data>
+  <data name="SteamVRKeptTheQFTSettings" xml:space="preserve">
+    <value>SteamVR kept the QFT+ settings ({0}).</value>
+  </data>
+  <data name="ThePackageInstallerFailedVerificationReinstallQFT" xml:space="preserve">
+    <value>The package installer failed verification. Reinstall QFT+.</value>
+  </data>
+  <data name="CouldNotConnectToSteamVR" xml:space="preserve">
+    <value>{0} could not connect to SteamVR ({1}).</value>
+  </data>
+  <data name="SteamVRSettingsAPIIsUnavailable" xml:space="preserve">
+    <value>SteamVR settings API is unavailable ({0}).</value>
+  </data>
+  <data name="HeadsetConnectionProblem" xml:space="preserve">
+    <value>{0}. {1}</value>
+  </data>
+  <data name="TheDriverIsMissingFromThisInstallation" xml:space="preserve">
+    <value>The driver is missing from this installation.</value>
+  </data>
+  <data name="SteamVRIsnTInstalledInstallItStartItOnceThen" xml:space="preserve">
+    <value>SteamVR isn’t installed. Install it, start it once, then try again.</value>
+  </data>
+  <data name="RestartSteamVRToUseTheThumbrestAndTrigger" xml:space="preserve">
+    <value>Restart SteamVR to use the thumbrest and trigger.</value>
+  </data>
+  <data name="PackageInstallationFailedTheSetupLogHasTheDetails" xml:space="preserve">
+    <value>Package installation failed. The Setup log has the details.</value>
+  </data>
+  <data name="SteamVRDidnTAcceptTheDriver" xml:space="preserve">
+    <value>SteamVR didn’t accept the driver.</value>
+  </data>
+  <data name="ThePCComponentsDidnTInstallCorrectlyTheSetupLog" xml:space="preserve">
+    <value>The PC components didn’t install correctly. The Setup log has the details.</value>
+  </data>
+  <data name="SteamVRKeptTheDriverRegistered" xml:space="preserve">
+    <value>SteamVR kept the driver registered.</value>
+  </data>
+  <data name="RestartSteamVRToFinishTurningOffTheDriver" xml:space="preserve">
+    <value>Restart SteamVR to finish turning off the driver.</value>
+  </data>
+  <data name="SteamVRSDriverToolDidnTRespond" xml:space="preserve">
+    <value>SteamVR’s driver tool didn’t respond.</value>
+  </data>
+  <data name="HybridTrackingCouldNotConfirmCleanupRestartVirtualDesktopOn" xml:space="preserve">
+    <value>Hybrid tracking could not confirm cleanup. Restart Virtual Desktop on the headset and SteamVR before starting tracking again. See the Hybrid log for details.</value>
+  </data>
+  <data name="IsDamagedQFTLeftItAsItIsDeleteIt" xml:space="preserve">
+    <value>{0} is damaged; QFT+ left it as it is. Delete it to go back to the defaults. ({1})</value>
+  </data>
+  <data name="Connecting" xml:space="preserve">
+    <value>Connecting</value>
+  </data>
+  <data name="PreparingComponents" xml:space="preserve">
+    <value>Preparing components</value>
+  </data>
+  <data name="HybridTrackingUnavailable" xml:space="preserve">
+    <value>Hybrid tracking unavailable</value>
+  </data>
+  <data name="Connected" xml:space="preserve">
+    <value>Connected</value>
+  </data>
+  <data name="WaitingForHeadset" xml:space="preserve">
+    <value>Waiting for headset</value>
+  </data>
+  <data name="Stopping" xml:space="preserve">
+    <value>Stopping</value>
+  </data>
+  <data name="CleanupNeedsAttention" xml:space="preserve">
+    <value>Cleanup needs attention</value>
+  </data>
+  <data name="SkippingFaceTracking" xml:space="preserve">
+    <value>Skipping face tracking</value>
+  </data>
+  <data name="PreparingEyeTracking" xml:space="preserve">
+    <value>Preparing eye tracking</value>
+  </data>
+  <data name="UsingStandardEyeTracking" xml:space="preserve">
+    <value>Using standard eye tracking</value>
+  </data>
+  <data name="UpdatingTracking" xml:space="preserve">
+    <value>Updating tracking</value>
+  </data>
+  <data name="SetupPaused" xml:space="preserve">
+    <value>Setup paused</value>
+  </data>
+  <data name="CouldnTConnect" xml:space="preserve">
+    <value>Couldn’t connect</value>
+  </data>
+  <data name="InstallVirtualDesktop" xml:space="preserve">
+    <value>Install Virtual Desktop</value>
+  </data>
+  <data name="SetUpHandTracking" xml:space="preserve">
+    <value>Set up hand tracking</value>
+  </data>
+  <data name="AllowTheConnection" xml:space="preserve">
+    <value>Allow the connection</value>
+  </data>
+  <data name="ConnectingOverWiFi" xml:space="preserve">
+    <value>Connecting over Wi-Fi</value>
+  </data>
+  <data name="RestartYourHeadset" xml:space="preserve">
+    <value>Restart your headset</value>
+  </data>
+  <data name="ConnectYourQuestPro" xml:space="preserve">
+    <value>Connect your Quest Pro</value>
+  </data>
+  <data name="InstallSteam" xml:space="preserve">
+    <value>Install Steam</value>
+  </data>
+  <data name="QuitVRCFaceTracking" xml:space="preserve">
+    <value>Quit VRCFaceTracking</value>
+  </data>
+  <data name="HeadsetExperimentNeedsAttention" xml:space="preserve">
+    <value>Headset experiment needs attention</value>
+  </data>
+  <data name="StatusDetail" xml:space="preserve">
+    <value>{0}. {1}</value>
+  </data>
+  <data name="CouldnTStartMessage" xml:space="preserve">
+    <value>{0} couldn’t start: {1}</value>
+  </data>
+  <data name="DidnTStart" xml:space="preserve">
+    <value>{0} didn’t start.</value>
+  </data>
+  <data name="TimedOut" xml:space="preserve">
+    <value>Timed out</value>
+  </data>
+  <data name="QuestConnection" xml:space="preserve">
+    <value>Quest Pro · {0}</value>
+  </data>
+  <data name="CouldnTPrepareTheRecordingToShare" xml:space="preserve">
+    <value>Couldn’t prepare the recording to share. {0}</value>
+  </data>
+  <data name="ReadingTheHeadsetEyeModelFailed" xml:space="preserve">
+    <value>Reading the headset eye model failed: {0}</value>
+  </data>
+  <data name="SetupContinuesOnItsOwn" xml:space="preserve">
+    <value>{0} Setup continues on its own.</value>
+  </data>
+  <data name="SteamVRSSettingsCanTBeRead" xml:space="preserve">
+    <value>SteamVR’s settings can’t be read: {0}</value>
+  </data>
+  <data name="SteamVRSOpenvrpathsVrpathFileCanTBeRead" xml:space="preserve">
+    <value>SteamVR’s openvrpaths.vrpath file can’t be read: {0}</value>
+  </data>
+  <data name="UnsafePathInTheFileList" xml:space="preserve">
+    <value>Unsafe path in the file list: {0}</value>
+  </data>
+  <data name="TheHeadsetCameraRelayCouldNotPrepareSharedMemorySend" xml:space="preserve">
+    <value>The headset camera relay could not prepare shared memory. {0} Send questpro-live-relay.txt.</value>
+  </data>
+  <data name="TheHeadsetCameraRelayExitedDuringStartupSendQuestproLive" xml:space="preserve">
+    <value>The headset camera relay exited during startup. Send questpro-live-relay.txt.</value>
+  </data>
+  <data name="ParameterBothSides" xml:space="preserve">
+    <value>{0}, both sides</value>
+  </data>
+  <data name="WindowTitle" xml:space="preserve">
+    <value>{0} — QFT+</value>
+  </data>
+  <data name="Help" xml:space="preserve">
+    <value>Help</value>
+  </data>
+  <data name="AppName" xml:space="preserve">
+    <value>QFT+</value>
+  </data>
+  <data name="QuestProName" xml:space="preserve">
+    <value>Quest Pro</value>
+  </data>
+  <data name="ParameterBrowInnerUp" xml:space="preserve">
+    <value>Brow Inner Up</value>
+  </data>
+  <data name="ParameterBrowInnerUpLeft" xml:space="preserve">
+    <value>Brow Inner Up Left</value>
+  </data>
+  <data name="ParameterBrowInnerUpRight" xml:space="preserve">
+    <value>Brow Inner Up Right</value>
+  </data>
+  <data name="ParameterBrowLowerer" xml:space="preserve">
+    <value>Brow Lowerer</value>
+  </data>
+  <data name="ParameterBrowLowererLeft" xml:space="preserve">
+    <value>Brow Lowerer Left</value>
+  </data>
+  <data name="ParameterBrowLowererRight" xml:space="preserve">
+    <value>Brow Lowerer Right</value>
+  </data>
+  <data name="ParameterBrowOuterUp" xml:space="preserve">
+    <value>Brow Outer Up</value>
+  </data>
+  <data name="ParameterBrowOuterUpLeft" xml:space="preserve">
+    <value>Brow Outer Up Left</value>
+  </data>
+  <data name="ParameterBrowOuterUpRight" xml:space="preserve">
+    <value>Brow Outer Up Right</value>
+  </data>
+  <data name="ParameterBrowPinch" xml:space="preserve">
+    <value>Brow Pinch</value>
+  </data>
+  <data name="ParameterBrowPinchLeft" xml:space="preserve">
+    <value>Brow Pinch Left</value>
+  </data>
+  <data name="ParameterBrowPinchRight" xml:space="preserve">
+    <value>Brow Pinch Right</value>
+  </data>
+  <data name="ParameterCheekPuff" xml:space="preserve">
+    <value>Cheek Puff</value>
+  </data>
+  <data name="ParameterCheekPuffLeft" xml:space="preserve">
+    <value>Cheek Puff Left</value>
+  </data>
+  <data name="ParameterCheekPuffRight" xml:space="preserve">
+    <value>Cheek Puff Right</value>
+  </data>
+  <data name="ParameterCheekSquint" xml:space="preserve">
+    <value>Cheek Squint</value>
+  </data>
+  <data name="ParameterCheekSquintLeft" xml:space="preserve">
+    <value>Cheek Squint Left</value>
+  </data>
+  <data name="ParameterCheekSquintRight" xml:space="preserve">
+    <value>Cheek Squint Right</value>
+  </data>
+  <data name="ParameterCheekSuck" xml:space="preserve">
+    <value>Cheek Suck</value>
+  </data>
+  <data name="ParameterCheekSuckLeft" xml:space="preserve">
+    <value>Cheek Suck Left</value>
+  </data>
+  <data name="ParameterCheekSuckRight" xml:space="preserve">
+    <value>Cheek Suck Right</value>
+  </data>
+  <data name="ParameterEyeSquint" xml:space="preserve">
+    <value>Eye Squint</value>
+  </data>
+  <data name="ParameterEyeSquintLeft" xml:space="preserve">
+    <value>Eye Squint Left</value>
+  </data>
+  <data name="ParameterEyeSquintRight" xml:space="preserve">
+    <value>Eye Squint Right</value>
+  </data>
+  <data name="ParameterEyeWide" xml:space="preserve">
+    <value>Eye Wide</value>
+  </data>
+  <data name="ParameterEyeWideLeft" xml:space="preserve">
+    <value>Eye Wide Left</value>
+  </data>
+  <data name="ParameterEyeWideRight" xml:space="preserve">
+    <value>Eye Wide Right</value>
+  </data>
+  <data name="ParameterGazeLeftX" xml:space="preserve">
+    <value>Gaze Left X</value>
+  </data>
+  <data name="ParameterGazeLeftY" xml:space="preserve">
+    <value>Gaze Left Y</value>
+  </data>
+  <data name="ParameterGazeRightX" xml:space="preserve">
+    <value>Gaze Right X</value>
+  </data>
+  <data name="ParameterGazeRightY" xml:space="preserve">
+    <value>Gaze Right Y</value>
+  </data>
+  <data name="ParameterGazeX" xml:space="preserve">
+    <value>Gaze X</value>
+  </data>
+  <data name="ParameterGazeY" xml:space="preserve">
+    <value>Gaze Y</value>
+  </data>
+  <data name="ParameterJaw" xml:space="preserve">
+    <value>Jaw</value>
+  </data>
+  <data name="ParameterJawBackward" xml:space="preserve">
+    <value>Jaw Backward</value>
+  </data>
+  <data name="ParameterJawClench" xml:space="preserve">
+    <value>Jaw Clench</value>
+  </data>
+  <data name="ParameterJawForward" xml:space="preserve">
+    <value>Jaw Forward</value>
+  </data>
+  <data name="ParameterJawLeft" xml:space="preserve">
+    <value>Jaw Left</value>
+  </data>
+  <data name="ParameterJawMandibleRaise" xml:space="preserve">
+    <value>Jaw Mandible Raise</value>
+  </data>
+  <data name="ParameterJawOpen" xml:space="preserve">
+    <value>Jaw Open</value>
+  </data>
+  <data name="ParameterJawRight" xml:space="preserve">
+    <value>Jaw Right</value>
+  </data>
+  <data name="ParameterLipFunnelLower" xml:space="preserve">
+    <value>Lip Funnel Lower</value>
+  </data>
+  <data name="ParameterLipFunnelLowerLeft" xml:space="preserve">
+    <value>Lip Funnel Lower Left</value>
+  </data>
+  <data name="ParameterLipFunnelLowerRight" xml:space="preserve">
+    <value>Lip Funnel Lower Right</value>
+  </data>
+  <data name="ParameterLipFunnelUpper" xml:space="preserve">
+    <value>Lip Funnel Upper</value>
+  </data>
+  <data name="ParameterLipFunnelUpperLeft" xml:space="preserve">
+    <value>Lip Funnel Upper Left</value>
+  </data>
+  <data name="ParameterLipFunnelUpperRight" xml:space="preserve">
+    <value>Lip Funnel Upper Right</value>
+  </data>
+  <data name="ParameterLipPuckerLower" xml:space="preserve">
+    <value>Lip Pucker Lower</value>
+  </data>
+  <data name="ParameterLipPuckerLowerLeft" xml:space="preserve">
+    <value>Lip Pucker Lower Left</value>
+  </data>
+  <data name="ParameterLipPuckerLowerRight" xml:space="preserve">
+    <value>Lip Pucker Lower Right</value>
+  </data>
+  <data name="ParameterLipPuckerUpper" xml:space="preserve">
+    <value>Lip Pucker Upper</value>
+  </data>
+  <data name="ParameterLipPuckerUpperLeft" xml:space="preserve">
+    <value>Lip Pucker Upper Left</value>
+  </data>
+  <data name="ParameterLipPuckerUpperRight" xml:space="preserve">
+    <value>Lip Pucker Upper Right</value>
+  </data>
+  <data name="ParameterLipSuckCorner" xml:space="preserve">
+    <value>Lip Suck Corner</value>
+  </data>
+  <data name="ParameterLipSuckCornerLeft" xml:space="preserve">
+    <value>Lip Suck Corner Left</value>
+  </data>
+  <data name="ParameterLipSuckCornerRight" xml:space="preserve">
+    <value>Lip Suck Corner Right</value>
+  </data>
+  <data name="ParameterLipSuckLower" xml:space="preserve">
+    <value>Lip Suck Lower</value>
+  </data>
+  <data name="ParameterLipSuckLowerLeft" xml:space="preserve">
+    <value>Lip Suck Lower Left</value>
+  </data>
+  <data name="ParameterLipSuckLowerRight" xml:space="preserve">
+    <value>Lip Suck Lower Right</value>
+  </data>
+  <data name="ParameterLipSuckUpper" xml:space="preserve">
+    <value>Lip Suck Upper</value>
+  </data>
+  <data name="ParameterLipSuckUpperLeft" xml:space="preserve">
+    <value>Lip Suck Upper Left</value>
+  </data>
+  <data name="ParameterLipSuckUpperRight" xml:space="preserve">
+    <value>Lip Suck Upper Right</value>
+  </data>
+  <data name="ParameterMouthClosed" xml:space="preserve">
+    <value>Mouth Closed</value>
+  </data>
+  <data name="ParameterMouthCornerPull" xml:space="preserve">
+    <value>Mouth Corner Pull</value>
+  </data>
+  <data name="ParameterMouthCornerPullLeft" xml:space="preserve">
+    <value>Mouth Corner Pull Left</value>
+  </data>
+  <data name="ParameterMouthCornerPullRight" xml:space="preserve">
+    <value>Mouth Corner Pull Right</value>
+  </data>
+  <data name="ParameterMouthCornerSlant" xml:space="preserve">
+    <value>Mouth Corner Slant</value>
+  </data>
+  <data name="ParameterMouthCornerSlantLeft" xml:space="preserve">
+    <value>Mouth Corner Slant Left</value>
+  </data>
+  <data name="ParameterMouthCornerSlantRight" xml:space="preserve">
+    <value>Mouth Corner Slant Right</value>
+  </data>
+  <data name="ParameterMouthDimple" xml:space="preserve">
+    <value>Mouth Dimple</value>
+  </data>
+  <data name="ParameterMouthDimpleLeft" xml:space="preserve">
+    <value>Mouth Dimple Left</value>
+  </data>
+  <data name="ParameterMouthDimpleRight" xml:space="preserve">
+    <value>Mouth Dimple Right</value>
+  </data>
+  <data name="ParameterMouthFrown" xml:space="preserve">
+    <value>Mouth Frown</value>
+  </data>
+  <data name="ParameterMouthFrownLeft" xml:space="preserve">
+    <value>Mouth Frown Left</value>
+  </data>
+  <data name="ParameterMouthFrownRight" xml:space="preserve">
+    <value>Mouth Frown Right</value>
+  </data>
+  <data name="ParameterMouthLower" xml:space="preserve">
+    <value>Mouth Lower</value>
+  </data>
+  <data name="ParameterMouthLowerDown" xml:space="preserve">
+    <value>Mouth Lower Down</value>
+  </data>
+  <data name="ParameterMouthLowerDownLeft" xml:space="preserve">
+    <value>Mouth Lower Down Left</value>
+  </data>
+  <data name="ParameterMouthLowerDownRight" xml:space="preserve">
+    <value>Mouth Lower Down Right</value>
+  </data>
+  <data name="ParameterMouthLowerLeft" xml:space="preserve">
+    <value>Mouth Lower Left</value>
+  </data>
+  <data name="ParameterMouthLowerRight" xml:space="preserve">
+    <value>Mouth Lower Right</value>
+  </data>
+  <data name="ParameterMouthPress" xml:space="preserve">
+    <value>Mouth Press</value>
+  </data>
+  <data name="ParameterMouthPressLeft" xml:space="preserve">
+    <value>Mouth Press Left</value>
+  </data>
+  <data name="ParameterMouthPressRight" xml:space="preserve">
+    <value>Mouth Press Right</value>
+  </data>
+  <data name="ParameterMouthRaiserLower" xml:space="preserve">
+    <value>Mouth Raiser Lower</value>
+  </data>
+  <data name="ParameterMouthRaiserUpper" xml:space="preserve">
+    <value>Mouth Raiser Upper</value>
+  </data>
+  <data name="ParameterMouthStretch" xml:space="preserve">
+    <value>Mouth Stretch</value>
+  </data>
+  <data name="ParameterMouthStretchLeft" xml:space="preserve">
+    <value>Mouth Stretch Left</value>
+  </data>
+  <data name="ParameterMouthStretchRight" xml:space="preserve">
+    <value>Mouth Stretch Right</value>
+  </data>
+  <data name="ParameterMouthTightener" xml:space="preserve">
+    <value>Mouth Tightener</value>
+  </data>
+  <data name="ParameterMouthTightenerLeft" xml:space="preserve">
+    <value>Mouth Tightener Left</value>
+  </data>
+  <data name="ParameterMouthTightenerRight" xml:space="preserve">
+    <value>Mouth Tightener Right</value>
+  </data>
+  <data name="ParameterMouthUpper" xml:space="preserve">
+    <value>Mouth Upper</value>
+  </data>
+  <data name="ParameterMouthUpperDeepen" xml:space="preserve">
+    <value>Mouth Upper Deepen</value>
+  </data>
+  <data name="ParameterMouthUpperDeepenLeft" xml:space="preserve">
+    <value>Mouth Upper Deepen Left</value>
+  </data>
+  <data name="ParameterMouthUpperDeepenRight" xml:space="preserve">
+    <value>Mouth Upper Deepen Right</value>
+  </data>
+  <data name="ParameterMouthUpperLeft" xml:space="preserve">
+    <value>Mouth Upper Left</value>
+  </data>
+  <data name="ParameterMouthUpperRight" xml:space="preserve">
+    <value>Mouth Upper Right</value>
+  </data>
+  <data name="ParameterMouthUpperUp" xml:space="preserve">
+    <value>Mouth Upper Up</value>
+  </data>
+  <data name="ParameterMouthUpperUpLeft" xml:space="preserve">
+    <value>Mouth Upper Up Left</value>
+  </data>
+  <data name="ParameterMouthUpperUpRight" xml:space="preserve">
+    <value>Mouth Upper Up Right</value>
+  </data>
+  <data name="ParameterNasalConstrict" xml:space="preserve">
+    <value>Nasal Constrict</value>
+  </data>
+  <data name="ParameterNasalConstrictLeft" xml:space="preserve">
+    <value>Nasal Constrict Left</value>
+  </data>
+  <data name="ParameterNasalConstrictRight" xml:space="preserve">
+    <value>Nasal Constrict Right</value>
+  </data>
+  <data name="ParameterNasalDilation" xml:space="preserve">
+    <value>Nasal Dilation</value>
+  </data>
+  <data name="ParameterNasalDilationLeft" xml:space="preserve">
+    <value>Nasal Dilation Left</value>
+  </data>
+  <data name="ParameterNasalDilationRight" xml:space="preserve">
+    <value>Nasal Dilation Right</value>
+  </data>
+  <data name="ParameterNeckFlex" xml:space="preserve">
+    <value>Neck Flex</value>
+  </data>
+  <data name="ParameterNeckFlexLeft" xml:space="preserve">
+    <value>Neck Flex Left</value>
+  </data>
+  <data name="ParameterNeckFlexRight" xml:space="preserve">
+    <value>Neck Flex Right</value>
+  </data>
+  <data name="ParameterNoseSneer" xml:space="preserve">
+    <value>Nose Sneer</value>
+  </data>
+  <data name="ParameterNoseSneerLeft" xml:space="preserve">
+    <value>Nose Sneer Left</value>
+  </data>
+  <data name="ParameterNoseSneerRight" xml:space="preserve">
+    <value>Nose Sneer Right</value>
+  </data>
+  <data name="ParameterOpenness" xml:space="preserve">
+    <value>Openness</value>
+  </data>
+  <data name="ParameterOpennessLeft" xml:space="preserve">
+    <value>Openness Left</value>
+  </data>
+  <data name="ParameterOpennessRight" xml:space="preserve">
+    <value>Openness Right</value>
+  </data>
+  <data name="ParameterPupil" xml:space="preserve">
+    <value>Pupil</value>
+  </data>
+  <data name="ParameterPupilLeft" xml:space="preserve">
+    <value>Pupil Left</value>
+  </data>
+  <data name="ParameterPupilRight" xml:space="preserve">
+    <value>Pupil Right</value>
+  </data>
+  <data name="ParameterSoftPalateClose" xml:space="preserve">
+    <value>Soft Palate Close</value>
+  </data>
+  <data name="ParameterThroatSwallow" xml:space="preserve">
+    <value>Throat Swallow</value>
+  </data>
+  <data name="ParameterTongue" xml:space="preserve">
+    <value>Tongue</value>
+  </data>
+  <data name="ParameterTongueBendDown" xml:space="preserve">
+    <value>Tongue Bend Down</value>
+  </data>
+  <data name="ParameterTongueCurlUp" xml:space="preserve">
+    <value>Tongue Curl Up</value>
+  </data>
+  <data name="ParameterTongueDown" xml:space="preserve">
+    <value>Tongue Down</value>
+  </data>
+  <data name="ParameterTongueFlat" xml:space="preserve">
+    <value>Tongue Flat</value>
+  </data>
+  <data name="ParameterTongueLeft" xml:space="preserve">
+    <value>Tongue Left</value>
+  </data>
+  <data name="ParameterTongueOut" xml:space="preserve">
+    <value>Tongue Out</value>
+  </data>
+  <data name="ParameterTongueRight" xml:space="preserve">
+    <value>Tongue Right</value>
+  </data>
+  <data name="ParameterTongueRoll" xml:space="preserve">
+    <value>Tongue Roll</value>
+  </data>
+  <data name="ParameterTongueSquish" xml:space="preserve">
+    <value>Tongue Squish</value>
+  </data>
+  <data name="ParameterTongueTwist" xml:space="preserve">
+    <value>Tongue Twist</value>
+  </data>
+  <data name="ParameterTongueTwistLeft" xml:space="preserve">
+    <value>Tongue Twist Left</value>
+  </data>
+  <data name="ParameterTongueTwistRight" xml:space="preserve">
+    <value>Tongue Twist Right</value>
+  </data>
+  <data name="ParameterTongueUp" xml:space="preserve">
+    <value>Tongue Up</value>
+  </data>
+  <data name="GuideTheThickPathThroughTheThirtyThinBirchTreesBent" xml:space="preserve">
+    <value>The thick path through the thirty thin birch trees bent north, then south, then back again.</value>
+  </data>
+  <data name="GuideBobPutTheBigMapByThePumpButPam" xml:space="preserve">
+    <value>Bob put the big map by the pump, but Pam mopped the mud before it dried on the mat.</value>
+  </data>
+  <data name="GuideFatherThoughtTheWeatherWouldBeFineThoughTheClouds" xml:space="preserve">
+    <value>Father thought the weather would be fine, though the clouds gathered over the three hills.</value>
+  </data>
+  <data name="GuideMyMomMadeAMuffinMixThenBakedABatch" xml:space="preserve">
+    <value>My mom made a muffin mix, then baked a batch of plum buns for the bake sale by the bay.</value>
+  </data>
+  <data name="GuideOpenTheWindowWideTheCoolAutumnAirComesOver" xml:space="preserve">
+    <value>Open the window wide; the cool autumn air comes over the water and through the hall.</value>
+  </data>
+  <data name="GuideThankThemBothForTheBathTowelsTheyBroughtThem" xml:space="preserve">
+    <value>Thank them both for the bath towels; they brought them through the thunder this Thursday.</value>
+  </data>
+  <data name="GuideRelax" xml:space="preserve">
+    <value>Relax</value>
+  </data>
+  <data name="GuideLetYourFaceGoLoose" xml:space="preserve">
+    <value>Let your face go loose.</value>
+  </data>
+  <data name="GuideBarely" xml:space="preserve">
+    <value>Barely</value>
+  </data>
+  <data name="GuideALittle" xml:space="preserve">
+    <value>A little</value>
+  </data>
+  <data name="GuideHalfway" xml:space="preserve">
+    <value>Halfway</value>
+  </data>
+  <data name="GuideMostOfTheWay" xml:space="preserve">
+    <value>Most of the way</value>
+  </data>
+  <data name="GuideFull" xml:space="preserve">
+    <value>Full</value>
+  </data>
+  <data name="GuideChew" xml:space="preserve">
+    <value>Chew</value>
+  </data>
+  <data name="GuideChewSlowlyAsIfYouHadGumWithYourLips" xml:space="preserve">
+    <value>Chew slowly, as if you had gum, with your lips closed.</value>
+  </data>
+  <data name="GuidePushYourTongueIntoYourLeftCheek" xml:space="preserve">
+    <value>Push your tongue into your left cheek</value>
+  </data>
+  <data name="GuideLipsClosedMakeABumpFromTheInside" xml:space="preserve">
+    <value>Lips closed; make a bump from the inside.</value>
+  </data>
+  <data name="GuidePushYourTongueIntoYourRightCheek" xml:space="preserve">
+    <value>Push your tongue into your right cheek</value>
+  </data>
+  <data name="GuideSuckYourLipsIn" xml:space="preserve">
+    <value>Suck your lips in</value>
+  </data>
+  <data name="GuidePressBothLipsInBetweenYourTeeth" xml:space="preserve">
+    <value>Press both lips in between your teeth.</value>
+  </data>
+  <data name="GuidePout" xml:space="preserve">
+    <value>Pout</value>
+  </data>
+  <data name="GuidePushYourLipsForwardLikeASulkingChild" xml:space="preserve">
+    <value>Push your lips forward like a sulking child.</value>
+  </data>
+  <data name="GuidePushYourLowerLipOut" xml:space="preserve">
+    <value>Push your lower lip out</value>
+  </data>
+  <data name="GuideADoubtfulNotSureFace" xml:space="preserve">
+    <value>A doubtful, 'not sure' face.</value>
+  </data>
+  <data name="GuideWrinkleYourNose" xml:space="preserve">
+    <value>Wrinkle your nose</value>
+  </data>
+  <data name="GuideAsIfSomethingSmellsBad" xml:space="preserve">
+    <value>As if something smells bad.</value>
+  </data>
+  <data name="GuideSniffAFewTimes" xml:space="preserve">
+    <value>Sniff a few times</value>
+  </data>
+  <data name="GuideShortSniffsThroughYourNose" xml:space="preserve">
+    <value>Short sniffs through your nose.</value>
+  </data>
+  <data name="GuideMoveYourJawSideToSide" xml:space="preserve">
+    <value>Move your jaw side to side</value>
+  </data>
+  <data name="GuideSlowlyTeethApart" xml:space="preserve">
+    <value>Slowly, teeth apart.</value>
+  </data>
+  <data name="GuidePushYourJawForward" xml:space="preserve">
+    <value>Push your jaw forward</value>
+  </data>
+  <data name="GuideThenBackAFewTimes" xml:space="preserve">
+    <value>Then back, a few times.</value>
+  </data>
+  <data name="GuideYawn" xml:space="preserve">
+    <value>Yawn</value>
+  </data>
+  <data name="GuideABigSlowYawnOrFakeOne" xml:space="preserve">
+    <value>A big, slow yawn, or fake one.</value>
+  </data>
+  <data name="GuideLaugh" xml:space="preserve">
+    <value>Laugh</value>
+  </data>
+  <data name="GuideLaughOutLoudAsNaturallyAsYouCan" xml:space="preserve">
+    <value>Laugh out loud, as naturally as you can.</value>
+  </data>
+  <data name="GuideSmileAndTalk" xml:space="preserve">
+    <value>Smile and talk</value>
+  </data>
+  <data name="GuideBigSmilesThenAFewWords" xml:space="preserve">
+    <value>Big smiles, then a few words.</value>
+  </data>
+  <data name="GuideSwallowAndLickYourLips" xml:space="preserve">
+    <value>Swallow and lick your lips</value>
+  </data>
+  <data name="GuideSwallowAFewTimesThenRunYourTongueAlongYour" xml:space="preserve">
+    <value>Swallow a few times, then run your tongue along your lips.</value>
+  </data>
+  <data name="GuideSquint" xml:space="preserve">
+    <value>Squint</value>
+  </data>
+  <data name="GuideAsIfLookingIntoBrightSun" xml:space="preserve">
+    <value>As if looking into bright sun.</value>
+  </data>
+  <data name="GuideLookUpAndDown" xml:space="preserve">
+    <value>Look up and down</value>
+  </data>
+  <data name="GuideWithYourEyesOnlyKeepYourHeadStill" xml:space="preserve">
+    <value>With your eyes only; keep your head still.</value>
+  </data>
+  <data name="GuideBlinkThenCloseYourEyes" xml:space="preserve">
+    <value>Blink, then close your eyes</value>
+  </data>
+  <data name="GuideBlinkAFewTimesThenKeepYourEyesClosedFor" xml:space="preserve">
+    <value>Blink a few times, then keep your eyes closed for a moment.</value>
+  </data>
+  <data name="GuideRaiseBothEyebrows" xml:space="preserve">
+    <value>Raise both eyebrows</value>
+  </data>
+  <data name="GuideAsIfSurprised" xml:space="preserve">
+    <value>As if surprised.</value>
+  </data>
+  <data name="GuideRaiseOnlyYourLeftEyebrow" xml:space="preserve">
+    <value>Raise only your left eyebrow</value>
+  </data>
+  <data name="GuideKeepTheRightOneStillIfYouCanIfYou" xml:space="preserve">
+    <value>Keep the right one still if you can. If you can't, just try.</value>
+  </data>
+  <data name="GuideRaiseOnlyYourRightEyebrow" xml:space="preserve">
+    <value>Raise only your right eyebrow</value>
+  </data>
+  <data name="GuideKeepTheLeftOneStillIfYouCanIfYou" xml:space="preserve">
+    <value>Keep the left one still if you can. If you can't, just try.</value>
+  </data>
+  <data name="GuideLookWorried" xml:space="preserve">
+    <value>Look worried</value>
+  </data>
+  <data name="GuideLiftTheMiddleOfYourBrowsAsIfWorriedOr" xml:space="preserve">
+    <value>Lift the middle of your brows, as if worried or sad.</value>
+  </data>
+  <data name="GuideFrown" xml:space="preserve">
+    <value>Frown</value>
+  </data>
+  <data name="GuidePullYourBrowsDownAndTogetherAsIfAnnoyed" xml:space="preserve">
+    <value>Pull your brows down and together, as if annoyed.</value>
+  </data>
+  <data name="GuideReadThisOutLoudAgainAndAgainUntilTheTimer" xml:space="preserve">
+    <value>Read this out loud, again and again until the timer ends</value>
+  </data>
+  <data name="GuideThisIsnTAFaceSetupRecording" xml:space="preserve">
+    <value>This isn't a face setup recording.</value>
+  </data>
+  <data name="GuideTheRelaxedFacePartDidnTRecordCleanlyRunThe" xml:space="preserve">
+    <value>The relaxed-face part didn't record cleanly. Run the face setup again.</value>
+  </data>
+  <data name="GuideFlareYourNostrils" xml:space="preserve">
+    <value>Flare your nostrils</value>
+  </data>
+  <data name="GuideIfYouCanTFlareThemBreatheInSlowlyAnd" xml:space="preserve">
+    <value>If you can't flare them, breathe in slowly and deeply through your nose.</value>
+  </data>
+  <data name="GuideOpenYourMouthWide" xml:space="preserve">
+    <value>Open your mouth wide</value>
+  </data>
+  <data name="GuideThenCloseItFullyBetweenHolds" xml:space="preserve">
+    <value>Then close it fully between holds.</value>
+  </data>
+  <data name="GuideTalkAboutYourDay" xml:space="preserve">
+    <value>Talk about your day</value>
+  </data>
+  <data name="GuideOutLoudAsIfToAFriendKeepGoingUntil" xml:space="preserve">
+    <value>Out loud, as if to a friend. Keep going until the timer ends.</value>
+  </data>
+  <data name="GuideSuckInYourCheeks" xml:space="preserve">
+    <value>Suck in your cheeks</value>
+  </data>
+  <data name="GuidePullBothCheeksInBetweenYourTeeth" xml:space="preserve">
+    <value>Pull both cheeks in between your teeth.</value>
+  </data>
+  <data name="GuideJawSideToSide" xml:space="preserve">
+    <value>Jaw side to side</value>
+  </data>
+  <data name="GuideReadThisOutLoud" xml:space="preserve">
+    <value>Read this out loud</value>
+  </data>
+  <data name="GuideTheHeadsetCamerasDidnTSendImages" xml:space="preserve">
+    <value>The headset cameras didn't send images.</value>
+  </data>
+  <data name="GuideTheCameraImageFroze" xml:space="preserve">
+    <value>The camera image froze.</value>
+  </data>
+  <data name="GuideTheMouthCamerasAreTooDarkOrTooBright" xml:space="preserve">
+    <value>The mouth cameras are too dark or too bright.</value>
+  </data>
+  <data name="GuideRelaxAndLookAround" xml:space="preserve">
+    <value>Relax and look around</value>
+  </data>
+  <data name="GuideKeepYourFaceRelaxedAndStillMoveYourEyesAnd" xml:space="preserve">
+    <value>Keep your face relaxed and still; move your eyes and head normally.</value>
+  </data>
+  <data name="GuideFreePlay" xml:space="preserve">
+    <value>Free play</value>
+  </data>
+  <data name="GuideUseYourFaceHoweverYouLikeTalkReactMakeFaces" xml:space="preserve">
+    <value>Use your face however you like: talk, react, make faces.</value>
+  </data>
+  <data name="GuidePointYourTongueRight" xml:space="preserve">
+    <value>Point your tongue right</value>
+  </data>
+  <data name="GuideKeepItOutYourRightAsYouFeelIt" xml:space="preserve">
+    <value>Keep it out. Your right, as you feel it.</value>
+  </data>
+  <data name="GuideYourFaceLookedTheSameAsWhenRelaxed" xml:space="preserve">
+    <value>Your face looked the same as when relaxed.</value>
+  </data>
+  <data name="GuideTryToHoldStill" xml:space="preserve">
+    <value>Try to hold still.</value>
+  </data>
+  <data name="GuideFillWithAirAndKeepYourLipsSealed" xml:space="preserve">
+    <value>Fill with air and keep your lips sealed.</value>
+  </data>
+  <data name="GuideStickYourTongueOut" xml:space="preserve">
+    <value>Stick your tongue out</value>
+  </data>
+  <data name="GuideYourLeftAndRightAsYouFeelIt" xml:space="preserve">
+    <value>Your left and right, as you feel it.</value>
+  </data>
+  <data name="GuidePointItAsFarAsFeelsComfortable" xml:space="preserve">
+    <value>Point it as far as feels comfortable.</value>
+  </data>
+  <data name="GuideHold" xml:space="preserve">
+    <value>Hold</value>
+  </data>
+  <data name="GuideGetReady" xml:space="preserve">
+    <value>Get ready</value>
+  </data>
+  <data name="GuidePointYourTongueLeft" xml:space="preserve">
+    <value>Point your tongue left</value>
+  </data>
+  <data name="GuideKeepItOutYourLeftAsYouFeelIt" xml:space="preserve">
+    <value>Keep it out. Your left, as you feel it.</value>
+  </data>
+  <data name="GuideFaceTrackingDidnTSeeItClearly" xml:space="preserve">
+    <value>Face tracking didn't see it clearly.</value>
+  </data>
+  <data name="GuidePointYourTongueDown" xml:space="preserve">
+    <value>Point your tongue down</value>
+  </data>
+  <data name="GuideKeepItOutTipDownTowardYourChin" xml:space="preserve">
+    <value>Keep it out, tip down toward your chin.</value>
+  </data>
+  <data name="GuidePointYourTongueUp" xml:space="preserve">
+    <value>Point your tongue up</value>
+  </data>
+  <data name="GuideKeepItOutTipUpTowardYourNose" xml:space="preserve">
+    <value>Keep it out, tip up toward your nose.</value>
+  </data>
+  <data name="GuideStraightOutAsFarAsIsComfortable" xml:space="preserve">
+    <value>Straight out, as far as is comfortable.</value>
+  </data>
+  <data name="GuidePuffOnlyYourRightCheek" xml:space="preserve">
+    <value>Puff only your right cheek</value>
+  </data>
+  <data name="GuideMoveTheAirIntoYourRightCheekLipsSealed" xml:space="preserve">
+    <value>Move the air into your right cheek, lips sealed.</value>
+  </data>
+  <data name="GuidePuffOnlyYourLeftCheek" xml:space="preserve">
+    <value>Puff only your left cheek</value>
+  </data>
+  <data name="GuideMoveTheAirIntoYourLeftCheekLipsSealed" xml:space="preserve">
+    <value>Move the air into your left cheek, lips sealed.</value>
+  </data>
+  <data name="GuidePuffBothCheeks" xml:space="preserve">
+    <value>Puff both cheeks</value>
+  </data>
+  <data name="GuideFillWithAirLipsSealed" xml:space="preserve">
+    <value>Fill with air, lips sealed.</value>
+  </data>
+  <data name="GuideKiss" xml:space="preserve">
+    <value>Kiss</value>
+  </data>
+  <data name="GuidePushYourLipsForwardIntoAKiss" xml:space="preserve">
+    <value>Push your lips forward into a kiss.</value>
+  </data>
+  <data name="GuideAsWideAsIsComfortable" xml:space="preserve">
+    <value>As wide as is comfortable.</value>
+  </data>
+  <data name="GuideRelaxAndLookAhead" xml:space="preserve">
+    <value>Relax and look ahead</value>
+  </data>
+  <data name="GuideKeepYourFaceStillAndRelaxed" xml:space="preserve">
+    <value>Keep your face still and relaxed.</value>
+  </data>
+  <data name="GuideLetYourEyesAdjust" xml:space="preserve">
+    <value>Let your eyes adjust</value>
+  </data>
+  <data name="GuideLookAtTheCircle" xml:space="preserve">
+    <value>Look at the circle</value>
+  </data>
+  <data name="GuideLookAtTheCircleKeepYourHeadStillAndBlink" xml:space="preserve">
+    <value>Look at the circle. Keep your head still and blink normally.</value>
+  </data>
+  <data name="GuideYourPupilsWereHiddenTooOftenAdjustTheHeadsetSo" xml:space="preserve">
+    <value>Your pupils were hidden too often. Adjust the headset so it sits level, then try again</value>
+  </data>
+  <data name="GuideInvalidPupilCalibrationSamples" xml:space="preserve">
+    <value>Invalid pupil calibration samples</value>
+  </data>
+  <data name="GuideYourPupilsChangedSizeTooLittleDimTheRoomLights" xml:space="preserve">
+    <value>Your pupils changed size too little. Dim the room lights, then try again</value>
+  </data>
+  <data name="GuidePupilSizeDidnTFollowTheScreenBrightnessKeepLooking" xml:space="preserve">
+    <value>Pupil size didn't follow the screen brightness. Keep looking at the circle, then try again</value>
+  </data>
+  <data name="GuideKeepLookingAtTheCircleTheWholeTimeThenTry" xml:space="preserve">
+    <value>Keep looking at the circle the whole time, then try again</value>
+  </data>
+  <data name="GuideInvalidRelativePupilCalibration" xml:space="preserve">
+    <value>Invalid relative-pupil calibration</value>
+  </data>
+  <data name="GuideTheTwoRoundsDidnTMatchKeepYourHeadStill" xml:space="preserve">
+    <value>The two rounds didn't match. Keep your head still and look at the circle, then try again</value>
+  </data>
+  <data name="GuideYourPupilsArenTVisibleOpenYourEyesNaturallyAnd" xml:space="preserve">
+    <value>Your pupils aren't visible. Open your eyes naturally and make sure the headset sits level.</value>
+  </data>
+  <data name="GuideRelaxAndLookAtTheCircleTheScreenStaysDark" xml:space="preserve">
+    <value>Relax and look at the circle. The screen stays dark while your eyes adjust.</value>
+  </data>
+  <data name="GuideKeepLookingAtTheCircleAsTheScreenFadesBlink" xml:space="preserve">
+    <value>Keep looking at the circle as the screen fades. Blink normally.</value>
+  </data>
+  <data name="GuideCalibrationPassedAndSaved" xml:space="preserve">
+    <value>Calibration passed and saved.</value>
+  </data>
+  <data name="GuideCalibrationStoppedBecauseTheStudioWindowStoppedRespondingYourPrevious" xml:space="preserve">
+    <value>Calibration stopped because the Studio window stopped responding. Your previous calibration is still in use.</value>
+  </data>
+  <data name="GuidePaused" xml:space="preserve">
+    <value>Paused</value>
+  </data>
+  <data name="GuideCouldnTSaveTheRecordingMakeSureThisPCHas" xml:space="preserve">
+    <value>Couldn’t save the recording. Make sure this PC has free disk space, then try again.</value>
+  </data>
+  <data name="GuideACalibrationIsAlreadyRecording" xml:space="preserve">
+    <value>A calibration is already recording</value>
+  </data>
+  <data name="GuideUnknownCalibration" xml:space="preserve">
+    <value>Unknown calibration</value>
+  </data>
+  <data name="GuidePuffBoth" xml:space="preserve">
+    <value>Puff both cheeks</value>
+  </data>
+  <data name="GuidePuffLeft" xml:space="preserve">
+    <value>Puff your left cheek</value>
+  </data>
+  <data name="GuidePuffRight" xml:space="preserve">
+    <value>Puff your right cheek</value>
+  </data>
+  <data name="GuideTongueOut" xml:space="preserve">
+    <value>Stick your tongue out</value>
+  </data>
+  <data name="GuideTongueLeft" xml:space="preserve">
+    <value>Stick your tongue out, pointing left</value>
+  </data>
+  <data name="GuideTongueRight" xml:space="preserve">
+    <value>Stick your tongue out, pointing right</value>
+  </data>
+  <data name="GuideTongueUp" xml:space="preserve">
+    <value>Stick your tongue out, pointing up</value>
+  </data>
+  <data name="GuideTongueDown" xml:space="preserve">
+    <value>Stick your tongue out, pointing down</value>
+  </data>
+  <data name="GuideTongueUpLeft" xml:space="preserve">
+    <value>Stick your tongue out, pointing up and to the left</value>
+  </data>
+  <data name="GuideTongueUpRight" xml:space="preserve">
+    <value>Stick your tongue out, pointing up and to the right</value>
+  </data>
+  <data name="GuideAmount" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="GuideRetryTitle" xml:space="preserve">
+    <value>Once more: {0}</value>
+  </data>
+  <data name="GuideRetryInstruction" xml:space="preserve">
+    <value>{0} {1}</value>
+  </data>
+  <data name="GuideCalibrationUnavailableReason" xml:space="preserve">
+    <value>Calibration unavailable: {0}</value>
+  </data>
+  <data name="MetaFaceTrackingUnavailable" xml:space="preserve">
+    <value>Meta face tracking is unavailable.</value>
+  </data>
+  <data name="MetaEyeGazeUnavailable" xml:space="preserve">
+    <value>Meta eye gaze is unavailable.</value>
+  </data>
+  <data name="BenchmarkRecordedFiles" xml:space="preserve">
+    <value>Benchmark recorded. Its files start with {0} in {1}.</value>
+  </data>
+  <data name="LogEmpty" xml:space="preserve">
+    <value>Nothing logged yet. {0}</value>
+  </data>
+  <data name="LogReadFailure" xml:space="preserve">
+    <value>Couldn’t read the log. {0}</value>
+  </data>
+  <data name="LogCopyFailure" xml:space="preserve">
+    <value>Couldn’t copy the log. {0}</value>
+  </data>
+  <data name="ThumbrestChangeFailure" xml:space="preserve">
+    <value>Couldn’t change the thumbrest. {0}</value>
+  </data>
+  <data name="SteamVrChangeFailure" xml:space="preserve">
+    <value>Couldn’t change the SteamVR driver. {0}</value>
+  </data>
+  <data name="HeadsetSearchFailure" xml:space="preserve">
+    <value>Couldn’t search for headsets. {0}</value>
+  </data>
+  <data name="UpdateInstallFailure" xml:space="preserve">
+    <value>Couldn’t install the update. Check the internet connection, then try again. ({0})</value>
+  </data>
+  <data name="BenchmarkPrepareFailure" xml:space="preserve">
+    <value>Benchmark recorded, but it couldn’t be prepared to share. {0}</value>
+  </data>
+  <data name="ExplorerFailure" xml:space="preserve">
+    <value>Couldn’t open File Explorer. The file is in {0}.</value>
+  </data>
+  <data name="BrowserMessageFailure" xml:space="preserve">
+    <value>Couldn’t open your browser. Visit {0} to send a message.</value>
+  </data>
+  <data name="CalibrationNotSaved" xml:space="preserve">
+    <value>{0} calibration wasn't saved. Open Calibration for details.</value>
+  </data>
+  <data name="TrackingAttention" xml:space="preserve">
+    <value>{0} Expressions can’t follow your face until the headset’s own face and eye tracking are available.</value>
+  </data>
+  <data name="OptionNeedsCalibration" xml:space="preserve">
+    <value>{0} · Calibrate first</value>
+  </data>
+  <data name="OptionNeedsHeadsetCalibration" xml:space="preserve">
+    <value>{0} · Calibrate in QFT+ Headset first</value>
+  </data>
+  <data name="LogUpdated" xml:space="preserve">
+    <value>Updates live. Last changed at {0:T}.</value>
+  </data>
+  <data name="LogUpdatedTail" xml:space="preserve">
+    <value>Updates live. Last changed at {0:T}. Showing the most recent part.</value>
+  </data>
+  <data name="UpdateAvailableDetails" xml:space="preserve">
+    <value>QFT+ {0} is available. Installing takes a few minutes. Your settings, calibrations, and recordings stay.</value>
+  </data>
+  <data name="UpdateAvailableStopsTracking" xml:space="preserve">
+    <value>QFT+ {0} is available. Installing takes a few minutes and stops tracking until it’s done. Your settings, calibrations, and recordings stay.</value>
+  </data>
+  <data name="AutomaticPrereleaseUpdates" xml:space="preserve">
+    <value>Includes release candidates. Updates install here and keep your settings, calibrations, and recordings.</value>
+  </data>
+  <data name="ConnectedWithHybridHands" xml:space="preserve">
+    <value>Connected over {0}. Expressions are going to VRCFaceTracking. Hybrid hands are on.</value>
+  </data>
+  <data name="SlowUsbFrames" xml:space="preserve">
+    <value>Only about {0:0} camera frames a second are arriving over {1}, so expressions lag. Try another USB port or cable.</value>
+  </data>
+  <data name="SlowWirelessFrames" xml:space="preserve">
+    <value>Only about {0:0} camera frames a second are arriving over {1}, so expressions lag. Connect the headset to this PC with a USB cable, or move closer to your router.</value>
+  </data>
+  <data name="UnmodeledParameterScope" xml:space="preserve">
+    <value>{0} QFT+’s camera models don’t track this parameter, so it always comes from the headset.</value>
+  </data>
+  <data name="UnmodeledParametersScope" xml:space="preserve">
+    <value>{0} QFT+’s camera models don’t track these parameters, so they always come from the headset.</value>
+  </data>
+  <data name="PassthroughWithPupils" xml:space="preserve">
+    <value>Sends the headset’s own tracking instead of QFT+’s camera models. The adjustments below still apply. The headset doesn’t measure pupils, so they stay at 50%.</value>
+  </data>
+  <data name="OneParameterOverride" xml:space="preserve">
+    <value>{0} has its own settings, which take precedence here. Select one and choose Use inherited settings to remove them.</value>
+  </data>
+  <data name="ParameterOverrides" xml:space="preserve">
+    <value>{0} parameters have their own settings, which take precedence here. Select one and choose Use inherited settings to remove them.</value>
+  </data>
+  <data name="HeadsetAppName" xml:space="preserve">
+    <value>QFT+ Headset</value>
+  </data>
+  <data name="FolderFailureDriver" xml:space="preserve">
+    <value>SteamVR is using the QFT+ driver from it. Close SteamVR, then open QFT+ again.
+
+{0}</value>
+  </data>
+  <data name="FolderFailureOtherWindow" xml:space="preserve">
+    <value>Close other QFT+ windows, then open QFT+ again.
+
+{0}</value>
+  </data>
+  <data name="CalibrationStatusDetails" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="SendRecordingDetails" xml:space="preserve">
+    <value>Send this file to the QFT+ developer directly: {0} ({1:0} MB). If it’s too big to attach to a message, send a OneDrive or Google Drive link to it instead.</value>
+  </data>
+  <data name="FaceCalibrationInstructions" xml:space="preserve">
+    <value>Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="FaceCalibrationInstructionsNeedsSetup" xml:space="preserve">
+    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="QuickBenchmarkCalibrationInstructions" xml:space="preserve">
+    <value>For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="QuickBenchmarkCalibrationInstructionsNeedsSetup" xml:space="preserve">
+    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="BenchmarkCalibrationInstructions" xml:space="preserve">
+    <value>For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="BenchmarkCalibrationInstructionsNeedsSetup" xml:space="preserve">
+    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="PupilCalibrationInstructions" xml:space="preserve">
+    <value>Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="PupilCalibrationInstructionsNeedsSetup" xml:space="preserve">
+    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start. To see this window in the headset, open the desktop in the Steam overlay.</value>
+  </data>
+  <data name="UsbConnection" xml:space="preserve">
+    <value>USB</value>
+  </data>
+  <data name="WiFiConnection" xml:space="preserve">
+    <value>Wi-Fi</value>
   </data>
 </root>

@@ -59,8 +59,7 @@ public partial class StudioWindow
         UpdateBanner.Visibility = page == "Tracking" && availableUpdate is not null && AvailableVersion != dismissedUpdate
             ? Visibility.Visible : Visibility.Collapsed;
         UpdateMessage.Message = availableUpdate is null ? "" : installingUpdate ? updateStatus
-            : Loc.Format("QFTIsAvailableInstallingTakesAFewMinutes", AvailableVersion)
-              + (session.Running ? Loc.Get("AndStopsTrackingUntilItSDone") : "") + Loc.Get("YourSettingsCalibrationsAndRecordingsStay");
+            : Loc.Format(session.Running ? "UpdateAvailableStopsTracking" : "UpdateAvailableDetails", AvailableVersion);
         InstallUpdateButton.Visibility = availableUpdate is null ? Visibility.Collapsed : Visibility.Visible;
         InstallUpdateButton.IsEnabled = !installingUpdate;
         UpdateProgress.Visibility = installingUpdate && updatePercent >= 0 ? Visibility.Visible : Visibility.Collapsed; UpdateProgress.Value = Math.Max(0, updatePercent);
@@ -92,7 +91,7 @@ public partial class StudioWindow
         {
             installingUpdate = false; updatePercent = -1;
             updateStatus = stalled.IsCancellationRequested ? Loc.Get("TheDownloadStoppedMakingProgressCheckTheInternetConnection")
-                : Loc.Get("CouldnTInstallTheUpdateCheckTheInternetConnection") + error.Message + ")";
+                : Loc.Format("UpdateInstallFailure", error.Message);
             Error(updateStatus);
         }
         finally { if (!updateLifetime.IsCancellationRequested) RefreshUpdates(); }
@@ -151,7 +150,7 @@ public partial class StudioWindow
     void MessageOnDiscord(object sender, RoutedEventArgs e)
     {
         try { Open(DiscordProfile); }
-        catch (Exception) { Error(Loc.Get("CouldnTOpenYourBrowserVisit") + DiscordProfile + Loc.Get("ToSendAMessage")); }
+        catch (Exception) { Error(Loc.Format("BrowserMessageFailure", DiscordProfile)); }
     }
 
     void DismissFeedback(object sender, RoutedEventArgs e)
@@ -186,7 +185,7 @@ public partial class StudioWindow
         var automatic = new CheckBox { Content = Loc.Get("CheckForUpdatesAutomatically"), IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
         automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
         System.Windows.Automation.AutomationProperties.SetHelpText(automatic, updater is null ? Loc.Get("ThisCopyWasnTInstalledByQFTSetupSo")
-            : (installedVersion?.IsPrerelease == true ? Loc.Get("IncludesReleaseCandidates") : "") + Loc.Get("UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd"));
+            : Loc.Get(installedVersion?.IsPrerelease == true ? "AutomaticPrereleaseUpdates" : "UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd"));
         panel.Children.Add(automatic);
         Page.Children.Add(Card(panel));
         updateRefresh = () =>

@@ -24,8 +24,11 @@ public partial class StudioWindow
     bool FreshState() => state["time"]?.GetValue<double>() is { } time && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - time) < 3;
     static string GroupTitle(string kind) => kind == "pupils" ? Loc.Get("Pupils") : kind.StartsWith("benchmark") ? Loc.Get("Benchmark") : Loc.Get("Face");
 
-    void DrawFace(JsonObject targets) =>
-        face.Show(targets, poseTitle.Text, kind, !preview, recording ? state["index"]?.GetValue<int>() ?? -1 : -1, state["count"]?.GetValue<int>() ?? 0);
+    void DrawFace(JsonObject targets)
+    {
+        face.Configure(preview ? null : session);
+        face.Show(targets, state["condition"]?.GetValue<string>() ?? "", kind, !preview, recording ? state["index"]?.GetValue<int>() ?? -1 : -1, state["count"]?.GetValue<int>() ?? 0);
+    }
 
     void ResizeGuide()
     {
@@ -81,7 +84,7 @@ public partial class StudioWindow
             trackingRefresh += () =>
             {
                 foreach (var (value, kind, about) in rows)
-                    value.Text = (session.App is not { } app ? "" : HeadsetApp.Flag(app, "calibrated", kind) ? Loc.Get("Calibrated") : Loc.Get("NotCalibrated")) + about;
+                    value.Text = session.App is not { } app ? about : Loc.Format("CalibrationStatusDetails", Loc.Get(HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated" : "NotCalibrated"), about);
                 if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : Loc.Get("ReadingCalibrationFromTheHeadset");
                 else if (session.App["calibration"] is JsonObject headset)
                 {
@@ -105,13 +108,8 @@ public partial class StudioWindow
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
         poseTitle.Text = Loc.Format("CalibrateGroup", GroupTitle(kind));
-        poseDetail.Text = (SetupFirst ? Loc.Get("SetUpYourFaceFirstSoTheBenchmarkChecks") : "") + (kind switch
-        {
-            "enroll" => Loc.Get("HoldAFewExpressionsForAFewSecondsEach"),
-            "benchmark-quick" => Loc.Get("ForTestersShortPromptsAndALittleReadingThat"),
-            "benchmark" => Loc.Get("ForTestersPromptsReadingAndTalkingThatCheckHow"),
-            _ => Loc.Get("LetsYourAvatarSPupilsFollowYoursDimThe")
-        }) + Loc.Get("ToSeeThisWindowInTheHeadsetOpenThe");
+        var instructions = kind switch { "enroll" => "Face", "benchmark-quick" => "QuickBenchmark", "benchmark" => "Benchmark", _ => "Pupil" };
+        poseDetail.Text = Loc.Get(instructions + "CalibrationInstructions" + (SetupFirst ? "NeedsSetup" : ""));
         cue.Text = kind switch { "pupils" => Loc.Get("About80Seconds"), "benchmark" => Loc.Get("About18Minutes"), "benchmark-quick" => Loc.Get("About5Minutes"), _ => EnrollLength };
         CalibrationCard.Content = CalibrationGuide;
         (progress.IsIndeterminate, progress.Value) = (false, 0);
@@ -224,7 +222,7 @@ public partial class StudioWindow
         try { result = (true, await work()); }
         catch (Exception error)
         {
-            result = trainingKind.StartsWith("benchmark") ? (true, Loc.Get("BenchmarkRecordedButItCouldnTBePreparedTo") + error.Message) : (false, error.Message);
+            result = trainingKind.StartsWith("benchmark") ? (true, Loc.Format("BenchmarkPrepareFailure", error.Message)) : (false, error.Message);
         }
         training = false;
         progress.IsIndeterminate = false;
@@ -253,7 +251,7 @@ public partial class StudioWindow
         RefreshCalibrationControls();
         if (page != "Calibration" || kind != trainingKind)
         {
-            Error(passed ? message : GroupTitle(trainingKind) + Loc.Get("CalibrationWasnTSavedOpenCalibrationForDetails"));
+            Error(passed ? message : Loc.Format("CalibrationNotSaved", GroupTitle(trainingKind)));
             return;
         }
         CalibrationCard.Content = CalibrationResultPanel;
@@ -277,7 +275,7 @@ public partial class StudioWindow
     void ShowBenchmarkFile(object sender, RoutedEventArgs e)
     {
         try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{candidate}\"").Dispose(); }
-        catch (Exception) { Error(Loc.Get("CouldnTOpenFileExplorerTheFileIsIn") + Path.GetDirectoryName(candidate) + "."); }
+        catch (Exception) { Error(Loc.Format("ExplorerFailure", Path.GetDirectoryName(candidate))); }
     }
 
     internal async Task Tick()
@@ -322,7 +320,7 @@ public partial class StudioWindow
             if (recording && !FreshState()) Error(Loc.Get("CameraFeedPausedMakeSureTheHeadsetIsAwake"));
             if (page == "Cameras" && IsVisible) await UpdateCameras();
             if (IsVisible) adjustmentRefresh?.Invoke();
-            if (state["error"]?.GetValue<string>() is { Length: > 0 } error && (recording ? Ack >= recordingCommand : page == "Calibration")) Error(error);
+            if (Loc.Text(state["error"]) is { Length: > 0 } error && (recording ? Ack >= recordingCommand : page == "Calibration")) Error(error);
             if (page != "Tracking" && session.Hybrid is not null && !Session.Alive(session.Hybrid)) Error(Loc.Get("HybridHandsStoppedTheHybridHandsLogInSettings"));
         }
         catch (Exception error) { Error(error.Message); }
@@ -332,9 +330,10 @@ public partial class StudioWindow
     void UpdateGuide()
     {
         if (cancelPending || !FreshState() || Ack < recordingCommand || state["kind"]?.GetValue<string>() != kind) return;
-        poseTitle.Text = state["title"]?.GetValue<string>() ?? poseTitle.Text;
-        poseDetail.Text = state["instruction"]?.GetValue<string>() ?? "";
-        cue.Text = kind == "pupils" ? Loc.Format("SecondsRemaining", state["remaining"]?.GetValue<double>()) : state["cue"]?.GetValue<string>() ?? Loc.Get("LookAtTheCircle");
+        if (state["title"] is { } title) poseTitle.Text = Loc.Text(title);
+        poseDetail.Text = Loc.Text(state["instruction"]);
+        cue.Text = kind == "pupils" || state["cue"]?.GetValue<string>() == "SecondsRemaining"
+            ? Loc.Format("SecondsRemaining", state["remaining"]?.GetValue<double>()) : state["cue"] is { } cueText ? Loc.Text(cueText) : Loc.Get("LookAtTheCircle");
         var index = state["index"]?.GetValue<int>() ?? 0;
         progress.Value = (state["progress"]?.GetValue<double>() ?? index / 4.0) * 100;
         count.Text = Loc.Format("Of", index + 1, state["total"]?.GetValue<int>() ?? 4);
@@ -377,7 +376,7 @@ public partial class StudioWindow
         else if (!session.Tester)
         {
             (candidate, trainingKind) = ("", kind);
-            Finished(true, Loc.Get("BenchmarkRecordedItsFilesStartWith") + Path.GetFileName(prefix) + Loc.Get("In") + Path.GetDirectoryName(prefix) + ".");
+            Finished(true, Loc.Format("BenchmarkRecordedFiles", Path.GetFileName(prefix), Path.GetDirectoryName(prefix)));
         }
         else
         {
@@ -385,8 +384,7 @@ public partial class StudioWindow
             _ = Conclude(async () =>
             {
                 candidate = await session.Package(prefix);
-                return Loc.Format("SendThisFileToTheQFTDeveloperDirectlyMB", Path.GetFileName(candidate), new FileInfo(candidate).Length / 1e6)
-                    + Loc.Get("IfItSTooBigToAttachToA");
+                return Loc.Format("SendRecordingDetails", Path.GetFileName(candidate), new FileInfo(candidate).Length / 1e6);
             }, Loc.Get("PreparingYourRecording"), Loc.Get("ThisTakesAboutAMinuteTrackingStaysOn"));
         }
     }

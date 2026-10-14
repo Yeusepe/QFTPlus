@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="QFTPlus.StudioWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:local="clr-namespace:QFTPlus" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="QFT+" Width="980" Height="740" MinWidth="800" MinHeight="610" WindowStartupLocation="CenterScreen" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True" ExtendsContentIntoTitleBar="True" WindowBackdropType="None" WindowCornerPreference="Round">
+<ui:FluentWindow x:Class="QFTPlus.StudioWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:local="clr-namespace:QFTPlus" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="{local:Loc AppName}" Width="980" Height="740" MinWidth="800" MinHeight="610" WindowStartupLocation="CenterScreen" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True" ExtendsContentIntoTitleBar="True" WindowBackdropType="None" WindowCornerPreference="Round">
  <ui:FluentWindow.Resources>
   <SolidColorBrush x:Key="Canvas" Color="#F5F5F7"/><SolidColorBrush x:Key="Surface" Color="#FFFFFF"/><SolidColorBrush x:Key="Sidebar" Color="#EBEBEF"/><SolidColorBrush x:Key="Ink" Color="#202127"/><SolidColorBrush x:Key="Muted" Color="#626570"/><SolidColorBrush x:Key="Line" Color="#E1E2E7"/><SolidColorBrush x:Key="Accent" Color="#0067D9"/>
   <SolidColorBrush x:Key="Selected" Color="#1C1C1E"/><SolidColorBrush x:Key="OnSelected" Color="#FFFFFF"/><SolidColorBrush x:Key="Hover" Color="#0D000000"/><SolidColorBrush x:Key="SwitchOn" Color="#178A0C"/><SolidColorBrush x:Key="SwitchOff" Color="#40000000"/><SolidColorBrush x:Key="Primary" Color="#1C1C1E"/><SolidColorBrush x:Key="OnPrimary" Color="#FFFFFF"/><SolidColorBrush x:Key="Secondary" Color="#0F000000"/><SolidColorBrush x:Key="Menu" Color="#FFFFFF"/><SolidColorBrush x:Key="MenuLine" Color="#1F000000"/>
@@ -195,12 +195,13 @@
         <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="BorderThickness" Value="2"/></Trigger>
        </ControlTemplate.Triggers>
       </ControlTemplate></Button.Template>
-     <Border x:Name="DeviceTile" CornerRadius="16" Background="{DynamicResource Surface}" Height="124">
+     <Border x:Name="DeviceTile" CornerRadius="16" Background="{DynamicResource Surface}">
       <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Direction="270" Opacity=".4"/></Border.Effect>
       <Grid x:Name="DeviceArea" ClipToBounds="True">
-       <Border x:Name="DeviceGlow" CornerRadius="16" IsHitTestVisible="False" Opacity=".4"/>
+       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="72"/></Grid.RowDefinitions>
+       <Border x:Name="DeviceGlow" Grid.RowSpan="2" CornerRadius="16" IsHitTestVisible="False" Opacity=".4"/>
        <StackPanel Margin="12,12,12,0" VerticalAlignment="Top" IsHitTestVisible="False">
-        <TextBlock Text="Quest Pro" FontSize="{DynamicResource Font16}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+        <TextBlock Text="{local:Loc QuestProName}" FontSize="{DynamicResource Font16}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
         <TextBlock x:Name="Connection" Text="{local:Loc Ready}" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
        </StackPanel>
       </Grid>
@@ -213,7 +214,7 @@
   </Border>
   <Grid Grid.Column="1" Grid.Row="1" Margin="32,8,32,24" HorizontalAlignment="Stretch">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-   <StackPanel Margin="0,0,0,24"><TextBlock x:Name="PageTitle" FontSize="{DynamicResource Font30}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/><TextBlock x:Name="Subtitle" Visibility="Collapsed" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/></StackPanel>
+   <StackPanel Margin="0,0,0,24"><ui:Button x:Name="Back" Visibility="Collapsed" Appearance="Transparent" BorderThickness="0" Padding="4,4,12,4" Margin="-8,0,0,8" HorizontalAlignment="Left" Click="BackClick"/><TextBlock x:Name="PageTitle" FontSize="{DynamicResource Font30}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/><TextBlock x:Name="Subtitle" Visibility="Collapsed" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/></StackPanel>
    <ui:Card x:Name="NoticeBox" Grid.Row="1" Visibility="Collapsed"><StackPanel><TextBox x:Name="Notice" Style="{StaticResource SelectableText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="{local:Loc Message}"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></ui:Card>
    <ScrollViewer x:Name="PageScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-16,0,0,0" Padding="0,0,8,0">
     <StackPanel Margin="16,0,16,0">
@@ -254,7 +255,7 @@
        <TextBlock x:Name="poseTitle" FontSize="{DynamicResource Font23}" TextAlignment="Center" Margin="0,0,0,8"/>
        <TextBlock x:Name="poseDetail" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
        <TextBlock x:Name="cue" FontSize="{DynamicResource Font25}" FontWeight="SemiBold" TextAlignment="Center" Margin="0,4,0,0"/>
-       <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><local:FaceGuide x:Name="face" Width="360" Height="250" Foreground="{DynamicResource Ink}" Accent="{DynamicResource Accent}" Focusable="False"/></Viewbox>
+       <Viewbox Stretch="Uniform" StretchDirection="DownOnly"><local:FaceGuide x:Name="face" Width="360" Height="250" Foreground="{DynamicResource Ink}" Focusable="False"/></Viewbox>
        <ProgressBar x:Name="progress" Margin="0,16,0,10"/>
        <TextBlock x:Name="count" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" TextAlignment="Center" Margin="0,0,0,8"/>
       </StackPanel>

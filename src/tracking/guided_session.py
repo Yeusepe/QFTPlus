@@ -15,8 +15,8 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Step:
-    name: str
-    instruction: str
+    name: str | dict
+    instruction: str | dict
     seconds: float
     condition: str
     targets: dict = field(default_factory=dict)
@@ -30,50 +30,50 @@ class Step:
 
 PUFF = {"both": {"CheekPuffLeft": 1., "CheekPuffRight": 1.}, "left": {"CheekPuffLeft": 1.}, "right": {"CheekPuffRight": 1.}}
 TONGUE = {"out": (0., 0.), "left": (-1., 0.), "right": (1., 0.), "up": (0., 1.), "down": (0., -1.), "up left": (-.7, .7), "up right": (.7, .7)}
-TARGETS = ([(f"CheekPuff{s.title() if s != 'both' else 'Both'}", f"Puff {'both cheeks' if s == 'both' else f'your {s} cheek'}",
-             "Fill with air and keep your lips sealed.", t) for s, t in PUFF.items()]
-           + [("CheekSuck", "Suck in your cheeks", "Pull both cheeks in between your teeth.", {"CheekSuckLeft": 1., "CheekSuckRight": 1.})]
-           + [(f"Tongue{d.title().replace(' ', '')}", "Stick your tongue out" + ("" if d == "out" else f", pointing {d.replace(' ', ' and to the ')}"),
-               "Your left and right, as you feel it." if d.endswith(("left", "right")) else "Point it as far as feels comfortable.",
+TARGETS = ([(f"CheekPuff{s.title() if s != 'both' else 'Both'}", "GuidePuff" + s.title(),
+             "GuideFillWithAirAndKeepYourLipsSealed", t) for s, t in PUFF.items()]
+           + [("CheekSuck", "GuideSuckInYourCheeks", "GuidePullBothCheeksInBetweenYourTeeth", {"CheekSuckLeft": 1., "CheekSuckRight": 1.})]
+           + [(f"Tongue{d.title().replace(' ', '')}", "GuideTongue" + d.title().replace(" ", ""),
+               "GuideYourLeftAndRightAsYouFeelIt" if d.endswith(("left", "right")) else "GuidePointItAsFarAsFeelsComfortable",
                {"visibility": 1., "extension": 1., "horizontal": h, "vertical": v})
               for d, (h, v) in TONGUE.items()]
-           + [("NasalDilation", "Flare your nostrils", "If you can't flare them, breathe in slowly and deeply through your nose.",
+           + [("NasalDilation", "GuideFlareYourNostrils", "GuideIfYouCanTFlareThemBreatheInSlowlyAnd",
                {"NasalDilationLeft": 1., "NasalDilationRight": 1.}),
-              ("JawOpen", "Open your mouth wide", "Then close it fully between holds.", {})]
-           + [("BrowRaiseBoth", "Raise both eyebrows", "As if surprised.",
+              ("JawOpen", "GuideOpenYourMouthWide", "GuideThenCloseItFullyBetweenHolds", {})]
+           + [("BrowRaiseBoth", "GuideRaiseBothEyebrows", "GuideAsIfSurprised",
                {"BrowInnerUpLeft": 1., "BrowInnerUpRight": 1., "BrowOuterUpLeft": 1., "BrowOuterUpRight": 1.}),
-              ("BrowRaiseLeft", "Raise only your left eyebrow", "Keep the right one still if you can. If you can't, just try.",
+              ("BrowRaiseLeft", "GuideRaiseOnlyYourLeftEyebrow", "GuideKeepTheRightOneStillIfYouCanIfYou",
                {"BrowInnerUpLeft": 1., "BrowOuterUpLeft": 1.}),
-              ("BrowRaiseRight", "Raise only your right eyebrow", "Keep the left one still if you can. If you can't, just try.",
+              ("BrowRaiseRight", "GuideRaiseOnlyYourRightEyebrow", "GuideKeepTheLeftOneStillIfYouCanIfYou",
                {"BrowInnerUpRight": 1., "BrowOuterUpRight": 1.}),
-              ("BrowInnerUp", "Look worried", "Lift the middle of your brows, as if worried or sad.",
+              ("BrowInnerUp", "GuideLookWorried", "GuideLiftTheMiddleOfYourBrowsAsIfWorriedOr",
                {"BrowInnerUpLeft": 1., "BrowInnerUpRight": 1.}),
-              ("BrowFrown", "Frown", "Pull your brows down and together, as if annoyed.",
+              ("BrowFrown", "GuideFrown", "GuidePullYourBrowsDownAndTogetherAsIfAnnoyed",
                {"BrowLowererLeft": 1., "BrowLowererRight": 1., "BrowPinchLeft": 1., "BrowPinchRight": 1.})])
-AMOUNTS = (("Barely", .2), ("A little", .4), ("Halfway", .6), ("Most of the way", .8), ("Full", 1.))
-READ = ["The thick path through the thirty thin birch trees bent north, then south, then back again.",
-        "Bob put the big map by the pump, but Pam mopped the mud before it dried on the mat.",
-        "Father thought the weather would be fine, though the clouds gathered over the three hills.",
-        "My mom made a muffin mix, then baked a batch of plum buns for the bake sale by the bay.",
-        "Open the window wide; the cool autumn air comes over the water and through the hall.",
-        "Thank them both for the bath towels; they brought them through the thunder this Thursday."]
-LOOKALIKES = [("chewing", "Chew", "Chew slowly, as if you had gum, with your lips closed."),
-              ("tongue_bulge_left", "Push your tongue into your left cheek", "Lips closed; make a bump from the inside."),
-              ("tongue_bulge_right", "Push your tongue into your right cheek", "Lips closed; make a bump from the inside."),
-              ("lip_suck", "Suck your lips in", "Press both lips in between your teeth."),
-              ("pout", "Pout", "Push your lips forward like a sulking child."),
-              ("lip_shrug", "Push your lower lip out", "A doubtful, 'not sure' face."),
-              ("nose_wrinkle", "Wrinkle your nose", "As if something smells bad."),
-              ("sniff", "Sniff a few times", "Short sniffs through your nose."),
-              ("jaw_side", "Move your jaw side to side", "Slowly, teeth apart."),
-              ("jaw_forward", "Push your jaw forward", "Then back, a few times."),
-              ("yawn", "Yawn", "A big, slow yawn, or fake one."),
-              ("laugh", "Laugh", "Laugh out loud, as naturally as you can."),
-              ("smile", "Smile and talk", "Big smiles, then a few words."),
-              ("swallow", "Swallow and lick your lips", "Swallow a few times, then run your tongue along your lips."),
-              ("eye_squint", "Squint", "As if looking into bright sun."),
-              ("look_up_down", "Look up and down", "With your eyes only; keep your head still."),
-              ("blink", "Blink, then close your eyes", "Blink a few times, then keep your eyes closed for a moment.")]
+AMOUNTS = (("GuideBarely", .2), ("GuideALittle", .4), ("GuideHalfway", .6), ("GuideMostOfTheWay", .8), ("GuideFull", 1.))
+READ = ["GuideTheThickPathThroughTheThirtyThinBirchTreesBent",
+        "GuideBobPutTheBigMapByThePumpButPam",
+        "GuideFatherThoughtTheWeatherWouldBeFineThoughTheClouds",
+        "GuideMyMomMadeAMuffinMixThenBakedABatch",
+        "GuideOpenTheWindowWideTheCoolAutumnAirComesOver",
+        "GuideThankThemBothForTheBathTowelsTheyBroughtThem"]
+LOOKALIKES = [("chewing", "GuideChew", "GuideChewSlowlyAsIfYouHadGumWithYourLips"),
+              ("tongue_bulge_left", "GuidePushYourTongueIntoYourLeftCheek", "GuideLipsClosedMakeABumpFromTheInside"),
+              ("tongue_bulge_right", "GuidePushYourTongueIntoYourRightCheek", "GuideLipsClosedMakeABumpFromTheInside"),
+              ("lip_suck", "GuideSuckYourLipsIn", "GuidePressBothLipsInBetweenYourTeeth"),
+              ("pout", "GuidePout", "GuidePushYourLipsForwardLikeASulkingChild"),
+              ("lip_shrug", "GuidePushYourLowerLipOut", "GuideADoubtfulNotSureFace"),
+              ("nose_wrinkle", "GuideWrinkleYourNose", "GuideAsIfSomethingSmellsBad"),
+              ("sniff", "GuideSniffAFewTimes", "GuideShortSniffsThroughYourNose"),
+              ("jaw_side", "GuideMoveYourJawSideToSide", "GuideSlowlyTeethApart"),
+              ("jaw_forward", "GuidePushYourJawForward", "GuideThenBackAFewTimes"),
+              ("yawn", "GuideYawn", "GuideABigSlowYawnOrFakeOne"),
+              ("laugh", "GuideLaugh", "GuideLaughOutLoudAsNaturallyAsYouCan"),
+              ("smile", "GuideSmileAndTalk", "GuideBigSmilesThenAFewWords"),
+              ("swallow", "GuideSwallowAndLickYourLips", "GuideSwallowAFewTimesThenRunYourTongueAlongYour"),
+              ("eye_squint", "GuideSquint", "GuideAsIfLookingIntoBrightSun"),
+              ("look_up_down", "GuideLookUpAndDown", "GuideWithYourEyesOnlyKeepYourHeadStill"),
+              ("blink", "GuideBlinkThenCloseYourEyes", "GuideBlinkAFewTimesThenKeepYourEyesClosedFor")]
 GUIDE = {"sweep:jaw": {"MouthUpperLeft": 2., "MouthLowerLeft": 2.}, "speech:read": {"MouthOpen": .35}, "speech:talk": {"MouthOpen": .35},
          "lookalike:tongue_bulge_left": {"TongueBulgeLeft": 1.5}, "lookalike:tongue_bulge_right": {"TongueBulgeRight": 1.5},
          "lookalike:lip_suck": {"LipSuck": 1.}, "lookalike:pout": {"LipPuckerLowerLeft": 1., "LipPuckerLowerRight": 1.},
@@ -104,19 +104,19 @@ def benchmark_steps(seed, quick=False):
         if quick and name not in QUICK_TARGETS:
             continue
         for label, amount in AMOUNTS[2:] if quick else AMOUNTS:
-            targets.append(Step(f"{title} · {label.lower()}", instruction, 2.5, f"target:{name}",
+            targets.append(Step({"key": "GuideAmount", "args": [title, label]}, instruction, 2.5, f"target:{name}",
                                 {k: (v * amount if k not in ("horizontal", "vertical", "visibility") else v) for k, v in guide.items()},
                                 ramp=1.))
-            targets.append(Step("Relax", "Let your face go loose.", 1.5, "relax"))
-    read = [Step("Read this out loud, again and again until the timer ends", text, 20., "speech:read") for text in (READ[:2] if quick else READ)]
-    talk = [] if quick else [Step("Talk about your day", "Out loud, as if to a friend. Keep going until the timer ends.", 120., "speech:talk")]
+            targets.append(Step("GuideRelax", "GuideLetYourFaceGoLoose", 1.5, "relax"))
+    read = [Step("GuideReadThisOutLoudAgainAndAgainUntilTheTimer", text, 20., "speech:read") for text in (READ[:2] if quick else READ)]
+    talk = [] if quick else [Step("GuideTalkAboutYourDay", "GuideOutLoudAsIfToAFriendKeepGoingUntil", 120., "speech:talk")]
     looks = [Step(title, instruction, 15. if quick else 20., f"lookalike:{name}") for name, title, instruction in LOOKALIKES
              if not quick or name in QUICK_LOOKALIKES]
     blocks = [targets, read, talk, looks]
     rng.shuffle(blocks)
-    return ([Step("Relax and look around", "Keep your face relaxed and still; move your eyes and head normally.", 20. if quick else 60., "neutral")]
+    return ([Step("GuideRelaxAndLookAround", "GuideKeepYourFaceRelaxedAndStillMoveYourEyesAnd", 20. if quick else 60., "neutral")]
             + [s for b in blocks for s in b]
-            + ([] if quick else [Step("Free play", "Use your face however you like: talk, react, make faces.", 120., "free")]))
+            + ([] if quick else [Step("GuideFreePlay", "GuideUseYourFaceHoweverYouLikeTalkReactMakeFaces", 120., "free")]))
 
 
 
@@ -175,11 +175,11 @@ class GuidedSession:
         s = self.current
         forming = 1. if s.ramp <= 0 else min(1., self.elapsed / s.ramp)
         remaining = max(0., s.seconds - self.elapsed)
-        return {"title": s.name, "instruction": s.instruction, "index": self.index, "total": len(self.steps),
+        return {"title": s.name, "instruction": s.instruction, "condition": s.condition, "index": self.index, "total": len(self.steps),
                 "targets": {k: (v if k in ("horizontal", "vertical", "visibility") else v * forming)
                             for k, v in {**GUIDE.get(s.condition, {}), **s.targets}.items()},
                 "progress": (self.index + min(1., self.elapsed / s.seconds)) / len(self.steps), "remaining": remaining,
-                "cue": f"{remaining:.0f} s" if s.seconds >= 10 else ("Hold" if forming >= 1 else "Get ready") if s.ramp else ""}
+                "cue": "SecondsRemaining" if s.seconds >= 10 else ("GuideHold" if forming >= 1 else "GuideGetReady") if s.ramp else ""}
 
     def finish(self, completed, now_ns=None):
         now_ns = now_ns or time.monotonic_ns()
@@ -204,7 +204,7 @@ class GuidedSession:
 
 ENROLL_CAP_SECONDS = 90.
 SLOW = 2.
-RELAX = Step("Relax", "Let your face go loose.", 1., "relax")
+RELAX = Step("GuideRelax", "GuideLetYourFaceGoLoose", 1., "relax")
 
 
 def enrollment_steps(pace=1.):
@@ -217,25 +217,25 @@ def enrollment_steps(pace=1.):
     def tongue(slot, title, instruction, horizontal, vertical, relax=False):
         return anchor(slot, title, instruction, {"visibility": 1., "extension": 1., "horizontal": horizontal, "vertical": vertical},
                       native={"TongueOut": .5}, relax=relax)
-    steps = ([Step("Relax and look ahead", "Keep your face still and relaxed.", 3., "neutral", slot="neutral", record_hz=4.)]
-            + anchor("jaw_open", "Open your mouth wide", "As wide as is comfortable.", native={"JawDrop": .4})
-            + anchor("pucker", "Kiss", "Push your lips forward into a kiss.",
+    steps = ([Step("GuideRelaxAndLookAhead", "GuideKeepYourFaceStillAndRelaxed", 3., "neutral", slot="neutral", record_hz=4.)]
+            + anchor("jaw_open", "GuideOpenYourMouthWide", "GuideAsWideAsIsComfortable", native={"JawDrop": .4})
+            + anchor("pucker", "GuideKiss", "GuidePushYourLipsForwardIntoAKiss",
                      {f"LipPucker{p}{s}": 1. for p in ("Upper", "Lower") for s in ("Left", "Right")}, native={"LipPucker": .3})
-            + anchor("puff", "Puff both cheeks", "Fill with air, lips sealed.", {"CheekPuffLeft": 1., "CheekPuffRight": 1.},
+            + anchor("puff", "GuidePuffBothCheeks", "GuideFillWithAirLipsSealed", {"CheekPuffLeft": 1., "CheekPuffRight": 1.},
                      native={"CheekPuff": .2}, soft=True)
-            + anchor("puff_left", "Puff only your left cheek", "Move the air into your left cheek, lips sealed.", {"CheekPuffLeft": 1.},
+            + anchor("puff_left", "GuidePuffOnlyYourLeftCheek", "GuideMoveTheAirIntoYourLeftCheekLipsSealed", {"CheekPuffLeft": 1.},
                      native={"CheekPuffL": .2}, soft=True)
-            + anchor("puff_right", "Puff only your right cheek", "Move the air into your right cheek, lips sealed.", {"CheekPuffRight": 1.},
+            + anchor("puff_right", "GuidePuffOnlyYourRightCheek", "GuideMoveTheAirIntoYourRightCheekLipsSealed", {"CheekPuffRight": 1.},
                      native={"CheekPuffR": .2}, soft=True)
-            + tongue("tongue_out", "Stick your tongue out", "Straight out, as far as is comfortable.", 0., 0.)
-            + tongue("tongue_up", "Point your tongue up", "Keep it out, tip up toward your nose.", 0., 1.)
-            + tongue("tongue_down", "Point your tongue down", "Keep it out, tip down toward your chin.", 0., -1.)
-            + tongue("tongue_left", "Point your tongue left", "Keep it out. Your left, as you feel it.", -1., 0.)
-            + tongue("tongue_right", "Point your tongue right", "Keep it out. Your right, as you feel it.", 1., 0., relax=True)
-            + anchor("suck", "Suck in your cheeks", "Pull both cheeks in between your teeth.", {"CheekSuckLeft": 1., "CheekSuckRight": 1.},
+            + tongue("tongue_out", "GuideStickYourTongueOut", "GuideStraightOutAsFarAsIsComfortable", 0., 0.)
+            + tongue("tongue_up", "GuidePointYourTongueUp", "GuideKeepItOutTipUpTowardYourNose", 0., 1.)
+            + tongue("tongue_down", "GuidePointYourTongueDown", "GuideKeepItOutTipDownTowardYourChin", 0., -1.)
+            + tongue("tongue_left", "GuidePointYourTongueLeft", "GuideKeepItOutYourLeftAsYouFeelIt", -1., 0.)
+            + tongue("tongue_right", "GuidePointYourTongueRight", "GuideKeepItOutYourRightAsYouFeelIt", 1., 0., relax=True)
+            + anchor("suck", "GuideSuckInYourCheeks", "GuidePullBothCheeksInBetweenYourTeeth", {"CheekSuckLeft": 1., "CheekSuckRight": 1.},
                      native={"CheekSuck": .2}, soft=True)
-            + [Step("Jaw side to side", "Slowly, teeth apart.", 6., "sweep:jaw", record_hz=2.),
-               Step("Read this out loud", READ[0], 9., "speech:read", record_hz=2., optional=True)])
+            + [Step("GuideJawSideToSide", "GuideSlowlyTeethApart", 6., "sweep:jaw", record_hz=2.),
+               Step("GuideReadThisOutLoud", READ[0], 9., "speech:read", record_hz=2., optional=True)])
     return [paced(s, pace) for s in steps]
 
 
@@ -265,29 +265,29 @@ class EnrollmentSession(GuidedSession):
     def evaluate(self, step):
         obs, result = self.observed, {"frames": len(self.observed)}
         if len(obs) < 3:
-            return {**result, "passed": False, "reason": "The headset cameras didn't send images."}
+            return {**result, "passed": False, "reason": "GuideTheHeadsetCamerasDidnTSendImages"}
         rois = np.stack([o[0] for o in obs])
         result["frozen"] = float(np.mean([o[2] for o in obs]))
         result["intensity"] = float(np.mean([o[3] for o in obs]))
         if result["frozen"] > .3:
-            return {**result, "passed": False, "reason": "The camera image froze."}
+            return {**result, "passed": False, "reason": "GuideTheCameraImageFroze"}
         if not 10 <= result["intensity"] <= 230:
-            return {**result, "passed": False, "reason": "The mouth cameras are too dark or too bright."}
+            return {**result, "passed": False, "reason": "GuideTheMouthCamerasAreTooDarkOrTooBright"}
         reference = rois.mean(0) if step.slot == "neutral" else self.neutral_roi
         if reference is not None:
             d = np.abs(rois - reference).mean((1, 2))
             result["distance"], result["spread"] = float(np.median(d)), float(d.std())
             if step.slot != "neutral" and result["distance"] < 3:
-                return {**result, "passed": False, "reason": "Your face looked the same as when relaxed."}
+                return {**result, "passed": False, "reason": "GuideYourFaceLookedTheSameAsWhenRelaxed"}
             if result["spread"] > max(2.5, .5 * result["distance"]):
-                return {**result, "passed": False, "reason": "Try to hold still."}
+                return {**result, "passed": False, "reason": "GuideTryToHoldStill"}
         for prefix, minimum in step.native.items():
             values = [max(v for k, v in n.items() if k.startswith(prefix)) for _, n, _, _ in obs
                       if n and any(k.startswith(prefix) for k in n)]
             if values:
                 result.setdefault("native", {})[prefix] = float(np.median(values))
                 if np.median(values) < minimum and not step.soft:
-                    return {**result, "passed": False, "reason": "Face tracking didn't see it clearly."}
+                    return {**result, "passed": False, "reason": "GuideFaceTrackingDidnTSeeItClearly"}
         return {**result, "passed": True}
 
     def _advance(self, now_ns, skipped):
@@ -300,7 +300,7 @@ class EnrollmentSession(GuidedSession):
                 self.neutral_roi = np.stack([o[0] for o in self.observed]).mean(0)
             if not gate["passed"] and not skipped and step.slot not in self.retried and elapsed_total < ENROLL_CAP_SECONDS - 10:
                 self.retried.add(step.slot)
-                retry = replace(step, name="Once more: " + step.name, instruction=gate["reason"] + " " + step.instruction)
+                retry = replace(step, name={"key": "GuideRetryTitle", "args": [step.name]}, instruction={"key": "GuideRetryInstruction", "args": [gate["reason"], step.instruction]})
                 self._insert(self.index + 1, [retry, paced(RELAX, self.pace)])
         self.observed = []
         if elapsed_total > ENROLL_CAP_SECONDS - 15:
@@ -322,7 +322,7 @@ def check(prefix):
     prefix = Path(prefix)
     session = json.loads(prefix.with_suffix(".qpsession.json").read_text(encoding="utf-8"))
     if session.get("sessionType") != "face-enrollment-v1":
-        raise ValueError("This isn't a face setup recording.")
+        raise ValueError("GuideThisIsnTAFaceSetupRecording")
     entries = scan_frames(prefix.with_suffix(".qpcap"), 0x1F)
     with prefix.with_suffix(".qpcap").open("rb") as capture:
         def frames(indices):
@@ -345,7 +345,7 @@ def check(prefix):
             if s["condition"].startswith("sweep:") and s.get("frames"):
                 arrays["sweep_" + s["condition"].split(":", 1)[1]] = frames([f[0] for f in s["frames"]])
     if "neutral" not in slots:
-        raise ValueError("The relaxed-face part didn't record cleanly. Run the face setup again.")
+        raise ValueError("GuideTheRelaxedFacePartDidnTRecordCleanlyRunThe")
     meta = {"schema": "face-enrollment-v1", "slots": sorted(slots), "missing": sorted(set(gates) - set(slots)), "gates": gates,
             "seconds": (session.get("finishedMonotonicNs", 0) - session["startedMonotonicNs"]) / 1e9,
             "session": prefix.with_suffix(".qpsession.json").name}

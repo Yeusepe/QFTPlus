@@ -78,7 +78,7 @@ internal static class WorkingCopy
     internal static string Inside(string folder, string relative)
     {
         var path = Path.GetFullPath(Path.Combine(folder, relative));
-        return path.StartsWith(folder + Path.DirectorySeparatorChar, Ignore) ? path : throw new IOException("Unsafe path in the file list: " + relative);
+        return path.StartsWith(folder + Path.DirectorySeparatorChar, Ignore) ? path : throw new IOException(Loc.Format("UnsafePathInTheFileList", relative));
     }
 
     internal static string Hash(string file) { using var stream = File.OpenRead(file); return Convert.ToHexStringLower(SHA256.HashData(stream)); }

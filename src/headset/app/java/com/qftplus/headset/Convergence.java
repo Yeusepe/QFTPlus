@@ -28,37 +28,39 @@ final class Convergence implements AutoCloseable {
     private Thread reader;
     private Path directory;
     private volatile boolean closed;
+    private final Context context;
 
-    Convergence(JSONObject calibration) throws JSONException {
+    Convergence(Context context, JSONObject calibration) throws JSONException {
+        this.context = context;
         if (!calibration.getString("format").equals("qpro-independent-personalized-visual-axis-v2") || !calibration.getJSONObject("quality_gate").getBoolean("gaze_pass"))
-            throw new IllegalArgumentException("The eye calibration did not pass its gaze check");
+            throw new IllegalArgumentException(context.getString(R.string.eye_calibration_gaze_check_failed));
         JSONObject mapping = calibration.optJSONObject("detector_tag_mapping");
         for (int eye = 0; eye < 2; eye++) {
             String name = eye == 0 ? "left" : "right";
             String tag = mapping == null ? "trace_tag_" + eye : mapping.optString("physical_" + name, "trace_tag_" + eye);
-            if (!tag.equals("trace_tag_0") && !tag.equals("trace_tag_1")) throw new IllegalArgumentException("Invalid eye tag mapping");
+            if (!tag.equals("trace_tag_0") && !tag.equals("trace_tag_1")) throw new IllegalArgumentException(context.getString(R.string.invalid_eye_tag_mapping));
             tags[eye] = tag.charAt(tag.length() - 1) - '0';
             JSONArray rows = calibration.getJSONObject(name).getJSONArray("coefficients");
-            if (rows.length() != 3) throw new IllegalArgumentException("Invalid eye calibration");
+            if (rows.length() != 3) throw new IllegalArgumentException(context.getString(R.string.invalid_eye_calibration));
             for (int row = 0; row < 3; row++) {
                 JSONArray values = rows.getJSONArray(row);
-                if (values.length() != 2) throw new IllegalArgumentException("Invalid eye calibration");
+                if (values.length() != 2) throw new IllegalArgumentException(context.getString(R.string.invalid_eye_calibration));
                 for (int axis = 0; axis < 2; axis++) {
                     double value = values.getDouble(axis);
-                    if (!Double.isFinite(value)) throw new IllegalArgumentException("Invalid eye calibration");
+                    if (!Double.isFinite(value)) throw new IllegalArgumentException(context.getString(R.string.invalid_eye_calibration));
                     coefficients[eye][row][axis] = value;
                 }
             }
         }
     }
     private static String quote(String text) { return "'" + text.replace("'", "'\\''") + "'"; }
-    private static byte[] rootFile(String path) throws Exception {
+    private static byte[] rootFile(Context context, String path) throws Exception {
         Process p = new ProcessBuilder("su", "-c", "cat " + quote(path)).redirectError(new File("/dev/null")).start();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<byte[]> result = executor.submit(() -> { try (InputStream input = p.getInputStream()) { return input.readAllBytes(); } });
             byte[] data = result.get(30, TimeUnit.SECONDS);
-            if (!p.waitFor(5, TimeUnit.SECONDS) || p.exitValue() != 0) throw new IOException("Cannot read headset eye tracking files. Allow QFT+ root access.");
+            if (!p.waitFor(5, TimeUnit.SECONDS) || p.exitValue() != 0) throw new IOException(context.getString(R.string.eye_tracking_files_unreadable));
             return data;
         } finally { p.destroy(); executor.shutdownNow(); }
     }
@@ -67,35 +69,40 @@ final class Convergence implements AutoCloseable {
         try (InputStream input = context.getAssets().open("calibration/qpro-independent-visual-axis-v2.json")) {
             calibration = new JSONObject(new String(input.readAllBytes(), StandardCharsets.UTF_8));
         }
-        Convergence eyes = new Convergence(calibration);
+        Convergence eyes = new Convergence(context, calibration);
         try {
-            EyeProbe probe = new EyeProbe(rootFile(ENGINE));
+            EyeProbe probe;
+            try { probe = new EyeProbe(rootFile(context, ENGINE)); }
+            catch (IllegalArgumentException unsupported) {
+                android.util.Log.e("QFT", "Eye tracking engine unsupported", unsupported);
+                throw new IOException(context.getString(R.string.eye_tracking_engine_unsupported), unsupported);
+            }
             eyes.directory = Files.createTempDirectory(context.getCacheDir().toPath(), "convergence-");
             Path model = eyes.directory.resolve("bolt.ptl"), script = eyes.directory.resolve("convergence.sh");
-            patch(rootFile(MODEL), model);
+            patch(context, rootFile(context, MODEL), model);
             try (InputStream input = context.getAssets().open("convergence.sh")) { Files.copy(input, script); }
             eyes.process = new ProcessBuilder("su", "--mount-master", "-c", "sh " + quote(script.toString()) + " " + quote(model.toString()) + " " +
                 Integer.toHexString(probe.offsets[0]) + " " + Integer.toHexString(probe.offsets[1]) + " " + quote(probe.fetch())).redirectErrorStream(true).start();
             eyes.reader = new Thread(eyes::read, "qft-convergence"); eyes.reader.start();
-            if (!eyes.ready.await(30, TimeUnit.SECONDS)) throw new IOException("Convergence startup timed out");
+            if (!eyes.ready.await(30, TimeUnit.SECONDS)) throw new IOException(context.getString(R.string.convergence_startup_timed_out));
             eyes.check();
             return eyes;
         } catch (Exception error) { eyes.close(); throw error; }
     }
-    private static void contract(JSONObject graph, boolean patched) throws JSONException {
+    private static void contract(Context context, JSONObject graph, boolean patched) throws JSONException {
         Map<Integer, JSONObject> nodes = new HashMap<>(); JSONArray list = graph.getJSONArray("node");
         for (int i = 0; i < list.length(); i++) { JSONObject n = list.getJSONObject(i); nodes.put(n.getInt("id"), n); }
         if (!nodes.containsKey(18) || !nodes.containsKey(52) ||
             !nodes.get(18).getJSONArray("output").getJSONObject(0).getJSONArray("shape").toString().equals("[2,2]") ||
             !nodes.get(52).getJSONArray("input").toString().equals(patched ? "[[18,0],[51,0]]" : "[[50,0],[51,0]]") ||
             !nodes.get(52).getJSONArray("output").getJSONObject(0).getJSONArray("shape").toString().equals("[1,4]"))
-            throw new IllegalArgumentException("Unsupported independent eye model layout");
+            throw new IllegalArgumentException(context.getString(R.string.unsupported_eye_model_layout));
         JSONArray outputs = graph.getJSONArray("output"); String[] shapes = {"[1,4]", "[1,6]", "[1,6]", "[1,1]", "[1,1]"};
-        if (outputs.length() != shapes.length) throw new IllegalArgumentException("Unsupported eye model outputs");
+        if (outputs.length() != shapes.length) throw new IllegalArgumentException(context.getString(R.string.unsupported_eye_model_outputs));
         for (int i = 0; i < shapes.length; i++) if (!outputs.getJSONObject(i).getJSONArray("shape").toString().equals(shapes[i]))
-            throw new IllegalArgumentException("Unsupported eye model output shape");
+            throw new IllegalArgumentException(context.getString(R.string.unsupported_eye_model_output_shape));
     }
-    static void patch(byte[] source, Path destination) throws Exception {
+    static void patch(Context context, byte[] source, Path destination) throws Exception {
         boolean found = false;
         ByteBuffer zip = ByteBuffer.wrap(source).order(ByteOrder.LITTLE_ENDIAN);
         int end = source.length - 22, wide = end - 76;
@@ -118,15 +125,15 @@ final class Convergence implements AutoCloseable {
                     byte[] bytes;
                     try (InputStream data = input.getInputStream(entry)) { bytes = data.readAllBytes(); }
                     if (entry.getName().equals("model/data.pkl")) {
-                        if (found) throw new IOException("Duplicate eye model graph"); found = true;
+                        if (found) throw new IOException(context.getString(R.string.duplicate_eye_model_graph)); found = true;
                         String pickle = new String(bytes, StandardCharsets.ISO_8859_1);
                         int start = pickle.indexOf("{\"version\": \"HEXAGON");
-                        if (start < 0) throw new IOException("Missing eye model graph");
+                        if (start < 0) throw new IOException(context.getString(R.string.missing_eye_model_graph));
                         JSONObject graph = (JSONObject)new JSONTokener(pickle.substring(start)).nextValue();
-                        contract(graph, false);
-                        if (pickle.indexOf(OLD) < 0 || pickle.indexOf(OLD) != pickle.lastIndexOf(OLD)) throw new IOException("Eye model reshape is not unique");
+                        contract(context, graph, false);
+                        if (pickle.indexOf(OLD) < 0 || pickle.indexOf(OLD) != pickle.lastIndexOf(OLD)) throw new IOException(context.getString(R.string.eye_model_reshape_not_unique));
                         pickle = pickle.replace(OLD, OLD.replace("[[50, 0]", "[[18, 0]"));
-                        contract((JSONObject)new JSONTokener(pickle.substring(start)).nextValue(), true);
+                        contract(context, (JSONObject)new JSONTokener(pickle.substring(start)).nextValue(), true);
                         bytes = pickle.getBytes(StandardCharsets.ISO_8859_1);
                     }
                     ZipEntry saved = new ZipEntry(entry.getName()); saved.setMethod(entry.getMethod());
@@ -137,17 +144,20 @@ final class Convergence implements AutoCloseable {
                 }
             }
         } finally { Files.deleteIfExists(stock); }
-        if (!found) throw new IOException("Missing eye model graph");
+        if (!found) throw new IOException(context.getString(R.string.missing_eye_model_graph));
     }
     private void read() {
         try (BufferedReader input = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = input.readLine()) != null) {
                 if (line.equals("QFT_CONVERGENCE_READY")) ready.countDown();
-                else if (line.startsWith("QFT_CONVERGENCE_ERROR:")) failure = line.substring(line.indexOf(':') + 1).trim();
+                else if (line.startsWith("QFT_CONVERGENCE_ERROR:")) {
+                    android.util.Log.e("QFT", line);
+                    failure = context.getString(R.string.convergence_reader_failed);
+                }
                 else sample(line);
             }
-            if (!closed && failure == null) failure = "The headset convergence reader stopped";
+            if (!closed && failure == null) failure = context.getString(R.string.convergence_reader_stopped);
         } catch (Exception error) { if (!closed) failure = error.getMessage(); }
         finally { ready.countDown(); }
     }
@@ -183,7 +193,7 @@ final class Convergence implements AutoCloseable {
         filterTime = time;
         latest = new double[]{shared[0] + filtered[0], shared[1] + filtered[1], shared[0] - filtered[0], shared[1] - filtered[1], time};
     }
-    void check() throws IOException { if (failure != null) throw new IOException("Convergence: " + failure + ". Turn off Convergence to use standard gaze."); }
+    void check() throws IOException { if (failure != null) throw new IOException(context.getString(R.string.convergence_failure, failure)); }
     boolean apply(ByteBuffer packet, long now, float gain) {
         double[] eye = latest;
         boolean fresh = eye != null && now / 1e9 >= eye[4] && now / 1e9 - eye[4] <= .25;
@@ -208,10 +218,10 @@ final class Convergence implements AutoCloseable {
             if (process != null) {
                 try { process.getOutputStream().close(); } catch (IOException ignored) {}
                 try {
-                    if (!process.waitFor(15, TimeUnit.SECONDS)) throw new IOException("Convergence cleanup is still running");
+                    if (!process.waitFor(15, TimeUnit.SECONDS)) throw new IOException(context.getString(R.string.convergence_cleanup_running));
                     if (reader != null) reader.join(1000);
-                    if (process.exitValue() != 0) throw new IOException(failure == null ? "Convergence cleanup failed" : failure);
-                } catch (InterruptedException error) { interrupted = true; throw new IOException("Convergence cleanup interrupted", error); }
+                    if (process.exitValue() != 0) throw new IOException(failure == null ? context.getString(R.string.convergence_cleanup_failed) : failure);
+                } catch (InterruptedException error) { interrupted = true; throw new IOException(context.getString(R.string.convergence_cleanup_interrupted), error); }
             }
         } finally {
             if (directory != null) {

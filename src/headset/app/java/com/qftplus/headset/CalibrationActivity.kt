@@ -108,10 +108,8 @@ class CalibrationActivity : ComponentActivity() {
         renderer = Thread({
             val error = try {
                 val folder = File(filesDir, "avatar").apply { mkdirs() }
-                val core = File(folder, "OvrAvatar2Assets.zip")
-                if (!pupils && !core.exists()) assets.open("avatar/OvrAvatar2Assets.zip").use { input -> File(folder, "core.tmp").also { t -> t.outputStream().use { input.copyTo(it) }; t.renameTo(core) } }
-                val presets = if (pupils) emptyArray() else assets.list("avatar/presets").orEmpty()
-                val preset = presets.randomOrNull()?.let { name -> Log.i("QFTCalibration", "Avatar preset $name"); assets.open("avatar/presets/$name").use { it.readBytes() } }
+                val preset = if (pupils) null else runCatching { AvatarAssets.prepare(this, true).readBytes() }
+                    .onFailure { Log.w("QFTCalibration", "Avatar unavailable", it) }.getOrNull()
                 val space = if (pupils) null else runCatching { SetupSpace.read().toTypedArray() }.onFailure { Log.w("QFTCalibration", "Setup space unavailable", it) }.getOrNull()
                 if (!pupils && preset == null) avatar = 2
                 runScene(applicationInfo.nativeLibraryDir + "/libovravatar2.so", folder.path, preset, scene, pupils, space)
@@ -120,7 +118,10 @@ class CalibrationActivity : ComponentActivity() {
             while (calibration.done && !calibration.cancelled() && TrackingService.calibration === calibration && TrackingService.running
                 && SystemClock.elapsedRealtime() < fitting) Thread.sleep(100)
             if (!calibration.done || TrackingService.calibration === calibration)
-                calibration.fail(if (error.isEmpty()) getString(R.string.calibration_cancelled_previous_calibration_retained) else error)
+                {
+                if (error.isNotEmpty()) Log.e("QFTCalibration", error)
+                calibration.fail(getString(if (error.isEmpty()) R.string.calibration_cancelled_previous_calibration_retained else R.string.calibration_scene_failed))
+            }
             if (TrackingService.calibration === calibration) TrackingService.calibration = null
             Log.i("QFTCalibration", calibration.message)
             TrackingService.lastCalibration = calibration.message; TrackingService.calibrating = false
@@ -128,6 +129,10 @@ class CalibrationActivity : ComponentActivity() {
             runOnUiThread { closePanel(); if (resumed) returnToPanel(calibration.message) else finishAndRemoveTask() }
         }, "qft-calibration-scene").also { it.start() }
     }
+
+    @Suppress("unused") private fun inputLabel(index: Int): String = getString(intArrayOf(
+        R.string.calibration, R.string.calibration_input_leave, R.string.calibration_input_start,
+        R.string.calibration_input_select, R.string.calibration_input_point)[index])
 
     @Suppress("unused") private fun updateScene(focused: Boolean): Int {
         val now = SystemClock.elapsedRealtime()

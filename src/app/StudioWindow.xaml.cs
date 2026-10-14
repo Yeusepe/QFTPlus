@@ -16,9 +16,10 @@ namespace QFTPlus;
 
 public partial class StudioWindow : Ui.FluentWindow
 {
-    static readonly string[] Pages = ["Tracking", "Adjustments", "Manual", "Calibration", "Cameras", "Setup", "Settings"];
-    static readonly string[] PageIcons = ["face", "tune", "experiment", "frame_person", "photo_camera", "head_mounted_device", "settings"];
+    static readonly string[] Pages = ["Tracking", "Adjustments", "LipSync", "Manual", "Calibration", "Cameras", "Setup", "Settings"];
+    static readonly string[] PageIcons = ["face", "tune", "mic", "experiment", "frame_person", "photo_camera", "head_mounted_device", "settings"];
     internal readonly Session session;
+    internal readonly LipSync lipSync;
     readonly bool preview;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) }, saveTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     readonly HashSet<Action> pendingSaves = [];
@@ -33,7 +34,7 @@ public partial class StudioWindow : Ui.FluentWindow
     readonly HeadsetHero trackingHero = new(150) { Margin = new(0, 4, 0, 16), HorizontalAlignment = HorizontalAlignment.Center };
     internal readonly HeadsetHero sidebarHero = new(120)
     {
-        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 42, 0, 0),
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, -10, 0, 0),
         OpacityMask = new LinearGradientBrush(Colors.Black, Colors.Transparent, new Point(.5, .43), new Point(.5, .68)),
     };
 
@@ -42,9 +43,12 @@ public partial class StudioWindow : Ui.FluentWindow
         InitializeComponent();
         TrackingCard.Children.Insert(0, trackingHero);
         DeviceArea.Children.Insert(1, sidebarHero);
+        Grid.SetRow(sidebarHero, 1);
         DeviceGlow.Background = sidebarHero.Glow;
         this.preview = preview;
         session = new(root, config);
+        lipSync = new(root, () => session.Running && session.Use != "hands", () => new HeadsetMicrophone(session));
+        if (!preview) lipSync.Apply(LipSync.Load(LipSyncPath));
         saveTimer.Tick += (_, _) => SaveNow();
         Closed += (_, _) => SaveNow();
         session.Changed += _ => Dispatcher.Invoke(() =>
@@ -68,11 +72,12 @@ public partial class StudioWindow : Ui.FluentWindow
             TextSearch.SetText(item, TitleOf(name));
             Navigation.Items.Add(item);
         }
-        Navigation.SelectionChanged += (_, _) => { if (Navigation.SelectedItem is ListBoxItem { Tag: string name } && name != page) Navigate(name); };
+        Navigation.SelectionChanged += (_, _) => { if (Navigation.SelectedItem is ListBoxItem { Tag: string name } && name != ParentPage(page)) Navigate(name); };
         ApplyPreferences();
         InitializeUpdates();
         UseChanged(session.Use);
-        Navigate("Tracking");
+        var last = session.Config["window"]?["page"]?.GetValue<string>() ?? "";
+        Navigate(Pages.Concat(["LipSync/MouthShapes", "LipSync/Sound", "LipSync/VRChat"]).Contains(last) && last is not ("Setup" or "Calibration") ? last : "Tracking");
         RestorePlacement();
         SizeChanged += (_, _) => ResizeGuide();
         PageScroll.ScrollChanged += (_, _) => FadeEdges();
@@ -134,7 +139,11 @@ public partial class StudioWindow : Ui.FluentWindow
         PageScroll.OpacityMask = mask;
     }
 
-    static string TitleOf(string page) => Loc.Get(page == "Manual" ? "TestMovements" : page);
+    static string TitleOf(string page) => Loc.Get(page == "Manual" ? "TestMovements" : page.Split('/')[^1]);
+
+    static string ParentPage(string page) => page.Split('/')[0];
+
+    void BackClick(object sender, RoutedEventArgs e) => Navigate(ParentPage(page));
 
     internal void RestorePlacement()
     {
@@ -155,7 +164,7 @@ public partial class StudioWindow : Ui.FluentWindow
         try
         {
             session.Save("window", new JsonObject { ["left"] = bounds.Left, ["top"] = bounds.Top, ["width"] = bounds.Width, ["height"] = bounds.Height,
-                ["maximized"] = WindowState == WindowState.Maximized && restoreState is null });
+                ["maximized"] = WindowState == WindowState.Maximized && restoreState is null, ["page"] = page });
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
@@ -226,7 +235,7 @@ public partial class StudioWindow : Ui.FluentWindow
         {
             (setupProblem, moduleMissing) = (error.Message, error is ModuleNotInstalledException);
             if (page != "Tracking") Error(error.Message);
-            session.Notify("Couldn’t start", error.Message);
+            session.Notify("CouldnTStart", error.Message);
         }
         finally
         {
@@ -276,6 +285,7 @@ public partial class StudioWindow : Ui.FluentWindow
         {
             await session.Stop();
             quitting = true;
+            lipSync.Dispose();
             timer.Stop();
             tray?.Dispose();
             http.Dispose();
@@ -371,12 +381,13 @@ public partial class StudioWindow : Ui.FluentWindow
         page = name;
         SearchBox.Clear();
         Clear(TitleOf(name));
-        Navigation.SelectedItem = Navigation.Items.Cast<ListBoxItem>().Single(item => Equals(item.Tag, name));
+        Navigation.SelectedItem = Navigation.Items.Cast<ListBoxItem>().Single(item => Equals(item.Tag, ParentPage(name)));
         Navigation.ScrollIntoView(Navigation.SelectedItem);
         switch (name)
         {
             case "Tracking": Home(); break;
             case "Adjustments": Adjustments(); break;
+            case "LipSync" or "LipSync/MouthShapes" or "LipSync/Sound" or "LipSync/VRChat": LipSyncPage(); break;
             case "Manual": Manual(); break;
             case "Calibration": Calibration(); break;
             case "Cameras": Cameras(); break;
@@ -396,31 +407,36 @@ public partial class StudioWindow : Ui.FluentWindow
         cameras.Clear();
         ClearNotice();
         SaveNow();
+        Back.Visibility = Visible(page != ParentPage(page));
+        (Back.Content, Back.Icon) = (TitleOf(ParentPage(page)), Symbols.Icon("chevron_left", (Brush)FindResource("Ink")));
+        AutomationProperties.SetName(Back, Loc.Format("BackTo", TitleOf(ParentPage(page))));
         PageTitle.Text = title;
-        Title = title + " — QFT+";
+        Title = Loc.Format("WindowTitle", title);
         Subtitle.Visibility = Visibility.Collapsed;
         PageScroll.ScrollToTop();
     }
 
-    bool Problem => !busy && !session.Running && (setupProblem.Length > 0 || session.State == "Tracking stopped");
+    bool Problem => !busy && !session.Running && (setupProblem.Length > 0 || session.State == "TrackingStopped");
 
     Action deviceGo = () => { };
 
     void DeviceClick(object sender, RoutedEventArgs e) => deviceGo();
 
-    string AppIssue => session.State == "Connected" && HeadsetModelExperiment.Standalone(session) && session.Detail.IndexOf(" · Meta", StringComparison.Ordinal) is var at and >= 0
-        ? session.Detail[(at + 3)..].Replace(" · ", ". ") + "." : "";
+    string AppIssue => session.State == "Connected" && HeadsetModelExperiment.Standalone(session)
+        && session.App?["receiving"]?.GetValue<bool>() == true
+        ? session.App?["faceAvailable"]?.GetValue<bool>() == false ? Loc.Get("MetaFaceTrackingUnavailable")
+        : session.App?["eyesAvailable"]?.GetValue<bool>() == false ? Loc.Get("MetaEyeGazeUnavailable") : "" : "";
 
     (HeadsetHero.Look Look, string Status, Action Go) Attention()
     {
         void Tracking() => Navigate("Tracking");
         var hands = session.HybridProblem.Length > 0 || session.Hybrid is not null && !Session.Alive(session.Hybrid);
-        if (Problem) return (HeadsetHero.Look.Error, setupProblem.Length > 0 ? Loc.Get("CouldnTStart") : session.State, Tracking);
-        if (session.State == "Waiting for headset") return (HeadsetHero.Look.Warning, session.State, Tracking);
+        if (Problem) return (HeadsetHero.Look.Error, setupProblem.Length > 0 ? Loc.Get("CouldnTStart") : session.StateTitle, Tracking);
+        if (session.State == "WaitingForHeadset") return (HeadsetHero.Look.Warning, session.StateTitle, Tracking);
         if (session.State == "Connected" && AppIssue.Length > 0) return (HeadsetHero.Look.Warning, Loc.Get("TrackingNeedsAttention"), Tracking);
         if (hands) return (HeadsetHero.Look.Warning, Loc.Get("HandsNeedAttention"), () => { revealLog = "hybrid.log"; Navigate("Settings"); });
         if (session.State == "Connected" && session.tracking?.SlowCause is { Length: > 0 }) return (HeadsetHero.Look.Warning, Loc.Get("RunningSlowly"), Tracking);
-        return (session.State == "Connected" ? HeadsetHero.Look.Connected : busy || session.Running ? HeadsetHero.Look.Working : HeadsetHero.Look.Idle, session.State, Tracking);
+        return (session.State == "Connected" ? HeadsetHero.Look.Connected : busy || session.Running ? HeadsetHero.Look.Working : HeadsetHero.Look.Idle, session.StateTitle, Tracking);
     }
 
     void SidebarStatus()
@@ -542,7 +558,7 @@ public partial class StudioWindow : Ui.FluentWindow
 
     void ViewTrackingLog(object sender, RoutedEventArgs e)
     {
-        revealLog = session.State == "Tracking stopped" ? session.ErrorLog : setupStep >= 0 && !setupDone ? "setup.log" : "tracking.log";
+        revealLog = session.State == "TrackingStopped" ? session.ErrorLog : setupStep >= 0 && !setupDone ? "setup.log" : "tracking.log";
         Navigate("Settings");
     }
 
@@ -565,16 +581,25 @@ public partial class StudioWindow : Ui.FluentWindow
             kind = area;
             Navigate("Calibration");
         }
+        void GoTo(string target, string setting)
+        {
+            Navigate(target);
+            Dispatcher.BeginInvoke(() => Reveal(new Hit(setting, null, target)), DispatcherPriority.Loaded);
+        }
         Action? appRows = null;
         if (use == "hands")
-            Show(Row(Loc.Get("FaceTracking"), "face", () => Navigate("Settings")), Loc.Get("Off"));
+            Show(Row(Loc.Get("FaceTracking"), "face", () => GoTo("Settings", Loc.Get("WhatDoYouWantToUse"))), Loc.Get("Off"));
         else
         {
             var onHeadset = HeadsetModelExperiment.Standalone(session);
             var needsEyeSetup = !onHeadset && session.IndependentGaze && !File.Exists(SetupService.EyeModel(session.Root));
-            var eyes = Row(Loc.Get("EyeGaze"), "eye_tracking", () => Navigate(needsEyeSetup ? "Setup" : "Settings"));
-            if (!onHeadset) Show(eyes, !session.IndependentGaze ? Loc.Get("Standard") : needsEyeSetup ? Loc.Get("NeedsSetup") : Loc.Get("Independent"), needsEyeSetup);
             var face = Row(Loc.Get("CheeksTongueAndBrows"), "sentiment_satisfied", () => Calibrate("enroll"));
+            var eyes = Row(Loc.Get("EyeGaze"), "eye_tracking", () =>
+            {
+                if (needsEyeSetup) Navigate("Setup");
+                else GoTo("Settings", Loc.Get("IndependentEyeGaze"));
+            });
+            if (!onHeadset) Show(eyes, !session.IndependentGaze ? Loc.Get("Standard") : needsEyeSetup ? Loc.Get("NeedsSetup") : Loc.Get("Independent"), needsEyeSetup);
             var pupils = Row(Loc.Get("PupilDilation"), "adjust", () => Calibrate("pupils"));
             if (!onHeadset)
             {
@@ -590,11 +615,35 @@ public partial class StudioWindow : Ui.FluentWindow
                 Show(pupils, Value("pupils"));
             };
         }
+        var lipSyncRow = Row(Loc.Get("LipSync"), "mic", () => Navigate("LipSync"));
+        var lipSyncShown = "";
+        void ShowLipSync()
+        {
+            var (value, problem) = !lipSync.Enabled ? (Loc.Get("Off"), false) : !lipSync.Listening ? (Loc.Get("CouldnTStart"), true) : lipSync.Matched switch
+            {
+                null => (Loc.Get("AvatarShortUnknown"), false),
+                0 => (Loc.Get("AvatarShortNone"), true),
+                var count => (Loc.Format("AvatarShortFound", count), false),
+            };
+            if (value != lipSyncShown) Show(lipSyncRow, lipSyncShown = value, problem);
+        }
+        ShowLipSync();
+        var lipSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        lipSyncTimer.Tick += (_, _) =>
+        {
+            if (page == "Tracking") ShowLipSync();
+            else lipSyncTimer.Stop();
+        };
+        lipSyncTimer.Start();
         var hybridStopped = false;
         var hybrid = Row(Loc.Get("HybridHands"), "front_hand", () =>
         {
-            if (hybridStopped || session.HybridProblem.Length > 0) revealLog = "hybrid.log";
-            Navigate("Settings");
+            if (hybridStopped || session.HybridProblem.Length > 0)
+            {
+                revealLog = "hybrid.log";
+                Navigate("Settings");
+            }
+            else GoTo("Settings", Loc.Get("WhatDoYouWantToUse"));
         });
         foreach (var element in new UIElement[] { TrackingOverview, header, list }) Page.Children.Add(element);
         RoundEnds(list);
@@ -604,20 +653,19 @@ public partial class StudioWindow : Ui.FluentWindow
             var onHeadset = HeadsetModelExperiment.Standalone(session);
             var appIssue = AppIssue;
             appRows?.Invoke();
-            var via = session.Detail.EndsWith("USB") ? "USB" : "Wi-Fi";
+            var via = session.Wireless ? Loc.Get("WiFiConnection") : Loc.Get("UsbConnection");
             var (slow, fps) = (session.tracking?.SlowCause ?? "", session.tracking?.Stream?.Fps ?? 0);
             var (title, about) = failed ? (Loc.Get("CouldnTStartTracking"), setupProblem)
-                : session.State == "Tracking stopped" ? (Loc.Get("TrackingStopped"), session.Detail)
-                : session.State == "Connected" && appIssue.Length > 0 ? (Loc.Get("TrackingNeedsAttention"), appIssue + Loc.Get("ExpressionsCanTFollowYourFaceUntilTheHeadset"))
+                : session.State == "TrackingStopped" ? (Loc.Get("TrackingStopped"), session.Detail)
+                : session.State == "Connected" && appIssue.Length > 0 ? (Loc.Get("TrackingNeedsAttention"), Loc.Format("TrackingAttention", appIssue))
                 : session.State == "Connected" && onHeadset ? (Loc.Get("TrackingIsOn"), Loc.Get("QFTHeadsetIsTrackingAndSendingExpressionsToVRCFaceTracking"))
-                : session.State == "Waiting for headset" && onHeadset ? (Loc.Get("CanTReachTheHeadset"), session.Detail)
+                : session.State == "WaitingForHeadset" && onHeadset ? (Loc.Get("CanTReachTheHeadset"), session.Detail)
                 : session.State == "Connected" && use == "hands" ? (Loc.Get("HandTrackingIsOn"), Loc.Format("ConnectedOverHybridHandsAndControllersAreOnIn", via))
                 : session.State == "Connected" && slow.Length > 0 ? (Loc.Get("TrackingIsRunningSlowly"), slow == "pc"
                     ? Loc.Format("ThisPCIsKeepingUpWithOnlyAboutCamera", fps)
-                    : Loc.Format("OnlyAboutCameraFramesASecondAreArrivingOver", fps, via)
-                      + (via == "USB" ? Loc.Get("TryAnotherUSBPortOrCable") : Loc.Get("ConnectTheHeadsetToThisPCWithAUSB_622bba14")))
-                : session.State == "Connected" ? (Loc.Get("TrackingIsOn"), Loc.Format("ConnectedOverExpressionsAreGoingToVRCFaceTracking", via) + (session.HybridReady ? Loc.Get("HybridHandsAreOn") : ""))
-                : busy || session.Running ? (session.State, session.Detail)
+                    : Loc.Format(session.Wireless ? "SlowWirelessFrames" : "SlowUsbFrames", fps, via))
+                : session.State == "Connected" ? (Loc.Get("TrackingIsOn"), Loc.Format(session.HybridReady ? "ConnectedWithHybridHands" : "ConnectedOverExpressionsAreGoingToVRCFaceTracking", via))
+                : busy || session.Running ? (session.StateTitle, session.Detail)
                 : !SetUp ? (Loc.Get("SetUpQuestPro"), Loc.Get("ConnectTheHeadsetToThisPCWithAUSB"))
                 : session.State == "Ready" && session.Detail.Length > 0 ? (Loc.Get("TrackingIsOff"), session.Detail)
                 : (Loc.Get("ReadyToTrack"), onHeadset ? Loc.Get("PutOnTheHeadsetThenStartTrackingQFTHeadset") : Loc.Get("PutOnTheHeadsetThenStartTracking"));
@@ -654,7 +702,7 @@ public partial class StudioWindow : Ui.FluentWindow
 
     Ui.CardAction ListRow(string title, string? icon, Action go)
     {
-        var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6), BorderThickness = new(0), IsChevronVisible = false };
+        var row = new Ui.CardAction { Tag = (title, icon), Margin = new(0, 0, 0, 2), Padding = new(24, 12, 20, 12), BorderThickness = new(0), IsChevronVisible = false };
         row.SetResourceReference(BackgroundProperty, "Surface");
         row.Click += (_, _) => go();
         return row;
@@ -669,23 +717,30 @@ public partial class StudioWindow : Ui.FluentWindow
         DockPanel.SetDock(chevron, Dock.Right);
         var content = new DockPanel();
         content.Children.Add(chevron);
-        content.Children.Add(value.Length > 0 ? Stack(name, Text(value, 14, true)) : name);
+        name.Margin = new(0);
+        var detail = Muted(value);
+        detail.Margin = new(0, 2, 0, 0);
+        content.Children.Add(value.Length > 0 ? Stack(name, detail) : name);
         (row.Content, row.Icon) = (content, icon is null ? null : Symbols.Icon(problem ? "warning" : icon, (Brush)FindResource("Ink")));
         row.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        AutomationProperties.SetName(row, value.Length > 0 ? $"{title}, {value}" : title);
+        AutomationProperties.SetName(row, value.Length > 0 ? Loc.Format("FeatureStatus", title, value) : title);
     }
 
     Border ActionRow(string title, TextBlock value, string icon, Button action)
     {
         action.VerticalAlignment = VerticalAlignment.Center;
-        action.Margin = new(16, 0, 0, 2);
+        action.Margin = new(16, 0, 0, 0);
         DockPanel.SetDock(action, Dock.Right);
         var glyph = Symbols.Icon(icon, (Brush)FindResource("Ink"));
-        glyph.Margin = new(0, 0, 14, 2);
+        glyph.Margin = new(0, 0, 14, 0);
         glyph.VerticalAlignment = VerticalAlignment.Center;
+        var name = Text(title);
+        (name.Margin, value.Margin) = (new(0), new(0, 2, 0, 0));
+        var text = Stack(name, value);
+        text.VerticalAlignment = VerticalAlignment.Center;
         var content = new DockPanel();
-        foreach (var child in new UIElement[] { action, glyph, Stack(Text(title), value) }) content.Children.Add(child);
-        var row = new Border { Child = content, Margin = new(0, 0, 0, 2), Padding = new(24, 14, 20, 6) };
+        foreach (var child in new UIElement[] { action, glyph, text }) content.Children.Add(child);
+        var row = new Border { Child = content, Margin = new(0, 0, 0, 2), Padding = new(24, 12, 20, 12) };
         row.SetResourceReference(Border.BackgroundProperty, "Surface");
         return row;
     }
@@ -743,11 +798,18 @@ public partial class StudioWindow : Ui.FluentWindow
     {
         var option = new CheckBox { Content = Loc.Get("TrackOnTheHeadsetExperimental"), IsChecked = HeadsetModelExperiment.Enabled(session) };
         AutomationProperties.SetHelpText(option, Loc.Get("TracksYourFacePupilsAndCalibrationInQFTHeadset"));
+        var about = Muted(Loc.Get("TurningItOnInstallsQFTHeadsetAndPairsIt"));
         var status = Muted("", live: true);
+        status.Margin = new(0);
+        status.VerticalAlignment = VerticalAlignment.Center;
         var retry = AsyncButton(Loc.Get("RetryHeadsetCleanup"), async () => await Change(false));
         var update = AsyncButton(Loc.Get("UpdateQFTHeadset"), async () => { await Change(true); session.AppProblem = ""; });
-        var working = new ProgressBar { IsIndeterminate = true, Margin = new(0, 4, 0, 12) };
+        var working = new Ui.ProgressRing { IsIndeterminate = true, Width = 20, Height = 20, Margin = new(0, 0, 12, 0) };
+        working.SetResourceReference(ForegroundProperty, "Accent");
         var cancel = Button(Loc.Get("Cancel"), session.CancelSetup);
+        cancel.Margin = new(16, 0, 0, 0);
+        DockPanel.SetDock(cancel, Dock.Right);
+        DockPanel.SetDock(working, Dock.Left);
         var changing = false;
         async Task Change(bool enabled)
         {
@@ -758,7 +820,7 @@ public partial class StudioWindow : Ui.FluentWindow
             trackingRefresh?.Invoke();
             try { await session.SetHeadsetModel(enabled); }
             catch (OperationCanceledException) { session.Notify("Ready"); }
-            catch (Exception error) { Error(error.Message); session.Notify("Headset experiment needs attention", error.Message); }
+            catch (Exception error) { Error(error.Message); session.Notify("HeadsetExperimentNeedsAttention", error.Message); }
             finally
             {
                 busy = changing = false;
@@ -775,13 +837,14 @@ public partial class StudioWindow : Ui.FluentWindow
             retry.Visibility = Visible(!changing && HeadsetModelExperiment.Pending(session));
             update.Visibility = Visible(HeadsetModelExperiment.Standalone(session) && session.AppProblem == HeadsetApp.Outdated && !changing);
             working.Visibility = cancel.Visibility = Visible(changing);
-            status.Text = changing ? session.State + ". " + session.Detail : HeadsetModelExperiment.Pending(session) ? Loc.Get("OffButQFTHeadsetIsStillOnTheHeadset")
+            about.Visibility = Visible(!changing);
+            status.Text = changing ? Loc.Format("StatusDetail", session.StateTitle, session.Detail) : HeadsetModelExperiment.Pending(session) ? Loc.Get("OffButQFTHeadsetIsStillOnTheHeadset")
                 : update.Visibility == Visibility.Visible ? HeadsetApp.Outdated
                 : HeadsetModelExperiment.Enabled(session) ? Loc.Get("OnQFTHeadsetIsPairedWithThisPCStart") : Loc.Get("OffTrackingRunsOnThisPC");
         }
         trackingRefresh += Refresh;
         Refresh();
-        return Card(option, Muted(Loc.Get("TurningItOnInstallsQFTHeadsetAndPairsIt")), status, working, Buttons(retry, update, cancel));
+        return Card(option, about, new DockPanel { Margin = new(0, 0, 0, 8), Children = { cancel, working, status } }, Buttons(retry, update));
     }
 
     StackPanel OutputOptions()
@@ -795,7 +858,7 @@ public partial class StudioWindow : Ui.FluentWindow
         foreach (var (key, title) in new[] { ("tongueOutput", Loc.Get("Tongue")), ("extraFaceOutput", Loc.Get("ExtraExpressions")), ("pupilDilation", Loc.Get("PupilDilation")) })
         {
             var calibrated = session.Calibrated(key);
-            var option = new CheckBox { Content = calibrated ? title : title + Loc.Get("CalibrateFirst"), IsEnabled = calibrated,
+            var option = new CheckBox { Content = calibrated ? title : Loc.Format("OptionNeedsCalibration", title), IsEnabled = calibrated,
                 IsChecked = calibrated && (session.Config[key]?.GetValue<bool>() ?? key != "pupilDilation") };
             AutomationProperties.SetName(option, title);
             rows.Children.Add(option);
@@ -905,7 +968,7 @@ public partial class StudioWindow : Ui.FluentWindow
                 var allowed = needs.Length == 0 || HeadsetApp.Flag(app, "calibrated", needs);
                 box.IsEnabled = app is not null && allowed;
                 box.IsChecked = HeadsetApp.Flag(app, "settings", key);
-                box.Content = allowed || app is null ? title : title + Loc.Get("CalibrateInQFTHeadsetFirst");
+                box.Content = allowed || app is null ? title : Loc.Format("OptionNeedsHeadsetCalibration", title);
             }
             rate.IsEnabled = app is not null;
             rate.SelectedIndex = Math.Max(0, Array.IndexOf(HeadsetApp.Rates, app?["settings"]?["rate"]?.GetValue<int>() ?? 0));
