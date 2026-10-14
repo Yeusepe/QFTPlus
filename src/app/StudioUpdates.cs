@@ -39,17 +39,17 @@ public partial class StudioWindow
     {
         if (checkingUpdates || updater is null || updateLifetime.IsCancellationRequested) return;
         checkingUpdates = true; lastUpdateAttempt = DateTime.UtcNow;
-        updateStatus = "Checking for updates…"; RefreshUpdates();
+        updateStatus = Loc.Get("CheckingForUpdates"); RefreshUpdates();
         try
         {
             availableUpdate = await Updates.Check(updater, updateLifetime.Token);
-            updateStatus = availableUpdate is null ? "You’re up to date." : "";
+            updateStatus = availableUpdate is null ? Loc.Get("YouReUpToDate") : "";
         }
         catch (Exception error) when (error is not OperationCanceledException || !updateLifetime.IsCancellationRequested)
         {
             updateStatus = error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.TooManyRequests }
-                ? "GitHub is limiting update checks from this network. QFT+ tries again later."
-                : "Couldn’t check for updates. Check the internet connection, then try again.";
+                ? Loc.Get("GitHubIsLimitingUpdateChecksFromThisNetworkQFT")
+                : Loc.Get("CouldnTCheckForUpdatesCheckTheInternetConnection");
         }
         finally { checkingUpdates = false; if (!updateLifetime.IsCancellationRequested) RefreshUpdates(); }
     }
@@ -59,8 +59,8 @@ public partial class StudioWindow
         UpdateBanner.Visibility = page == "Tracking" && availableUpdate is not null && AvailableVersion != dismissedUpdate
             ? Visibility.Visible : Visibility.Collapsed;
         UpdateMessage.Message = availableUpdate is null ? "" : installingUpdate ? updateStatus
-            : $"QFT+ {AvailableVersion} is available. Installing takes a few minutes"
-              + (session.Running ? " and stops tracking until it’s done" : "") + ". Your settings, calibrations, and recordings stay.";
+            : Loc.Format("QFTIsAvailableInstallingTakesAFewMinutes", AvailableVersion)
+              + (session.Running ? Loc.Get("AndStopsTrackingUntilItSDone") : "") + Loc.Get("YourSettingsCalibrationsAndRecordingsStay");
         InstallUpdateButton.Visibility = availableUpdate is null ? Visibility.Collapsed : Visibility.Visible;
         InstallUpdateButton.IsEnabled = !installingUpdate;
         UpdateProgress.Visibility = installingUpdate && updatePercent >= 0 ? Visibility.Visible : Visibility.Collapsed; UpdateProgress.Value = Math.Max(0, updatePercent);
@@ -76,23 +76,23 @@ public partial class StudioWindow
     async Task InstallUpdate()
     {
         if (installingUpdate || updater is null || availableUpdate is not { } info) { if (availableUpdate is null) OpenUpdate(); return; }
-        if (busy || recording || training) { Error("Finish calibration or setup, then install the update."); return; }
-        installingUpdate = true; updatePercent = 0; updateStatus = "Downloading the update…"; RefreshUpdates();
+        if (busy || recording || training) { Error(Loc.Get("FinishCalibrationOrSetupThenInstallTheUpdate")); return; }
+        installingUpdate = true; updatePercent = 0; updateStatus = Loc.Get("DownloadingTheUpdate_a14a1b55"); RefreshUpdates();
         using var stalled = CancellationTokenSource.CreateLinkedTokenSource(updateLifetime.Token);
         var stall = TimeSpan.FromMinutes(2); stalled.CancelAfter(stall);
-        IProgress<int> shown = new Progress<int>(percent => { updatePercent = percent; updateStatus = $"Downloading the update… {percent}%"; RefreshUpdates(); });
+        IProgress<int> shown = new Progress<int>(percent => { updatePercent = percent; updateStatus = Loc.Format("DownloadingTheUpdate", percent); RefreshUpdates(); });
         try
         {
             await updater.DownloadUpdatesAsync(info, percent => { stalled.CancelAfter(stall); shown.Report(percent); }, stalled.Token);
-            updateStatus = "Installing the update…"; RefreshUpdates();
+            updateStatus = Loc.Get("InstallingTheUpdate"); RefreshUpdates();
             updater.WaitExitThenApplyUpdates(info.TargetFullRelease, silent: false, restart: true);
             await Quit();
         }
         catch (Exception error) when (!updateLifetime.IsCancellationRequested)
         {
             installingUpdate = false; updatePercent = -1;
-            updateStatus = stalled.IsCancellationRequested ? "The download stopped making progress. Check the internet connection, then try again."
-                : "Couldn’t install the update. Check the internet connection, then try again. (" + error.Message + ")";
+            updateStatus = stalled.IsCancellationRequested ? Loc.Get("TheDownloadStoppedMakingProgressCheckTheInternetConnection")
+                : Loc.Get("CouldnTInstallTheUpdateCheckTheInternetConnection") + error.Message + ")";
             Error(updateStatus);
         }
         finally { if (!updateLifetime.IsCancellationRequested) RefreshUpdates(); }
@@ -101,29 +101,29 @@ public partial class StudioWindow
     {
         if (WorkingCopy.Installed() is null) return;
         var panel = new StackPanel();
-        var heading = Text("Uninstall", 16); heading.FontWeight = FontWeights.SemiBold;
+        var heading = Text(Loc.Get("Uninstall"), 16); heading.FontWeight = FontWeights.SemiBold;
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2); panel.Children.Add(heading);
-        panel.Children.Add(Text("Removes QFT+, its SteamVR driver, and its VRCFaceTracking module. Your calibrations, recordings, and settings stay unless you choose to delete them too.", 13, true));
-        var button = AsyncButton("Uninstall QFT+…", UninstallApp); button.HorizontalAlignment = HorizontalAlignment.Left; button.Margin = new(0, 8, 0, 0);
+        panel.Children.Add(Text(Loc.Get("RemovesQFTItsSteamVRDriverAndItsVRCFaceTrackingModule"), 13, true));
+        var button = AsyncButton(Loc.Get("UninstallQFT_71877bb4"), UninstallApp); button.HorizontalAlignment = HorizontalAlignment.Left; button.Margin = new(0, 8, 0, 0);
         panel.Children.Add(button);
         Page.Children.Add(Card(panel));
     }
 
     async Task UninstallApp()
     {
-        if (busy || recording || training) { Error("Finish calibration or setup, then uninstall."); return; }
+        if (busy || recording || training) { Error(Loc.Get("FinishCalibrationOrSetupThenUninstall")); return; }
         var owner = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        var everything = new System.Windows.Forms.TaskDialogVerificationCheckBox("Also delete calibrations, recordings, face-tracking logs, and settings");
-        var uninstall = new System.Windows.Forms.TaskDialogButton("Uninstall");
+        var everything = new System.Windows.Forms.TaskDialogVerificationCheckBox(Loc.Get("AlsoDeleteCalibrationsRecordingsFaceTrackingLogsAndSettings"));
+        var uninstall = new System.Windows.Forms.TaskDialogButton(Loc.Get("Uninstall"));
         if (System.Windows.Forms.TaskDialog.ShowDialog(owner, new System.Windows.Forms.TaskDialogPage
         {
-            Caption = "Uninstall QFT+", Heading = "Uninstall QFT+?", Verification = everything,
-            Text = "Removes the app, its SteamVR driver, its VRCFaceTracking module, and its shortcuts. Tracking stops.",
+            Caption = Loc.Get("UninstallQFT"), Heading = Loc.Get("UninstallQFT_1021541b"), Verification = everything,
+            Text = Loc.Get("RemovesTheAppItsSteamVRDriverItsVRCFaceTrackingModule"),
             Buttons = { uninstall, System.Windows.Forms.TaskDialogButton.Cancel }, DefaultButton = uninstall,
         }) != uninstall) return;
         while (Uninstall.Blocker() is { } blocker)
             if (System.Windows.Forms.TaskDialog.ShowDialog(owner, new System.Windows.Forms.TaskDialogPage
-                { Caption = "Uninstall QFT+", Heading = "Close an app first", Text = blocker,
+                { Caption = Loc.Get("UninstallQFT"), Heading = Loc.Get("CloseAnAppFirst"), Text = blocker,
                   Buttons = { System.Windows.Forms.TaskDialogButton.Retry, System.Windows.Forms.TaskDialogButton.Cancel } }) != System.Windows.Forms.TaskDialogButton.Retry) return;
         if (HeadsetModelExperiment.Enabled(session) || HeadsetModelExperiment.Pending(session))
         {
@@ -132,7 +132,7 @@ public partial class StudioWindow
             finally { busy = false; SidebarStatus(); trackingRefresh?.Invoke(); }
         }
         var update = Velopack.Locators.VelopackLocator.Current.UpdateExePath;
-        if (update is null || !File.Exists(update)) { Error("QFT+ couldn’t find its uninstaller. Uninstall it from Windows Settings > Apps."); return; }
+        if (update is null || !File.Exists(update)) { Error(Loc.Get("QFTCouldnTFindItsUninstallerUninstallItFrom")); return; }
         await session.Stop();
         if (everything.Checked) File.WriteAllText(Uninstall.EverythingMarker, "Settings > Uninstall: also delete the data");
         else File.Delete(Uninstall.EverythingMarker);
@@ -144,20 +144,20 @@ public partial class StudioWindow
     void OpenUpdate()
     {
         try { Open(Updates.Url(availableUpdate)); }
-        catch (Exception) { Error("Couldn’t open your browser. Visit github.com/Yeusepe/QFTPlus/releases to get the update."); }
+        catch (Exception) { Error(Loc.Get("CouldnTOpenYourBrowserVisitGithubComYeusepe")); }
     }
 
     const string DiscordProfile = "https://discord.com/users/1070533060736602133";
     void MessageOnDiscord(object sender, RoutedEventArgs e)
     {
         try { Open(DiscordProfile); }
-        catch (Exception) { Error("Couldn’t open your browser. Visit " + DiscordProfile + " to send a message."); }
+        catch (Exception) { Error(Loc.Get("CouldnTOpenYourBrowserVisit") + DiscordProfile + Loc.Get("ToSendAMessage")); }
     }
 
     void DismissFeedback(object sender, RoutedEventArgs e)
     {
         try { session.Save("feedbackDismissed", true); }
-        catch (Exception) { Error("The request is hidden for now. Your preference couldn’t be saved."); }
+        catch (Exception) { Error(Loc.Get("TheRequestIsHiddenForNowYourPreferenceCouldn")); }
         FeedbackBanner.Visibility = Visibility.Collapsed;
     }
 
@@ -165,28 +165,28 @@ public partial class StudioWindow
     {
         dismissedUpdate = AvailableVersion;
         try { session.Save("dismissedUpdate", dismissedUpdate); }
-        catch (Exception) { Error("The update is hidden for now. Your preference couldn’t be saved."); }
+        catch (Exception) { Error(Loc.Get("TheUpdateIsHiddenForNowYourPreferenceCouldn")); }
         RefreshUpdates();
     }
 
     void UpdateOptions()
     {
         var panel = new StackPanel();
-        var heading = Text("Updates", 16); heading.FontWeight = FontWeights.SemiBold;
+        var heading = Text(Loc.Get("Updates"), 16); heading.FontWeight = FontWeights.SemiBold;
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2); panel.Children.Add(heading);
-        panel.Children.Add(Text(installedVersion is null ? "The installed version couldn’t be read." : $"Installed version: {installedVersion}", 14, true));
+        panel.Children.Add(Text(installedVersion is null ? Loc.Get("TheInstalledVersionCouldnTBeRead") : Loc.Format("InstalledVersion", installedVersion), 14, true));
         var status = Text(""); AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite); panel.Children.Add(status);
         var downloading = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Margin = new(0, 0, 0, 12) }; downloading.SetResourceReference(ProgressBar.ForegroundProperty, "Accent");
-        AutomationProperties.SetName(downloading, "Update download"); panel.Children.Add(downloading);
+        AutomationProperties.SetName(downloading, Loc.Get("UpdateDownload")); panel.Children.Add(downloading);
         var actions = new WrapPanel(); panel.Children.Add(actions);
-        var check = AsyncButton("Check for updates", CheckUpdates);
-        var install = AsyncButton("Install update", InstallUpdate);
-        var view = Button("View releases", OpenUpdate);
+        var check = AsyncButton(Loc.Get("CheckForUpdates"), CheckUpdates);
+        var install = AsyncButton(Loc.Get("InstallUpdate"), InstallUpdate);
+        var view = Button(Loc.Get("ViewReleases"), OpenUpdate);
         foreach (var button in new[] { install, check, view }) { button.Margin = new(0, 0, 8, 8); actions.Children.Add(button); }
-        var automatic = new CheckBox { Content = "Check for updates automatically", IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
+        var automatic = new CheckBox { Content = Loc.Get("CheckForUpdatesAutomatically"), IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
         automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
-        System.Windows.Automation.AutomationProperties.SetHelpText(automatic, updater is null ? "This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself."
-            : (installedVersion?.IsPrerelease == true ? "Includes release candidates. " : "") + "Updates install here and keep your settings, calibrations, and recordings.");
+        System.Windows.Automation.AutomationProperties.SetHelpText(automatic, updater is null ? Loc.Get("ThisCopyWasnTInstalledByQFTSetupSo")
+            : (installedVersion?.IsPrerelease == true ? Loc.Get("IncludesReleaseCandidates") : "") + Loc.Get("UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd"));
         panel.Children.Add(automatic);
         Page.Children.Add(Card(panel));
         updateRefresh = () =>
@@ -194,9 +194,9 @@ public partial class StudioWindow
             check.IsEnabled = !checkingUpdates && updater is not null;
             install.Visibility = availableUpdate is null ? Visibility.Collapsed : Visibility.Visible;
             install.IsEnabled = !installingUpdate;
-            check.Content = checkingUpdates ? "Checking…" : "Check for updates";
-            view.Content = availableUpdate is null ? "View releases" : "View update";
-            status.Text = updateStatus.Length > 0 ? updateStatus : availableUpdate is not null ? $"QFT+ {AvailableVersion} is available." : "";
+            check.Content = checkingUpdates ? Loc.Get("Checking") : Loc.Get("CheckForUpdates");
+            view.Content = availableUpdate is null ? Loc.Get("ViewReleases") : Loc.Get("ViewUpdate");
+            status.Text = updateStatus.Length > 0 ? updateStatus : availableUpdate is not null ? Loc.Format("QFTIsAvailable", AvailableVersion) : "";
             status.Visibility = status.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             downloading.Visibility = UpdateProgress.Visibility; downloading.Value = UpdateProgress.Value;
         };

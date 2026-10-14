@@ -136,8 +136,8 @@
    <ui:Card>
     <StackPanel>
      <DockPanel Margin="0,0,0,4">
-      <Button x:Name="Search" Content="Search again" DockPanel.Dock="Right" AutomationProperties.HelpText="Looks for headsets over USB and Wi-Fi."/>
-      <TextBlock Text="Headset" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" VerticalAlignment="Center" Margin="0,0,0,8"/>
+      <Button x:Name="Search" Content="{local:Loc SearchAgain}" DockPanel.Dock="Right" AutomationProperties.HelpText="{local:Loc LooksForHeadsetsOverUSBAndWiFi}"/>
+      <TextBlock Text="{local:Loc Headset}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" VerticalAlignment="Center" Margin="0,0,0,8"/>
      </DockPanel>
      <TextBlock x:Name="Caption" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
      <ContentControl x:Name="Activity" Focusable="False" IsTabStop="False"/>
@@ -148,7 +148,7 @@
   <DataTemplate x:Key="SetupStepsPanel">
    <ui:Card>
     <StackPanel>
-     <TextBlock Text="Setup steps" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+     <TextBlock Text="{local:Loc SetupSteps}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
      <TextBlock x:Name="Status" AutomationProperties.LiveSetting="Polite" Margin="0,0,0,8"/>
      <ProgressBar x:Name="Progress" Margin="0,4,0,12"/>
      <StackPanel x:Name="Steps"/>
@@ -162,15 +162,15 @@
   <Border Background="{DynamicResource Sidebar}" Grid.RowSpan="2">
    <Grid Margin="16,16,16,24">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-    <TextBox x:Name="SearchBox" Margin="0,0,0,16" Padding="0" Foreground="{DynamicResource Ink}" CaretBrush="{DynamicResource Ink}" FontSize="{DynamicResource Font14}" AutomationProperties.Name="Search QFT+">
+    <TextBox x:Name="SearchBox" Margin="0,0,0,16" Padding="0" Foreground="{DynamicResource Ink}" CaretBrush="{DynamicResource Ink}" FontSize="{DynamicResource Font14}" AutomationProperties.Name="{local:Loc SearchQFT}">
      <TextBox.Template><ControlTemplate TargetType="TextBox">
       <Grid Height="44">
        <Border CornerRadius="22" Background="{DynamicResource Secondary}"/>
        <Border x:Name="Lit" CornerRadius="22" Background="{DynamicResource Hover}" Visibility="Collapsed"/>
        <Path Data="{StaticResource SearchGlyph}" Fill="{DynamicResource Muted}" Width="14" Height="14" HorizontalAlignment="Left" Margin="15,0,0,0" IsHitTestVisible="False"/>
-       <TextBlock x:Name="Hint" Text="Search QFT+" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="38,0,40,0" IsHitTestVisible="False" Visibility="Collapsed"/>
+       <TextBlock x:Name="Hint" Text="{local:Loc SearchQFT}" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="38,0,40,0" IsHitTestVisible="False" Visibility="Collapsed"/>
        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" VerticalAlignment="Center" Margin="36,0,40,0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"/>
-       <Button x:Name="Clear" Width="44" HorizontalAlignment="Right" Focusable="False" Click="ClearSearch" Cursor="Arrow" AutomationProperties.Name="Clear search">
+       <Button x:Name="Clear" Width="44" HorizontalAlignment="Right" Focusable="False" Click="ClearSearch" Cursor="Arrow" AutomationProperties.Name="{local:Loc ClearSearch}">
         <Button.Template><ControlTemplate TargetType="Button"><Border Background="Transparent"><Path Data="{StaticResource CloseGlyph}" Fill="{DynamicResource Muted}" Width="20" Height="20"/></Border></ControlTemplate></Button.Template>
        </Button>
       </Grid>
@@ -201,30 +201,30 @@
        <Border x:Name="DeviceGlow" CornerRadius="16" IsHitTestVisible="False" Opacity=".4"/>
        <StackPanel Margin="12,12,12,0" VerticalAlignment="Top" IsHitTestVisible="False">
         <TextBlock Text="Quest Pro" FontSize="{DynamicResource Font16}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-        <TextBlock x:Name="Connection" Text="Ready" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+        <TextBlock x:Name="Connection" Text="{local:Loc Ready}" FontSize="{DynamicResource Font14}" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
        </StackPanel>
       </Grid>
      </Border>
      </Button>
-     <Button x:Name="StartButton" Content="Start" Click="StartClick" HorizontalAlignment="Stretch"/>
+     <Button x:Name="StartButton" Content="{local:Loc Start}" Click="StartClick" HorizontalAlignment="Stretch"/>
     </StackPanel>
-    <ListBox x:Name="Navigation" Grid.Row="2" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="Pages" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+    <ListBox x:Name="Navigation" Grid.Row="2" Background="Transparent" BorderThickness="0" Padding="0" ItemContainerStyle="{StaticResource NavigationItem}" AutomationProperties.Name="{local:Loc Pages}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
    </Grid>
   </Border>
   <Grid Grid.Column="1" Grid.Row="1" Margin="32,8,32,24" HorizontalAlignment="Stretch">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Margin="0,0,0,24"><TextBlock x:Name="PageTitle" FontSize="{DynamicResource Font30}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/><TextBlock x:Name="Subtitle" Visibility="Collapsed" Foreground="{DynamicResource Muted}" Margin="0,8,0,0"/></StackPanel>
-   <ui:Card x:Name="NoticeBox" Grid.Row="1" Visibility="Collapsed"><StackPanel><TextBox x:Name="Notice" Style="{StaticResource SelectableText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Message"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></ui:Card>
+   <ui:Card x:Name="NoticeBox" Grid.Row="1" Visibility="Collapsed"><StackPanel><TextBox x:Name="Notice" Style="{StaticResource SelectableText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="{local:Loc Message}"/><Button x:Name="SetupHelp" Visibility="Collapsed" HorizontalAlignment="Left" Margin="0,12,0,0" Click="HelpClick"/></StackPanel></ui:Card>
    <ScrollViewer x:Name="PageScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="-16,0,0,0" Padding="0,0,8,0">
     <StackPanel Margin="16,0,16,0">
      <StackPanel x:Name="UpdateBanner" Margin="0,0,0,16" Visibility="Collapsed">
-      <ui:InfoBar x:Name="UpdateMessage" Title="Update available" IsOpen="True" IsClosable="False" AutomationProperties.LiveSetting="Polite"/>
-      <ProgressBar x:Name="UpdateProgress" Margin="0,8,0,0" Visibility="Collapsed" AutomationProperties.Name="Update download"/>
-      <WrapPanel Margin="0,8,0,0"><Button x:Name="InstallUpdateButton" Content="Install update" Click="InstallUpdateClick" Visibility="Collapsed" Margin="0,0,8,8"/><Button Content="View update" Click="ViewUpdate" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissUpdate" AutomationProperties.Name="Dismiss this update notice" Margin="0,0,0,8"/></WrapPanel>
+      <ui:InfoBar x:Name="UpdateMessage" Title="{local:Loc UpdateAvailable}" IsOpen="True" IsClosable="False" AutomationProperties.LiveSetting="Polite"/>
+      <ProgressBar x:Name="UpdateProgress" Margin="0,8,0,0" Visibility="Collapsed" AutomationProperties.Name="{local:Loc UpdateDownload}"/>
+      <WrapPanel Margin="0,8,0,0"><Button x:Name="InstallUpdateButton" Content="{local:Loc InstallUpdate}" Click="InstallUpdateClick" Visibility="Collapsed" Margin="0,0,8,8"/><Button Content="{local:Loc ViewUpdate}" Click="ViewUpdate" Margin="0,0,8,8"/><Button Content="{local:Loc Dismiss}" Click="DismissUpdate" AutomationProperties.Name="{local:Loc DismissThisUpdateNotice}" Margin="0,0,0,8"/></WrapPanel>
      </StackPanel>
      <StackPanel x:Name="FeedbackBanner" Margin="0,0,0,16" Visibility="Collapsed">
-      <ui:InfoBar Title="Help improve tracking" Message="Share what tracks well and what doesn’t. Feedback from many different faces makes tracking better for everyone." IsOpen="True" IsClosable="False"/>
-      <WrapPanel Margin="0,8,0,0"><Button Content="Share recordings" Click="ShareRecordings" Margin="0,0,8,8"/><Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/><Button Content="Dismiss" Click="DismissFeedback" AutomationProperties.Name="Dismiss this feedback request" Margin="0,0,0,8"/></WrapPanel>
+      <ui:InfoBar Title="{local:Loc HelpImproveTracking}" Message="{local:Loc ShareWhatTracksWellAndWhatDoesnTFeedback}" IsOpen="True" IsClosable="False"/>
+      <WrapPanel Margin="0,8,0,0"><Button Content="{local:Loc ShareRecordings}" Click="ShareRecordings" Margin="0,0,8,8"/><Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="0,0,8,8"/><Button Content="{local:Loc Dismiss}" Click="DismissFeedback" AutomationProperties.Name="{local:Loc DismissThisFeedbackRequest}" Margin="0,0,0,8"/></WrapPanel>
      </StackPanel>
      <StackPanel x:Name="Page">
      <local:LogViewer x:Name="LogView"/>
@@ -232,7 +232,7 @@
       <ui:Card Margin="0">
        <StackPanel x:Name="TrackingCard">
        <DockPanel MinHeight="44">
-        <CheckBox x:Name="TrackingSwitch" DockPanel.Dock="Right" Click="TrackingSwitchClick" AutomationProperties.Name="Tracking" HorizontalAlignment="Right" Margin="16,0,0,0"/>
+        <CheckBox x:Name="TrackingSwitch" DockPanel.Dock="Right" Click="TrackingSwitchClick" AutomationProperties.Name="{local:Loc Tracking}" HorizontalAlignment="Right" Margin="16,0,0,0"/>
         <ui:Button x:Name="TrackingAction" DockPanel.Dock="Right" Click="TrackingActionClick" VerticalAlignment="Center" Margin="16,0,0,0"/>
         <StackPanel VerticalAlignment="Center">
          <TextBlock x:Name="TrackingTitle" FontSize="{DynamicResource Font16}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
@@ -242,13 +242,13 @@
        </StackPanel>
       </ui:Card>
       <WrapPanel Margin="0,12,0,0">
-       <Button x:Name="ViewCamerasButton" Content="View cameras" Click="ViewCameras" Margin="0,0,8,8"/>
+       <Button x:Name="ViewCamerasButton" Content="{local:Loc ViewCameras}" Click="ViewCameras" Margin="0,0,8,8"/>
        <Button x:Name="TrackingHelp" Click="HelpClick" Margin="0,0,8,8"/>
-       <Button x:Name="TrackingLogs" Content="View logs" Click="ViewTrackingLog" Margin="0,0,8,8"/>
+       <Button x:Name="TrackingLogs" Content="{local:Loc ViewLogs}" Click="ViewTrackingLog" Margin="0,0,8,8"/>
       </WrapPanel>
      </StackPanel>
-     <TextBlock x:Name="CalibrationAreaLabel" Text="Tracking area" Margin="0,0,0,8"/>
-     <ComboBox x:Name="calibrationModes" Margin="0,0,0,16" AutomationProperties.Name="Tracking area" AutomationProperties.LabeledBy="{Binding ElementName=CalibrationAreaLabel}"/>
+     <TextBlock x:Name="CalibrationAreaLabel" Text="{local:Loc TrackingArea}" Margin="0,0,0,8"/>
+     <ComboBox x:Name="calibrationModes" Margin="0,0,0,16" AutomationProperties.Name="{local:Loc TrackingArea}" AutomationProperties.LabeledBy="{Binding ElementName=CalibrationAreaLabel}"/>
      <ui:Card x:Name="CalibrationCard">
       <StackPanel x:Name="CalibrationGuide">
        <TextBlock x:Name="poseTitle" FontSize="{DynamicResource Font23}" TextAlignment="Center" Margin="0,0,0,8"/>
@@ -265,51 +265,51 @@
       <TextBlock x:Name="ResultError" FontSize="{DynamicResource Font14}" Margin="0,0,0,8"/>
       <StackPanel x:Name="ResultDetailsHost">
        <Expander x:Name="ResultFindings" MinHeight="44" HorizontalContentAlignment="Stretch" Margin="0,8,0,0">
-        <Expander.Header><TextBlock Text="What needs attention" FontSize="{DynamicResource Font14}" TextWrapping="Wrap"/></Expander.Header>
+        <Expander.Header><TextBlock Text="{local:Loc WhatNeedsAttention}" FontSize="{DynamicResource Font14}" TextWrapping="Wrap"/></Expander.Header>
         <ItemsControl x:Name="ResultLines" Margin="0,12,0,0"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" FontSize="{DynamicResource Font14}" TextWrapping="Wrap" Margin="0,0,0,8"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
        </Expander>
       </StackPanel>
       <WrapPanel x:Name="ResultFiles" Margin="0,12,0,0">
-       <ui:Button Content="Show file" Click="ShowBenchmarkFile" Appearance="Primary" Margin="0,0,8,8"/>
-       <Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/>
+       <ui:Button Content="{local:Loc ShowFile}" Click="ShowBenchmarkFile" Appearance="Primary" Margin="0,0,8,8"/>
+       <Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="0,0,8,8"/>
       </WrapPanel>
      </StackPanel>
-     <CheckBox x:Name="slowMode" Content="More time for each pose" Click="SlowModeClick" Margin="0,12,0,0"/>
+     <CheckBox x:Name="slowMode" Content="{local:Loc MoreTimeForEachPose}" Click="SlowModeClick" Margin="0,12,0,0"/>
      <ui:Card x:Name="FaceCalibrationOptions">
       <StackPanel>
-       <TextBlock Text="Face calibration" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
-       <TextBlock Text="Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
-       <CheckBox x:Name="FaceLogCheck" Content="Save face-tracking logs on this PC (numbers only, no images)" Click="FaceLogClick" Margin="0,8,0,0"/>
+       <TextBlock Text="{local:Loc FaceCalibration}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+       <TextBlock Text="{local:Loc CheeksTongueAndBrowsWorkWithoutCalibrationCalibratingYour}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+       <CheckBox x:Name="FaceLogCheck" Content="{local:Loc SaveFaceTrackingLogsOnThisPCNumbersOnly}" Click="FaceLogClick" Margin="0,8,0,0"/>
       </StackPanel>
      </ui:Card>
      <ui:Card x:Name="testerCard">
       <StackPanel>
-       <TextBlock Text="Help improve tracking" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+       <TextBlock Text="{local:Loc HelpImproveTracking}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
        <StackPanel>
         <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
         <TextBlock Text="{Binding Id, StringFormat=You’re a tester. Your tester ID is {0}.}" AutomationProperties.Name="{Binding Id, StringFormat=Tester ID {0}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
-        <TextBlock Text="Record a benchmark, then send the file it makes to the QFT+ developer directly. Use your tester ID to ask for your recordings to be deleted." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <TextBlock Text="{local:Loc RecordABenchmarkThenSendTheFileItMakes}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <WrapPanel Margin="0,8,0,0">
-         <ui:Button Content="Record a benchmark" Click="RecordBenchmark" Appearance="Primary" Margin="0,0,8,8"/>
-         <Button Content="Message on Discord" Click="MessageOnDiscord" Margin="0,0,8,8"/>
-         <Button Content="Stop being a tester" Click="LeaveTesting" AutomationProperties.HelpText="Benchmark is removed from Calibration. Recordings already on this PC stay there." Margin="0,0,8,8"/>
+         <ui:Button Content="{local:Loc RecordABenchmark}" Click="RecordBenchmark" Appearance="Primary" Margin="0,0,8,8"/>
+         <Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="0,0,8,8"/>
+         <Button Content="{local:Loc StopBeingATester}" Click="LeaveTesting" AutomationProperties.HelpText="{local:Loc BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis}" Margin="0,0,8,8"/>
         </WrapPanel>
        </StackPanel>
        <StackPanel>
         <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-        <TextBlock Text="Record a short session and send it to the QFT+ developer. Recordings from many different faces make tracking better for everyone." FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
-        <Expander Header="What’s shared" IsExpanded="True" Margin="0,8,0,0">
+        <TextBlock Text="{local:Loc RecordAShortSessionAndSendItToThe}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <Expander Header="{local:Loc WhatSShared}" IsExpanded="True" Margin="0,8,0,0">
          <StackPanel>
           <StackPanel.Resources><Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="{DynamicResource Font13}"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="Margin" Value="0,0,0,8"/></Style></StackPanel.Resources>
-          <TextBlock Text="• Small infrared images of your eyes, brows and mouth from the headset’s face cameras, and the expression values the headset reports."/>
-          <TextBlock Text="• No audio, no color camera, and no name or account. Each recording carries a random tester ID instead."/>
-          <TextBlock Text="• Recordings are used only to test and improve QFT+ face tracking."/>
-          <TextBlock Text="• Nothing is sent automatically. You send recordings yourself, directly to the developer."/>
-          <TextBlock Text="• You can ask for your recordings to be deleted at any time with your tester ID."/>
+          <TextBlock Text="{local:Loc SmallInfraredImagesOfYourEyesBrowsAndMouth}"/>
+          <TextBlock Text="{local:Loc NoAudioNoColorCameraAndNoNameOr}"/>
+          <TextBlock Text="{local:Loc RecordingsAreUsedOnlyToTestAndImproveQFT}"/>
+          <TextBlock Text="{local:Loc NothingIsSentAutomaticallyYouSendRecordingsYourselfDirectly}"/>
+          <TextBlock Text="{local:Loc YouCanAskForYourRecordingsToBeDeleted}"/>
          </StackPanel>
         </Expander>
-        <CheckBox x:Name="TesterConsent" Style="{StaticResource Agreement}" Content="I agree to share the recordings I send" Margin="0,8,0,0"/>
-        <ui:Button Content="Become a tester" Click="JoinTesting" IsEnabled="{Binding IsChecked, ElementName=TesterConsent}" Appearance="Primary" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+        <CheckBox x:Name="TesterConsent" Style="{StaticResource Agreement}" Content="{local:Loc IAgreeToShareTheRecordingsISend}" Margin="0,8,0,0"/>
+        <ui:Button Content="{local:Loc BecomeATester}" Click="JoinTesting" IsEnabled="{Binding IsChecked, ElementName=TesterConsent}" Appearance="Primary" HorizontalAlignment="Left" Margin="0,8,0,0"/>
        </StackPanel>
       </StackPanel>
      </ui:Card>
@@ -317,12 +317,12 @@
     </StackPanel>
    </ScrollViewer>
    <WrapPanel x:Name="Actions" Grid.Row="3" Margin="0,16,0,0">
-    <ui:Button x:Name="setUpFace" Content="Set up face" Click="SetUpFaceFirst" Appearance="Primary" Margin="0,0,8,0"/>
-    <ui:Button x:Name="begin" Content="Start calibration" Click="BeginCalibration" Appearance="Primary"/>
-    <Button x:Name="pause" Content="Pause" Tag="pause" Click="GuideCommand"/>
-    <Button x:Name="skip" Content="Skip pose" Tag="skip" Click="GuideCommand" Margin="8,0,0,0"/>
-    <Button x:Name="cancel" Content="Cancel" Click="CancelCalibration" Margin="12,0,0,0"/>
-    <Button x:Name="review" Content="Review video" Click="ReviewCalibration" Margin="12,0,0,0"/>
+    <ui:Button x:Name="setUpFace" Content="{local:Loc SetUpFace}" Click="SetUpFaceFirst" Appearance="Primary" Margin="0,0,8,0"/>
+    <ui:Button x:Name="begin" Content="{local:Loc StartCalibration}" Click="BeginCalibration" Appearance="Primary"/>
+    <Button x:Name="pause" Content="{local:Loc Pause}" Tag="pause" Click="GuideCommand"/>
+    <Button x:Name="skip" Content="{local:Loc SkipPose}" Tag="skip" Click="GuideCommand" Margin="8,0,0,0"/>
+    <Button x:Name="cancel" Content="{local:Loc Cancel}" Click="CancelCalibration" Margin="12,0,0,0"/>
+    <Button x:Name="review" Content="{local:Loc ReviewVideo}" Click="ReviewCalibration" Margin="12,0,0,0"/>
    </WrapPanel>
   </Grid>
   <ui:TitleBar Grid.Column="1" Height="40" Title="" ShowHelp="False" Background="Transparent" ButtonsForeground="{DynamicResource Ink}"/>

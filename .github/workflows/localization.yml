@@ -1,0 +1,54 @@
+name: Localization
+
+on:
+  pull_request:
+    paths:
+      - 'src/app/**'
+      - 'src/headset/app/**'
+      - 'src/bridges/vrcft/OutputAdjustments.cs'
+      - 'src/bridges/vrcft/ExtraFaceState.cs'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - 'crowdin.yml'
+      - '.github/scripts/**'
+      - '.github/workflows/localization.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/**'
+      - 'src/headset/app/**'
+      - 'src/bridges/vrcft/OutputAdjustments.cs'
+      - 'src/bridges/vrcft/ExtraFaceState.cs'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - 'crowdin.yml'
+      - '.github/scripts/**'
+      - '.github/workflows/localization.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localization-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate string resources
+        run: python .github/scripts/check-localization.py
+      - name: Test resource validation
+        run: python -m unittest discover -s .github/scripts -p "test_*.py"
+      - name: Compile Android resources
+        run: .github/scripts/check-android-resources.ps1
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Build Windows app
+        run: dotnet build src/app/QFTPlus.csproj -c Release

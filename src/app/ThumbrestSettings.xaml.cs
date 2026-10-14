@@ -21,20 +21,20 @@ public partial class ThumbrestSettings : UserControl
         double Get(string key, double fallback) => saved[key] is JsonValue value && value.TryGetValue<double>(out var number) ? number : fallback;
         Mode.ItemsSource = new ModeOption[]
         {
-            new("native", "Trackpad", "A regular SteamVR trackpad. Games and your SteamVR bindings decide what it does."),
-            new("joystick", "Joystick", "Drag from where your thumb lands to push a stick. Lift to recenter."),
-            new("swipe", "Swipe", "Swipe speed pushes the stick and glides out, like scrolling on a phone."),
-            new("mouse", "Mouse", "Moves the Windows cursor like a laptop touchpad. Press firmly to click.")
+            new("native", Loc.Get("Trackpad"), Loc.Get("ARegularSteamVRTrackpadGamesAndYourSteamVRBindings")),
+            new("joystick", Loc.Get("Joystick"), Loc.Get("DragFromWhereYourThumbLandsToPushA")),
+            new("swipe", Loc.Get("Swipe"), Loc.Get("SwipeSpeedPushesTheStickAndGlidesOutLike")),
+            new("mouse", Loc.Get("Mouse"), Loc.Get("MovesTheWindowsCursorLikeALaptopTouchpadPress"))
         };
         Mode.SelectedValue = saved["mode"]?.GetValue<string>() ?? "native";
         Mode.SelectionChanged += (_, _) => { Queue("mode", JsonValue.Create((string)Mode.SelectedValue), true); ShowMode(); };
-        NumericSetting.AddTo(Angles, "Left thumbrest angle", -45, 45, Get("leftRotation", -20), v => Number("leftRotation", Math.Round(v)), "°", decimals: 0);
-        NumericSetting.AddTo(Angles, "Right thumbrest angle", -45, 45, Get("rightRotation", 20), v => Number("rightRotation", Math.Round(v)), "°", decimals: 0);
-        NumericSetting.AddTo(Sensitivity, "Press sensitivity", 0, 1, (0.8 - Get("forceLow", .55)) / .5, v => Number("forceLow", .8 - .5 * v), "%", 100, 0);
-        NumericSetting.AddTo(Joystick, "Drag for a full push", .2, 1, Get("joystickRange", .5), v => Number("joystickRange", v), "% of the pad", 50, 0);
-        NumericSetting.AddTo(Swipe, "Swipe speed", .1, 1, Get("swipeGain", .35), v => Number("swipeGain", v), "%", 100 / .35, 0);
-        NumericSetting.AddTo(Swipe, "Glide", 50, 1000, Get("swipeDecayMs", 350), v => Number("swipeDecayMs", Math.Round(v)), "ms", decimals: 0);
-        NumericSetting.AddTo(Mouse, "Pointer speed", 300, 3000, Get("mouseSpeed", 1200), v => Number("mouseSpeed", Math.Round(v)), "px", decimals: 0);
+        NumericSetting.AddTo(Angles, Loc.Get("LeftThumbrestAngle"), -45, 45, Get("leftRotation", -20), v => Number("leftRotation", Math.Round(v)), "°", decimals: 0);
+        NumericSetting.AddTo(Angles, Loc.Get("RightThumbrestAngle"), -45, 45, Get("rightRotation", 20), v => Number("rightRotation", Math.Round(v)), "°", decimals: 0);
+        NumericSetting.AddTo(Sensitivity, Loc.Get("PressSensitivity"), 0, 1, (0.8 - Get("forceLow", .55)) / .5, v => Number("forceLow", .8 - .5 * v), "%", 100, 0);
+        NumericSetting.AddTo(Joystick, Loc.Get("DragForAFullPush"), .2, 1, Get("joystickRange", .5), v => Number("joystickRange", v), Loc.Get("OfThePad"), 50, 0);
+        NumericSetting.AddTo(Swipe, Loc.Get("SwipeSpeed"), .1, 1, Get("swipeGain", .35), v => Number("swipeGain", v), "%", 100 / .35, 0);
+        NumericSetting.AddTo(Swipe, Loc.Get("Glide"), 50, 1000, Get("swipeDecayMs", 350), v => Number("swipeDecayMs", Math.Round(v)), "ms", decimals: 0);
+        NumericSetting.AddTo(Mouse, Loc.Get("PointerSpeed"), 300, 3000, Get("mouseSpeed", 1200), v => Number("mouseSpeed", Math.Round(v)), "px", decimals: 0);
         Resting.IsChecked = Get("restingSize", 75) > 0;
         Straighten.IsChecked = Get("railAngle", 35) > 0;
         Reversed.IsChecked = Get("triggerSlideReversed", 0) != 0;
@@ -52,7 +52,7 @@ public partial class ThumbrestSettings : UserControl
         Mouse.Visibility = mode == "mouse" ? Visibility.Visible : Visibility.Collapsed;
         Straighten.Visibility = mode is "joystick" or "swipe" ? Visibility.Visible : Visibility.Collapsed;
         Options.Visibility = driverOn ? Visibility.Visible : Visibility.Collapsed;
-        Driver.Content = driverOn ? "Uninstall SteamVR driver" : "Install SteamVR driver";
+        Driver.Content = driverOn ? Loc.Get("UninstallSteamVRDriver") : Loc.Get("InstallSteamVRDriver");
     }
 
     void Number(string key, double value) => Queue(key, JsonValue.Create(Math.Round(value, 3)));
@@ -85,9 +85,9 @@ public partial class ThumbrestSettings : UserControl
             var saved = session.Config["thumbrest"]?.DeepClone() as JsonObject ?? new();
             foreach (var (key, value) in batch) saved[key] = value.DeepClone();
             session.Save("thumbrest", saved);
-            Status.Text = live ? "Applied." : "Applies when SteamVR starts.";
+            Status.Text = live ? Loc.Get("Applied") : Loc.Get("AppliesWhenSteamVRStarts");
         }
-        catch (Exception error) { Status.Text = "Couldn’t change the thumbrest. " + error.Message; }
+        catch (Exception error) { Status.Text = Loc.Get("CouldnTChangeTheThumbrest") + error.Message; }
         finally { applying = false; }
         if (pending.Count > 0) timer.Start();
     }
@@ -103,9 +103,9 @@ public partial class ThumbrestSettings : UserControl
             driverOn = on;
             ShowMode();
             if (!on) await session.StopThumbrest();
-            Status.Text = note ?? (on ? "The driver is installed. Start tracking to use it." : "The driver is removed.");
+            Status.Text = note ?? (on ? Loc.Get("TheDriverIsInstalledStartTrackingToUseIt") : Loc.Get("TheDriverIsRemoved"));
         }
-        catch (Exception error) { Status.Text = "Couldn’t change the SteamVR driver. " + error.Message; }
+        catch (Exception error) { Status.Text = Loc.Get("CouldnTChangeTheSteamVRDriver") + error.Message; }
         finally { Driver.IsEnabled = true; }
     }
 }

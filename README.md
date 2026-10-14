@@ -27,6 +27,12 @@ Use Virtual Desktop or Steam Link with a **[supported rooted Quest Pro](https://
 
 **Help:** If setup stops responding, cancel it. Start setup again. If VRCFT stops loading, restart it.
 
+## Translations
+
+[Help translate the Windows and Quest apps on Crowdin](https://crowdin.com/project/qftplus). Approved translations sync hourly to a public pull request and ship after review, merge, and release.
+
+The Windows app follows Windows' display language; the Quest app follows the headset language. Missing translations use English. [Translation guide](CONTRIBUTING.md#translations).
+
 ## Privacy
 
 Camera processing and calibration run on your PC or headset. Recordings and models can contain face data.

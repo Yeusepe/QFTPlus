@@ -2,6 +2,7 @@ package com.qftplus.headset
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.compose.ui.platform.ComposeView
@@ -30,7 +31,7 @@ class MainActivity : ComponentActivity() {
     private var resumed by mutableStateOf(false)
     private var notice by mutableStateOf("")
     private var resetting by mutableStateOf(false)
-    private val pages = listOf("Tracking", "Adjustments", "Calibration", "Connections")
+    private val pages get() = listOf(getString(R.string.tracking), getString(R.string.adjustments), getString(R.string.calibration), getString(R.string.connections))
     private val icons = listOf("oc_icon_face_tracking_on_filled_24", "tune", "frame_person", "wifi_tethering")
     private val areaIcons = mapOf("Brows" to "eyebrow", "Eyelids" to "visibility", "Gaze" to "eye_tracking", "Pupils" to "adjust", "Nose" to "face",
         "Cheeks" to "sentiment_satisfied", "Lips" to "lips", "Mouth" to "mood", "Jaw" to "dentistry", "Tongue" to "sentiment_excited")
@@ -55,11 +56,11 @@ class MainActivity : ComponentActivity() {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setPadding(32, 32, 32, 32)
                 addView(TextView(this@MainActivity).apply {
-                    text = "QFT+ needs a compatible headset Settings UI.\n\n${e.message}\n\nUpdate QFT+ and reopen it. Your saved calibration is unchanged."
+                    text = getString(R.string.settings_ui_unavailable, e.message.orEmpty())
                     textSize = 22f
                 })
                 addView(android.widget.Button(this@MainActivity).apply {
-                    text = "Stop tracking"; setOnClickListener { stop(); text = "Tracking stopped" }
+                    text = getString(R.string.stop_tracking); setOnClickListener { stop(); text = getString(R.string.tracking_stopped) }
                 })
             })
             return
@@ -77,7 +78,7 @@ class MainActivity : ComponentActivity() {
     private fun stop() { settings.edit().putBoolean("enabled", false).apply(); stopService(Intent(this, TrackingService::class.java)) }
     private fun restartTracking() { if (settings.getBoolean("enabled", false)) { stop(); start() } }
     private val rates = listOf(0, 30, 20)
-    private val rateNames = listOf("Fastest", "30 per second", "20 per second")
+    private val rateNames get() = listOf(getString(R.string.fastest), getString(R.string.text_30_per_second), getString(R.string.text_20_per_second))
     private fun begin(pupils: Boolean) {
         if (resetting) return
         startCalibration(this, pupils)?.let { notice = it; return }
@@ -119,7 +120,7 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
                         if (compact) Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), Arrangement.spacedBy(16.dp), Alignment.CenterVertically) {
                             Search(Modifier.weight(1f))
-                            ocui.Dropdown(pages, tab, ::open, "Page", Modifier.widthIn(max = 230.dp))
+                            ocui.Dropdown(pages, tab, ::open, getString(R.string.page), Modifier.widthIn(max = 230.dp))
                         }
                         if (query.isNotBlank()) SearchPage()
                         else key(tab, root) {
@@ -148,55 +149,56 @@ class MainActivity : ComponentActivity() {
     private class Hit(val title: String, val where: String?, val tab: Int, val path: String = "", val row: String? = title, val words: String = "")
     private fun index(): List<Hit> {
         val hits = mutableListOf(
-            Hit("Face and eye tracking", null, 0, words = "on off start stop status"),
-            Hit("Pupil dilation", "Features", 0, words = "eyes pupils"),
-            Hit("Convergence", "Gaze", 1, "Gaze", words = "independent eye gaze depth startup"),
-            Hit("Convergence strength", "Gaze", 1, "Gaze", words = "eyes depth gain vergence"),
-            Hit("Reset to 100%", "Gaze", 1, "Gaze", words = "convergence strength default"),
-            Hit("Tongue direction", "Features", 0),
-            Hit("Resume after restart", "Features", 0, words = "boot startup reboot automatically"),
-            Hit("Update rate", "Performance", 0, words = "fps frame rate speed latency smooth battery heat"),
-            Hit("Face and tongue", null, 2, words = "calibrate mouth avatar expressions"),
-            Hit("Pupil dilation", null, 2, words = "calibrate eyes pupils"),
-            Hit("Avatar distance", "Calibration space", 2),
-            Hit("Reduce motion", "Calibration space", 2, words = "animation"),
-            Hit("Remove saved calibration", null, 2, words = "delete reset clear"),
-            Hit("VRChat", "Send tracking to", 3, words = "output destination osc vrcft"),
-            Hit("OSC apps", "Send tracking to", 3, words = "output destination raw"),
-            Hit("QFT+ on your PC", "Send tracking to", 3, words = "output destination pair computer vrcfacetracking module"))
+            Hit(getString(R.string.face_and_eye_tracking), null, 0, words = getString(R.string.on_off_start_stop_status)),
+            Hit(getString(R.string.pupil_dilation), getString(R.string.features), 0, words = getString(R.string.eyes_pupils)),
+            Hit(getString(R.string.convergence), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.independent_eye_gaze_depth_startup)),
+            Hit(getString(R.string.convergence_strength), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.eyes_depth_gain_vergence)),
+            Hit(getString(R.string.reset_to_100), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.convergence_strength_default)),
+            Hit(getString(R.string.tongue_direction), getString(R.string.features), 0),
+            Hit(getString(R.string.resume_after_restart), getString(R.string.features), 0, words = getString(R.string.boot_startup_reboot_automatically)),
+            Hit(getString(R.string.update_rate), getString(R.string.performance), 0, words = getString(R.string.fps_frame_rate_speed_latency_smooth_battery_heat)),
+            Hit(getString(R.string.face_and_tongue), null, 2, words = getString(R.string.calibrate_mouth_avatar_expressions)),
+            Hit(getString(R.string.pupil_dilation), null, 2, words = getString(R.string.calibrate_eyes_pupils)),
+            Hit(getString(R.string.avatar_distance), getString(R.string.calibration_space), 2),
+            Hit(getString(R.string.reduce_motion), getString(R.string.calibration_space), 2, words = getString(R.string.animation)),
+            Hit(getString(R.string.remove_saved_calibration), null, 2, words = getString(R.string.delete_reset_clear)),
+            Hit("VRChat", getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_osc_vrcft)),
+            Hit(getString(R.string.osc_apps), getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_raw)),
+            Hit(getString(R.string.qft_on_your_pc), getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_pair_computer_vrcfacetracking_module)))
         if (TrackingService.outputMode(settings) != "pc") hits += listOf(
-            Hit("New receiver", "My receiver", 3, words = "add manual ip address port host"),
-            Hit("Other receivers", null, 3, row = "Looking for receivers on this network…", words = "find search discover network osc connect"))
+            Hit(getString(R.string.new_receiver), getString(R.string.my_receiver), 3, words = getString(R.string.add_manual_ip_address_port_host)),
+            Hit(getString(R.string.other_receivers), null, 3, row = getString(R.string.looking_for_receivers_on_this_network), words = getString(R.string.find_search_discover_network_osc_connect)))
         adjustable()?.let { data ->
-            hits += Hit("All parameters", null, 1, "*", null, "defaults every")
-            data.areas.filter { a -> data.parameters.any { it.area == a } }.forEach { hits += Hit(it, "Areas", 1, it, null) }
-            data.parameters.forEach { hits += Hit(label(it.name), it.area, 1, it.name, null, it.name) }
-            data.parameters.mapNotNull { p -> pair(p)?.let { it to p.area } }.distinct().forEach { (pair, area) -> hits += Hit(pair, area, 1, pair, null, "together left right eyes") }
-            listOf("Headset passthrough" to "source meta native", "Match left and right" to "source average stronger side", "Strength" to "output gain multiplier",
-                "Offset" to "output shift", "Dead zone" to "output deadzone", "Smoothing" to "output filter jitter", "Response curve" to "response gamma",
-                "Smoothing when relaxing" to "response release", "Invert output" to "response reverse", "Restore defaults" to "reset")
-                .forEach { (title, words) -> hits += Hit(title, "All parameters", 1, "*", title, words) }
-            listOf("Input minimum", "Input maximum", "Resting input", "Output minimum", "Output maximum")
-                .forEach { hits += Hit(it, "Limits, in each area and parameter", 1, "", null, "range clamp neutral") }
+            hits += Hit(getString(R.string.all_parameters), null, 1, "*", null, getString(R.string.defaults_every))
+            data.areas.filter { a -> data.parameters.any { it.area == a } }.forEach { hits += Hit(areaTitle(it), getString(R.string.areas), 1, it, null) }
+            data.parameters.forEach { hits += Hit(label(it.name), areaTitle(it.area), 1, it.name, null, it.name) }
+            data.parameters.mapNotNull { p -> pair(p)?.let { it to p.area } }.distinct().forEach { (pair, area) -> hits += Hit(pairTitle(pair), areaTitle(area), 1, pair, null, getString(R.string.together_left_right_eyes)) }
+            listOf(getString(R.string.headset_passthrough) to getString(R.string.source_meta_native), getString(R.string.match_left_and_right) to getString(R.string.source_average_stronger_side), getString(R.string.strength) to getString(R.string.output_gain_multiplier),
+                getString(R.string.offset) to getString(R.string.output_shift), getString(R.string.dead_zone) to getString(R.string.output_deadzone), getString(R.string.smoothing) to getString(R.string.output_filter_jitter), getString(R.string.response_curve) to getString(R.string.response_gamma),
+                getString(R.string.smoothing_when_relaxing) to getString(R.string.response_release), getString(R.string.invert_output) to getString(R.string.response_reverse), getString(R.string.restore_defaults) to getString(R.string.reset))
+                .forEach { (title, words) -> hits += Hit(title, getString(R.string.all_parameters), 1, "*", title, words) }
+            listOf(getString(R.string.input_minimum), getString(R.string.input_maximum), getString(R.string.resting_input), getString(R.string.output_minimum), getString(R.string.output_maximum))
+                .forEach { hits += Hit(it, getString(R.string.limits_in_each_area_and_parameter), 1, "", null, getString(R.string.range_clamp_neutral)) }
         }
         return hits
     }
     private fun search(text: String): List<Hit> {
-        val phrase = text.trim().lowercase(); val terms = phrase.split(' ').filter { it.isNotEmpty() }
+        val phrase = text.trim(); val terms = phrase.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (terms.isEmpty()) return emptyList()
         return index().mapNotNull { hit ->
-            val title = hit.title.lowercase()
-            val all = "$title ${hit.where.orEmpty()} ${pages[hit.tab]} ${hit.words}".lowercase()
-            if (terms.any { it !in all }) null
-            else hit to when { title.startsWith(phrase) -> 0; title.split(' ').any { it.startsWith(terms[0]) } -> 1; terms.all { it in title } -> 2; else -> 3 }
+            val title = hit.title
+            val all = "$title ${hit.where.orEmpty()} ${pages[hit.tab]} ${hit.words}"
+            if (terms.any { !all.contains(it, ignoreCase = true) }) null
+            else hit to when { title.startsWith(phrase, ignoreCase = true) -> 0; title.split(' ').any { it.startsWith(terms[0], ignoreCase = true) } -> 1; terms.all { title.contains(it, ignoreCase = true) } -> 2; else -> 3 }
         }.sortedBy { it.second }.map { it.first }
     }
     private fun go(hit: Hit) { tab = hit.tab; openPath = hit.path; focus = hit.row; root++; query = ""; notice = "" }
-    @Composable private fun Search(modifier: Modifier) = ocui.SearchField(query, { query = it }, { search(query).firstOrNull()?.let(::go) }, "Search QFT+", modifier)
+    @Composable private fun Search(modifier: Modifier) = ocui.SearchField(query, { query = it }, { search(query).firstOrNull()?.let(::go) }, getString(R.string.search_qft), modifier)
 
     @Composable private fun SearchPage() {
         val hits = remember(query) { search(query) }
-        Page("Search results") {
-            if (hits.isEmpty()) Group(null, "Check the spelling, or search for a setting, area or parameter name.", row("No results for “${query.trim()}”"))
+        Page(getString(R.string.search_results)) {
+            if (hits.isEmpty()) Group(null, getString(R.string.check_the_spelling_or_search_for_a_setting), row(getString(R.string.no_search_results, query.trim())))
             else hits.map { it.tab }.distinct().forEach { page ->
                 Group(pages[page], null, *hits.filter { it.tab == page }.map { hit -> row(hit.title, hit.where, trailing = ocui.chevron()) { go(hit) } }.toTypedArray())
             }
@@ -213,16 +215,16 @@ class MainActivity : ComponentActivity() {
             for ((state, key) in listOf(pupils to "pupils", tongue to "tongue", boot to "boot")) state.value = settings.getBoolean(key, false)
             delay(500)
         } }
-        Group(null, "Turns on the headset's face and eye tracking while it runs, and off again when you stop it.",
-            row("Face and eye tracking", if (enabled) status else TrackingService.error?.let { "Stopped: $it" } ?: "Off", trailing = ocui.toggle(enabled, "Face and eye tracking") {
+        Group(null, getString(R.string.turns_on_the_headset_s_face_and_eye),
+            row(getString(R.string.face_and_eye_tracking), if (enabled) status else TrackingService.error?.let { getString(R.string.stopped_reason, it) } ?: getString(R.string.off), trailing = ocui.toggle(enabled, getString(R.string.face_and_eye_tracking)) {
                 if (it) start() else stop(); enabled = settings.getBoolean("enabled", false)
             }))
-        Group("Features", null,
-            switchRow("Pupil dilation", "Uses your pupil calibration.", pupils, "pupils"),
-            switchRow("Tongue direction", "Uses your face calibration.", tongue, "tongue"),
-            switchRow("Resume after restart", "Turns tracking back on if it was on when the headset restarted.", boot, "boot"))
-        Group("Performance", "How often your face is measured and sent. Faster rates follow your face more closely; slower rates use less battery and keep the headset cooler.",
-            row("Update rate", trailing = ocui.select(rateNames, rates.indexOf(rate).coerceAtLeast(0), "Update rate") { i ->
+        Group(getString(R.string.features), null,
+            switchRow(getString(R.string.pupil_dilation), getString(R.string.uses_your_pupil_calibration), pupils, "pupils"),
+            switchRow(getString(R.string.tongue_direction), getString(R.string.uses_your_face_calibration), tongue, "tongue"),
+            switchRow(getString(R.string.resume_after_restart), getString(R.string.turns_tracking_back_on_if_it_was_on), boot, "boot"))
+        Group(getString(R.string.performance), getString(R.string.how_often_your_face_is_measured_and_sent),
+            row(getString(R.string.update_rate), trailing = ocui.select(rateNames, rates.indexOf(rate).coerceAtLeast(0), getString(R.string.update_rate)) { i ->
                 rate = rates[i]; settings.edit().putInt("rate", rate).apply(); restartTracking()
             }))
     }
@@ -233,41 +235,41 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(resumed) { while (resumed) {
             convergence = settings.getBoolean("convergence", true); vergenceGain = settings.getFloat("vergenceGain", 1f); delay(500)
         } }
-        Group("Convergence", null,
-            row("Convergence", "Tracks each eye separately for depth. Starts with tracking when enabled.", trailing = ocui.toggle(convergence, "Convergence") {
+        Group(getString(R.string.convergence), null,
+            row(getString(R.string.convergence), getString(R.string.tracks_each_eye_separately_for_depth_starts_with), trailing = ocui.toggle(convergence, getString(R.string.convergence)) {
                 convergence = it; settings.edit().putBoolean("convergence", it).apply(); restartTracking()
             }))
-        if (convergence) Group(null, "100% uses the calibrated movement. At 0%, both eyes look in the same direction. Depth accuracy is experimental. Changes are saved and apply immediately.",
-            numberRow("Convergence strength", vergenceGain, 0f..3f, { "${(it * 100).toInt()}%" }) {
+        if (convergence) Group(null, getString(R.string.text_100_uses_the_calibrated_movement_at_0_both),
+            numberRow(getString(R.string.convergence_strength), vergenceGain, 0f..3f, { "${(it * 100).toInt()}%" }) {
                 vergenceGain = it; settings.edit().putFloat("vergenceGain", it).apply()
             },
-            row("Reset to 100%", trailing = ocui.button("Reset") { vergenceGain = 1f; settings.edit().putFloat("vergenceGain", 1f).apply() }))
+            row(getString(R.string.reset_to_100), trailing = ocui.button(getString(R.string.reset_2)) { vergenceGain = 1f; settings.edit().putFloat("vergenceGain", 1f).apply() }))
     }
 
     @Composable private fun CalibrationPage() {
         var confirm by remember { mutableStateOf(false) }
         var distance by remember { mutableFloatStateOf(settings.getFloat("guideDistance", .75f).coerceIn(.5f, 1.2f)) }
         val reduceMotion = preference("reduceMotion")
-        Group(null, "Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.",
-            row("Face and tongue", "Copy 12 expressions from a Meta avatar · about 75 seconds", "oc_icon_face_tracking_on_filled_24",
-                ocui.button("Calibrate", "PRIMARY", !resetting) { begin(false) }),
-            row("Pupil dilation", "Follow a dot as the space darkens and brightens · about 80 seconds", "adjust",
-                ocui.button("Calibrate", enabled = !resetting) { begin(true) }))
-        Group("Calibration space", "Each calibration shows a different Meta preset avatar in your headset's setup space.",
-            numberRow("Avatar distance", distance, .5f..1.2f, { String.format(Locale.getDefault(), "%.2f m", it) }) {
+        Group(null, getString(R.string.calibrate_after_changing_how_the_headset_fits_your),
+            row(getString(R.string.face_and_tongue), getString(R.string.copy_12_expressions_from_a_meta_avatar_about), "oc_icon_face_tracking_on_filled_24",
+                ocui.button(getString(R.string.calibrate), "PRIMARY", !resetting) { begin(false) }),
+            row(getString(R.string.pupil_dilation), getString(R.string.follow_a_dot_as_the_space_darkens_and), "adjust",
+                ocui.button(getString(R.string.calibrate), enabled = !resetting) { begin(true) }))
+        Group(getString(R.string.calibration_space), getString(R.string.each_calibration_shows_a_different_meta_preset_avatar),
+            numberRow(getString(R.string.avatar_distance), distance, .5f..1.2f, { getString(R.string.distance_metres, it) }) {
                 distance = it; settings.edit().putFloat("guideDistance", it).apply()
             },
-            switchRow("Reduce motion", "Shows each expression without animating into it.", reduceMotion, "reduceMotion"))
-        Group(null, null, row("Remove saved calibration", "Stops tracking and removes your face and pupil calibration.",
-            trailing = ocui.button("Remove", "DANGER", !resetting) { confirm = true }))
-        if (confirm) ocui.Dialog("Remove calibration?",
-            "This removes your saved face and pupil calibration and stops tracking. You can calibrate again at any time.", "Remove", { confirm = false }) {
+            switchRow(getString(R.string.reduce_motion), getString(R.string.shows_each_expression_without_animating_into_it), reduceMotion, "reduceMotion"))
+        Group(null, null, row(getString(R.string.remove_saved_calibration), getString(R.string.stops_tracking_and_removes_your_face_and_pupil),
+            trailing = ocui.button(getString(R.string.remove), "DANGER", !resetting) { confirm = true }))
+        if (confirm) ocui.Dialog(getString(R.string.remove_calibration),
+            getString(R.string.this_removes_your_saved_face_and_pupil_calibration), getString(R.string.remove), { confirm = false }) {
             confirm = false
             if (!resetting) {
                 resetting = true; stop()
                 Thread {
-                    try { TrackingService.removeCalibration(this); runOnUiThread { notice = "Saved calibration removed." } }
-                    catch (e: Exception) { runOnUiThread { notice = "Couldn't remove calibration: ${e.message}" } }
+                    try { TrackingService.removeCalibration(this); runOnUiThread { notice = getString(R.string.saved_calibration_removed) } }
+                    catch (e: Exception) { runOnUiThread { notice = getString(R.string.remove_calibration_failed, e.message.orEmpty()) } }
                     finally { runOnUiThread { resetting = false } }
                 }.start()
             }
@@ -280,7 +282,7 @@ class MainActivity : ComponentActivity() {
         var editing by rememberSaveable { mutableStateOf<String?>(null) }
         var revision by remember { mutableIntStateOf(0) }
         var sending by remember { mutableStateOf(false) }
-        LaunchedEffect(resumed) { while (resumed) { sending = settings.getBoolean("enabled", false) && TrackingService.status.startsWith("Tracking on headset"); delay(1000) } }
+        LaunchedEffect(resumed) { while (resumed) { sending = settings.getBoolean("enabled", false) && SystemClock.elapsedRealtime() - TrackingService.lastFrame < 2000 && TrackingService.latest != null; delay(1000) } }
         DisposableEffect(resumed, mode, editing) {
             val discovery = if (resumed && mode != "pc" && editing == null) OscDiscovery(this@MainActivity) { destinations = it } else null
             onDispose { discovery?.close() }
@@ -303,47 +305,61 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(destinations) { destinations.firstOrNull { it.service == savedService && it.type == savedType && (it.host != host || it.port != port) }?.let { save(it.host, it.port, it) } }
         editing?.let { which -> ReceiverPage(if (which == "saved") name else null, if (which == "saved") host else "", if (which == "saved") port.toString() else "9000",
             back = { editing = null }, save = { h, p -> save(h, p) }, forget = { stop(); settings.edit().remove("oscHost").remove("oscService").remove("oscServiceType").remove("oscName").apply(); revision++; editing = null }); return }
-        fun choose(id: String) { if (mode != id) { stop(); mode = id; settings.edit().putString("output", id).apply(); notice = "Destination changed. Turn tracking on when you're ready." } }
+        fun choose(id: String) { if (mode != id) { stop(); mode = id; settings.edit().putString("output", id).apply(); notice = getString(R.string.destination_changed_turn_tracking_on_when_you_re) } }
         val paired = !settings.getString("key", "").isNullOrEmpty()
         Page(pages[3]) {
-            Group("Send tracking to", null,
-                row("VRChat", "Standard VRCFT v2 parameters over OSC", "sports_esports", trailing = ocui.radio(mode == "vrchat", "VRChat") { choose("vrchat") }) { choose("vrchat") },
-                row("OSC apps", "Named /qft values", "apps", trailing = ocui.radio(mode == "raw", "OSC apps") { choose("raw") }) { choose("raw") },
-                row("QFT+ on your PC", if (paired) "Paired · connects automatically" else "Pair from Settings in QFT+ on your PC", "oc_icon_computer_filled_24",
-                    trailing = ocui.radio(mode == "pc", "QFT+ on your PC") { choose("pc") }) { choose("pc") })
+            Group(getString(R.string.send_tracking_to), null,
+                row("VRChat", getString(R.string.standard_vrcft_v2_parameters_over_osc), "sports_esports", trailing = ocui.radio(mode == "vrchat", "VRChat") { choose("vrchat") }) { choose("vrchat") },
+                row(getString(R.string.osc_apps), getString(R.string.named_qft_values), "apps", trailing = ocui.radio(mode == "raw", getString(R.string.osc_apps)) { choose("raw") }) { choose("raw") },
+                row(getString(R.string.qft_on_your_pc), if (paired) getString(R.string.paired_connects_automatically) else getString(R.string.pair_from_settings_in_qft_on_your_pc), "oc_icon_computer_filled_24",
+                    trailing = ocui.radio(mode == "pc", getString(R.string.qft_on_your_pc)) { choose("pc") }) { choose("pc") })
             if (mode == "pc") return@Page
-            Group("My receiver", null, *listOfNotNull(
-                if (host.isEmpty()) null else row(name, (if (sending) "Sending" else "Selected · turn on tracking to send") + " · $host:$port", "router", ocui.chevron()) { editing = "saved" },
-                row("New receiver", icon = "oc_icon_add_filled_24", trailing = ocui.chevron()) { editing = "" }).toTypedArray())
+            Group(getString(R.string.my_receiver), null, *listOfNotNull(
+                if (host.isEmpty()) null else row(name, getString(if (sending) R.string.sending_to else R.string.selected_receiver, "$host:$port"), "router", ocui.chevron()) { editing = "saved" },
+                row(getString(R.string.new_receiver), icon = "oc_icon_add_filled_24", trailing = ocui.chevron()) { editing = "" }).toTypedArray())
             val others = destinations.filter { it.host != host || it.port != port }
-            Group("Other receivers", if (mode == "vrchat") "Turn on OSC in VRChat's Action Menu to see it here." else null,
-                *(if (others.isEmpty()) arrayOf(row("Looking for receivers on this network…"))
-                  else others.map { d -> row(d.name, "${d.host}:${d.port}", "router", ocui.button("Connect") { save(d.host, d.port, d) }) }.toTypedArray()))
+            Group(getString(R.string.other_receivers), if (mode == "vrchat") getString(R.string.turn_on_osc_in_vrchat_s_action_menu) else null,
+                *(if (others.isEmpty()) arrayOf(row(getString(R.string.looking_for_receivers_on_this_network)))
+                  else others.map { d -> row(d.name, "${d.host}:${d.port}", "router", ocui.button(getString(R.string.connect)) { save(d.host, d.port, d) }) }.toTypedArray()))
         }
     }
     @Composable private fun ReceiverPage(name: String?, host: String, port: String, back: () -> Unit, save: (String, Int) -> Unit, forget: () -> Unit) {
         var address by rememberSaveable { mutableStateOf(host) }
         var number by rememberSaveable { mutableStateOf(port) }
         var problem by remember { mutableStateOf("") }
-        Page(name ?: "New receiver", back) {
-            Group(null, problem.ifEmpty { "Find the address in the receiving app's OSC settings." },
-                row("IP address", trailing = ocui.input(address, "Receiver address", "IP address", 200, DigitsKeyListener.getInstance("0123456789.")) { address = it; problem = "" }),
-                row("Port", trailing = ocui.input(number, "9000", "Port", 100, DigitsKeyListener.getInstance("0123456789")) { number = it; problem = "" }),
-                row(if (name == null) "Use this receiver" else "Save changes", trailing = ocui.button("Save", "PRIMARY") {
+        Page(name ?: getString(R.string.new_receiver), back) {
+            Group(null, problem.ifEmpty { getString(R.string.find_the_address_in_the_receiving_app_s) },
+                row(getString(R.string.ip_address), trailing = ocui.input(address, getString(R.string.receiver_address), getString(R.string.ip_address), 200, DigitsKeyListener.getInstance("0123456789.")) { address = it; problem = "" }),
+                row(getString(R.string.port), trailing = ocui.input(number, "9000", getString(R.string.port), 100, DigitsKeyListener.getInstance("0123456789")) { number = it; problem = "" }),
+                row(if (name == null) getString(R.string.use_this_receiver) else getString(R.string.save_changes), trailing = ocui.button(getString(R.string.save), "PRIMARY") {
                     val p = number.toIntOrNull(); val octets = address.trim().split('.')
                     if (p == null || p !in 1..65535 || octets.size != 4 || octets.any { (it.toIntOrNull() ?: -1) !in 0..255 })
-                        problem = "Enter the receiver's IPv4 address and a port from 1 to 65535."
+                        problem = getString(R.string.enter_the_receiver_s_ipv4_address_and_a)
                     else save(address.trim(), p)
                 }))
-            if (name != null) Group(null, null, row("Forget this receiver", "Tracking stops sending to it.", trailing = ocui.button("Forget", "DANGER") { forget() }))
+            if (name != null) Group(null, null, row(getString(R.string.forget_this_receiver), getString(R.string.tracking_stops_sending_to_it), trailing = ocui.button(getString(R.string.forget), "DANGER") { forget() }))
         }
     }
 
     private class Parameter(val name: String, val area: String, val minimum: Float, val maximum: Float, val neutral: Float, val modeled: Boolean, val partner: String?)
     private class Adjustable(val parameters: List<Parameter>, val areas: List<String>, val settings: JSONObject, val live: Map<String, FloatArray>, val sink: String)
     private fun label(name: String) = name.replace(Regex("(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[XY]$)"), " ")
+    private fun pairTitle(id: String) = getString(R.string.both_sides, label(id.removeSuffix(":both")))
+    private fun areaTitle(id: String) = when (id) {
+        "Brows" -> getString(R.string.brows)
+        "Eyelids" -> getString(R.string.eyelids)
+        "Gaze" -> getString(R.string.gaze)
+        "Pupils" -> getString(R.string.pupils)
+        "Nose" -> getString(R.string.nose)
+        "Cheeks" -> getString(R.string.cheeks)
+        "Lips" -> getString(R.string.lips)
+        "Mouth" -> getString(R.string.mouth)
+        "Jaw" -> getString(R.string.jaw)
+        "Tongue" -> getString(R.string.tongue)
+        else -> id
+    }
     private fun pair(p: Parameter) = if (p.partner != null || p.area == "Gaze" && p.name.contains(Regex("Left|Right")))
-        label(p.name.replace(Regex("Left|Right"), "")) + ", both sides" else null
+        p.name.replace(Regex("Left|Right"), "") + ":both" else null
 
     private fun local(file: java.io.File) = Adjustable(
         parameters.map { Parameter(it, OutputAdjustments.area(it), OutputAdjustments.minimum(it), 1f, OutputAdjustments.neutral(it), OutputAdjustments.modeled(it), OutputAdjustments.partner(it)) },
@@ -378,13 +394,13 @@ class MainActivity : ComponentActivity() {
         fun save(settings: JSONObject) {
             edited = settings
             if (pc) TrackingService.adjustmentsToSend = settings.toString().toByteArray()
-            else runCatching { OutputAdjustments.write(file, settings) }.onFailure { notice = "Couldn't save adjustments: ${it.message}" }
+            else runCatching { OutputAdjustments.write(file, settings) }.onFailure { notice = getString(R.string.save_adjustments_failed, it.message.orEmpty()) }
         }
         val current = data
         if (current == null) {
             Page(pages[1]) {
-                Group(null, "Turn on tracking with QFT+ on your PC, open VRCFaceTracking with the QFT+ module, and keep this page open.",
-                    row("Connecting to QFT+ on your PC…", "Adjustments made here change what your PC sends to VRChat.", "oc_icon_computer_filled_24"))
+                Group(null, getString(R.string.turn_on_tracking_with_qft_on_your_pc),
+                    row(getString(R.string.connecting_to_qft_on_your_pc), getString(R.string.adjustments_made_here_change_what_your_pc_sends), "oc_icon_computer_filled_24"))
                 ConvergenceGroups()
             }
             return
@@ -395,22 +411,22 @@ class MainActivity : ComponentActivity() {
         when {
             path.isEmpty() -> Page(pages[1]) {
                 val areas = current.areas.filter { a -> current.parameters.any { it.area == a } }
-                Group(null, "Changes apply to ${current.sink} output. ${if (pc) "This edits the same settings as Adjustments in QFT+ on your PC." else "Raw OSC and QFT+ on your PC receive measured values."}",
-                    row("All parameters", "Defaults for every area", "tune", ocui.chevron()) { path = "*" })
-                Group("Areas", null, *areas.map { a ->
+                Group(null, getString(if (pc) R.string.pc_adjustment_scope else R.string.headset_adjustment_scope, current.sink),
+                    row(getString(R.string.all_parameters), getString(R.string.defaults_for_every_area), "tune", ocui.chevron()) { path = "*" })
+                Group(getString(R.string.areas), null, *areas.map { a ->
                     val members = current.parameters.filter { it.area == a }
                     val custom = (config.optJSONObject(a)?.length() ?: 0) > 0 || members.any { (config.optJSONObject(it.name)?.length() ?: 0) > 0 }
-                    row(a, "${members.size} parameter${if (members.size == 1) "" else "s"}" + if (custom) " · Customized" else "", areaIcons[a], ocui.chevron()) { path = a }
+                    row(areaTitle(a), getString(if (custom) R.string.customized_parameter_count else R.string.parameter_count, members.size), areaIcons[a], ocui.chevron()) { path = a }
                 }.toTypedArray())
             }
-            else -> Page(if (path == "*") "All parameters" else chosen.singleOrNull()?.let { label(it.name) } ?: path, back = { path = if (chosen.isNotEmpty()) area!! else "" }) {
+            else -> Page(if (path == "*") getString(R.string.all_parameters) else chosen.singleOrNull()?.let { label(it.name) } ?: if (path.endsWith(":both")) pairTitle(path) else areaTitle(path), back = { path = if (chosen.isNotEmpty()) area!! else "" }) {
                 if (path == "Gaze") ConvergenceGroups()
                 key(path) { Editor(current, config, path, area, chosen, ::save) }
-                if (chosen.isEmpty() && area != null) Group("Parameters", null, *current.parameters.filter { it.area == area }.flatMap { p ->
+                if (chosen.isEmpty() && area != null) Group(getString(R.string.parameters), null, *current.parameters.filter { it.area == area }.flatMap { p ->
                     val pair = pair(p)
                     listOfNotNull(if (pair != null && current.parameters.first { pair(it) == pair } == p && current.parameters.count { pair(it) == pair } == 2)
-                        row(pair, "Change both sides together", trailing = ocui.chevron()) { path = pair } else null,
-                        row(label(p.name), current.live[p.name]?.let { "${shown(p, it[0])} → ${shown(p, it[1])}" } ?: "Not sent",
+                        row(pairTitle(pair), getString(R.string.change_both_sides_together), trailing = ocui.chevron()) { path = pair } else null,
+                        row(label(p.name), current.live[p.name]?.let { "${shown(p, it[0])} → ${shown(p, it[1])}" } ?: getString(R.string.not_sent),
                             trailing = ocui.chevron()) { path = p.name })
                 }.toTypedArray())
             }
@@ -443,7 +459,7 @@ class MainActivity : ComponentActivity() {
             if (version == 0) return@LaunchedEffect
             delay(250)
             val valid = value("inputMax", maximum, false) - value("inputMin", minimum, false) >= .0001f && value("outputMin", minimum, false) <= value("outputMax", maximum, false)
-            problem = if (valid) "" else "Input minimum must be below input maximum, and output minimum can't exceed output maximum. Changes aren't saved until the ranges are valid."
+            problem = if (valid) "" else getString(R.string.input_minimum_must_be_below_input_maximum_and)
             if (valid) save(JSONObject(config.toString()).apply { targets.forEach { t ->
                 put(t, (optJSONObject(t) ?: JSONObject()).apply { changed.forEach { put(it, values.get(it)) } }) } })
         }
@@ -451,41 +467,41 @@ class MainActivity : ComponentActivity() {
         key(version) {
             if (problem.isNotEmpty()) Group(null, null, row(problem, icon = "oc_icon_warning_filled_24"))
             val differ = chosen.size > 1 && config.optJSONObject(targets[0])?.toString() != config.optJSONObject(targets[1])?.toString()
-            if (parameter != null) Group("Live", if (differ) "The two sides have different settings. Values shown are from ${label(targets[0])}; changes apply to both." else null,
-                *chosen.map { p -> row(if (chosen.size > 1) label(p.name) else "Input → output",
-                    data.live[p.name]?.let { "${fmt(it[0])} → ${fmt(it[1])}" } ?: "Waiting for tracking") }.toTypedArray())
+            if (parameter != null) Group(getString(R.string.live), if (differ) getString(R.string.paired_settings_differ, label(targets[0])) else null,
+                *chosen.map { p -> row(if (chosen.size > 1) label(p.name) else getString(R.string.input_output),
+                    data.live[p.name]?.let { "${fmt(it[0])} → ${fmt(it[1])}" } ?: getString(R.string.waiting_for_tracking)) }.toTypedArray())
             val modeled = names.any { it.modeled }
             val paired = chosen.size != 1 && names.any { it.partner != null }
-            if (modeled || paired) Group("Source", if (modeled && (area == null || area == "Pupils")) "Meta doesn't measure pupils, so passthrough holds them at 50%." else null,
+            if (modeled || paired) Group(getString(R.string.source), if (modeled && (area == null || area == "Pupils")) getString(R.string.meta_doesn_t_measure_pupils_so_passthrough_holds) else null,
                 *listOfNotNull(
-                    if (modeled) row("Headset passthrough", "Send Meta's own tracking instead of QFT+'s models",
-                        trailing = ocui.toggle(value("passthrough", 0f) >= .5f, "Headset passthrough") { set("passthrough", if (it) 1f else 0f) }) else null,
-                    if (paired) row("Match left and right", "Averaging evens out one-sided jitter; following the stronger side keeps blinks together",
-                        trailing = ocui.select(listOf("Off", "Average both sides", "Follow the stronger side"), value("match", 0f).toInt().coerceIn(0, 2), "Match left and right") { set("match", it.toFloat()) }) else null
+                    if (modeled) row(getString(R.string.headset_passthrough), getString(R.string.send_meta_s_own_tracking_instead_of_qft),
+                        trailing = ocui.toggle(value("passthrough", 0f) >= .5f, getString(R.string.headset_passthrough)) { set("passthrough", if (it) 1f else 0f) }) else null,
+                    if (paired) row(getString(R.string.match_left_and_right), getString(R.string.averaging_evens_out_one_sided_jitter_following_the),
+                        trailing = ocui.select(listOf(getString(R.string.off), getString(R.string.average_both_sides), getString(R.string.follow_the_stronger_side)), value("match", 0f).toInt().coerceIn(0, 2), getString(R.string.match_left_and_right)) { set("match", it.toFloat()) }) else null
                 ).toTypedArray())
-            Group("Output", "Dead zone ignores movement around neutral, then scales the rest to reach full output. Offset shifts the result afterwards.",
-                numberRow("Strength", value("strength", 1f), 0f..10f, { String.format(Locale.getDefault(), "%.0f%%", it * 100) }) { set("strength", it) },
-                numberRow("Offset", value("offset", 0f), (minimum - maximum)..(maximum - minimum), ::fmt) { set("offset", it) },
-                numberRow("Dead zone", value("deadzone", 0f), 0f..(maximum - minimum), ::fmt) { set("deadzone", it) },
-                numberRow("Smoothing", value("smoothing", smoothing), 0f..100f, { "%.0f".format(it) }) { set("smoothing", it) })
-            Group("Response", "A curve of 1 is linear; below 1 boosts small movements, above 1 makes them gentler.",
-                numberRow("Response curve", value("curve", 1f), .1f..5f, { "%.2f".format(it) }) { set("curve", it) },
-                numberRow("Smoothing when relaxing", value("release", value("smoothing", smoothing)), 0f..100f, { "%.0f".format(it) }) { set("release", it) },
-                row("Invert output", trailing = ocui.toggle(value("invert", 0f) >= .5f, "Invert output") { set("invert", if (it) 1f else 0f) }))
+            Group(getString(R.string.output), getString(R.string.dead_zone_ignores_movement_around_neutral_then_scales),
+                numberRow(getString(R.string.strength), value("strength", 1f), 0f..10f, { String.format(Locale.getDefault(), "%.0f%%", it * 100) }) { set("strength", it) },
+                numberRow(getString(R.string.offset), value("offset", 0f), (minimum - maximum)..(maximum - minimum), ::fmt) { set("offset", it) },
+                numberRow(getString(R.string.dead_zone), value("deadzone", 0f), 0f..(maximum - minimum), ::fmt) { set("deadzone", it) },
+                numberRow(getString(R.string.smoothing), value("smoothing", smoothing), 0f..100f, { "%.0f".format(it) }) { set("smoothing", it) })
+            Group(getString(R.string.response), getString(R.string.a_curve_of_1_is_linear_below_1),
+                numberRow(getString(R.string.response_curve), value("curve", 1f), .1f..5f, { "%.2f".format(it) }) { set("curve", it) },
+                numberRow(getString(R.string.smoothing_when_relaxing), value("release", value("smoothing", smoothing)), 0f..100f, { "%.0f".format(it) }) { set("release", it) },
+                row(getString(R.string.invert_output), trailing = ocui.toggle(value("invert", 0f) >= .5f, getString(R.string.invert_output)) { set("invert", if (it) 1f else 0f) }))
             if (area != null) {
                 val rest = names.map { it.neutral }.distinct().singleOrNull()
-                Group("Limits", "Set the range you can comfortably reach. Output limits clamp the result; equal limits hold a fixed value.",
+                Group(getString(R.string.limits), getString(R.string.set_the_range_you_can_comfortably_reach_output),
                     *listOfNotNull(
-                        numberRow("Input minimum", value("inputMin", minimum, false), minimum..maximum, ::fmt) { set("inputMin", it) },
-                        numberRow("Input maximum", value("inputMax", maximum, false), minimum..maximum, ::fmt) { set("inputMax", it) },
-                        rest?.let { numberRow("Resting input", value("neutral", it, false), minimum..maximum, ::fmt) { v -> set("neutral", v) } },
-                        numberRow("Output minimum", value("outputMin", minimum, false), minimum..maximum, ::fmt) { set("outputMin", it) },
-                        numberRow("Output maximum", value("outputMax", maximum, false), minimum..maximum, ::fmt) { set("outputMax", it) }
+                        numberRow(getString(R.string.input_minimum), value("inputMin", minimum, false), minimum..maximum, ::fmt) { set("inputMin", it) },
+                        numberRow(getString(R.string.input_maximum), value("inputMax", maximum, false), minimum..maximum, ::fmt) { set("inputMax", it) },
+                        rest?.let { numberRow(getString(R.string.resting_input), value("neutral", it, false), minimum..maximum, ::fmt) { v -> set("neutral", v) } },
+                        numberRow(getString(R.string.output_minimum), value("outputMin", minimum, false), minimum..maximum, ::fmt) { set("outputMin", it) },
+                        numberRow(getString(R.string.output_maximum), value("outputMax", maximum, false), minimum..maximum, ::fmt) { set("outputMax", it) }
                     ).toTypedArray())
             }
-            Group(null, null, row(if (selection == "*") "Restore defaults" else "Use inherited settings",
-                if (selection == "*") "Clears the defaults for every parameter" else "Removes the settings made here",
-                trailing = ocui.button(if (selection == "*") "Restore" else "Remove", "DANGER") {
+            Group(null, null, row(if (selection == "*") getString(R.string.restore_defaults) else getString(R.string.use_inherited_settings),
+                if (selection == "*") getString(R.string.clears_the_defaults_for_every_parameter) else getString(R.string.removes_the_settings_made_here),
+                trailing = ocui.button(if (selection == "*") getString(R.string.restore) else getString(R.string.remove), "DANGER") {
                     values.keys().asSequence().toList().forEach(values::remove); changed.clear()
                     save(JSONObject(config.toString()).apply { targets.forEach { remove(it) } })
                     version = 0; problem = ""

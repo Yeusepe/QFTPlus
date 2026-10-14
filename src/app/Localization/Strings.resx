@@ -1,0 +1,2143 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
+  </resheader>
+  <data name="ARegularSteamVRTrackpadGamesAndYourSteamVRBindings" xml:space="preserve">
+    <value>A regular SteamVR trackpad. Games and your SteamVR bindings decide what it does.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="About18Minutes" xml:space="preserve">
+    <value>About 18 minutes</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="About1Minute" xml:space="preserve">
+    <value>About 1 minute</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="About2Minutes" xml:space="preserve">
+    <value>About 2 minutes</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="About5Minutes" xml:space="preserve">
+    <value>About 5 minutes</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="About80Seconds" xml:space="preserve">
+    <value>About 80 seconds</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="AdjustConvergence" xml:space="preserve">
+    <value>Adjust convergence</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Adjustments" xml:space="preserve">
+    <value>Adjustments</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="AllAreas" xml:space="preserve">
+    <value>All areas</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="AllParameters" xml:space="preserve">
+    <value>All parameters</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="AllowAccess" xml:space="preserve">
+    <value>Allow access</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="AlsoDeleteCalibrationsRecordingsFaceTrackingLogsAndSettings" xml:space="preserve">
+    <value>Also delete calibrations, recordings, face-tracking logs, and settings</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="And" xml:space="preserve">
+    <value> and </value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="AndStopsTrackingUntilItSDone" xml:space="preserve">
+    <value> and stops tracking until it’s done</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="AnyQuestPro" xml:space="preserve">
+    <value>Any Quest Pro</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Applied" xml:space="preserve">
+    <value>Applied.</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="AppliesWhenSteamVRStarts" xml:space="preserve">
+    <value>Applies when SteamVR starts.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="ApproveUSBDebuggingInTheHeadsetThenAllowShell" xml:space="preserve">
+    <value>Approve USB debugging in the headset, then allow Shell in Magisk → Superuser.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Area" xml:space="preserve">
+    <value>Area</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Areas" xml:space="preserve">
+    <value>Areas</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Automatic" xml:space="preserve">
+    <value>Automatic</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="AvailableWhenTrackingIsReady" xml:space="preserve">
+    <value>Available when tracking is ready.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="AverageBothSides" xml:space="preserve">
+    <value>Average both sides</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="AverageStrongerSidePairs" xml:space="preserve">
+    <value>average stronger side pairs</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="BecomeATester" xml:space="preserve">
+    <value>Become a tester</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="Benchmark" xml:space="preserve">
+    <value>Benchmark</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis" xml:space="preserve">
+    <value>Benchmark is removed from Calibration. Recordings already on this PC stay there.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.HelpText</comment>
+  </data>
+  <data name="BenchmarkRecorded" xml:space="preserve">
+    <value>Benchmark recorded</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="BenchmarkRecordedButItCouldnTBePreparedTo" xml:space="preserve">
+    <value>Benchmark recorded, but it couldn’t be prepared to share. </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="BenchmarkRecordedItsFilesStartWith" xml:space="preserve">
+    <value>Benchmark recorded. Its files start with </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="BootStartupReboot" xml:space="preserve">
+    <value>boot startup reboot</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Both" xml:space="preserve">
+    <value>Both</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="BothSides" xml:space="preserve">
+    <value>, both sides</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Brow" xml:space="preserve">
+    <value>Brow</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Brows" xml:space="preserve">
+    <value>Brows</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="BuildsTheEyeModelFromYourHeadsetKeepThe" xml:space="preserve">
+    <value>Builds the eye model from your headset. Keep the headset awake.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SecondsRemaining" xml:space="preserve">
+    <value>{0:0} seconds</value>
+    <comment>QFT+ Windows app. Countdown beside the pupil calibration guide, including zero at the end. {0:0} is the remaining number of seconds, rounded to a whole number. Preserve the format placeholder and translate the unit.</comment>
+  </data>
+  <data name="CalibrateGroup" xml:space="preserve">
+    <value>Calibrate {0}</value>
+    <comment>QFT+ Windows app. Calibration heading and button accessibility label. {0} is the translated area name, such as Face or Pupils. Preserve its casing; the placeholder may move.</comment>
+  </data>
+  <data name="CalibrateAfterChangingHowTheHeadsetFitsYourSaved" xml:space="preserve">
+    <value>Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrateAgain" xml:space="preserve">
+    <value>Calibrate again</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrateExpressionsEnrollTongueCheeks" xml:space="preserve">
+    <value>calibrate expressions enroll tongue cheeks</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CalibrateFaceExpressionsCheeks" xml:space="preserve">
+    <value>calibrate face expressions cheeks</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CalibrateFirst" xml:space="preserve">
+    <value> · Calibrate first</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CalibrateInQFTHeadsetFirst" xml:space="preserve">
+    <value> · Calibrate in QFT+ Headset first</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CalibratePupilDilationEyes" xml:space="preserve">
+    <value>calibrate pupil dilation eyes</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CalibratePupilsEyes" xml:space="preserve">
+    <value>calibrate pupils eyes</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Calibrate_9604ba0c" xml:space="preserve">
+    <value>Calibrate</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="Calibrated" xml:space="preserve">
+    <value>Calibrated · </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="Calibrated_0c66fb7b" xml:space="preserve">
+    <value>Calibrated</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="CalibratingInTheHeadset" xml:space="preserve">
+    <value>Calibrating in the headset…</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="Calibration" xml:space="preserve">
+    <value>Calibration</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="CalibrationIsOn" xml:space="preserve">
+    <value>Calibration is on</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrationStartedInTheHeadsetPutItOnAnd" xml:space="preserve">
+    <value>Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrationStoppedBecauseTrackingStoppedOrTheCameraFeed" xml:space="preserve">
+    <value>Calibration stopped because tracking stopped or the camera feed stayed paused. Your previous calibration is unchanged.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrationWasnTSaved" xml:space="preserve">
+    <value>Calibration wasn't saved</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CalibrationWasnTSavedOpenCalibrationForDetails" xml:space="preserve">
+    <value> calibration wasn't saved. Open Calibration for details.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CameraEyes" xml:space="preserve">
+    <value>camera eyes</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CameraFeedPausedMakeSureTheHeadsetIsAwake" xml:space="preserve">
+    <value>Camera feed paused. Make sure the headset is awake and connected, or cancel.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CameraViewImage" xml:space="preserve">
+    <value>camera view image</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Cameras" xml:space="preserve">
+    <value>Cameras</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="CanTFindYourHeadset" xml:space="preserve">
+    <value>Can’t find your headset?</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="CanTReachTheHeadset" xml:space="preserve">
+    <value>Can’t reach the headset</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Cancel</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioWindow.xaml.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="ChangesSavedWaitingForTheModuleToApplyThem" xml:space="preserve">
+    <value>Changes saved. Waiting for the module to apply them…</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="CheckForUpdates" xml:space="preserve">
+    <value>Check for updates</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioUpdates.cs</comment>
+  </data>
+  <data name="CheckForUpdatesAutomatically" xml:space="preserve">
+    <value>Check for updates automatically</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CheckTheSpellingOrSearchForASettingArea" xml:space="preserve">
+    <value>Check the spelling, or search for a setting, area or parameter name.</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CheckVRApps" xml:space="preserve">
+    <value>Check VR apps</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="CheckYourAvatarToSeeTheDifference" xml:space="preserve">
+    <value>Check your avatar to see the difference.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="Checking" xml:space="preserve">
+    <value>Checking…</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CheckingForUpdates" xml:space="preserve">
+    <value>Checking for updates…</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="Cheeks" xml:space="preserve">
+    <value>Cheeks</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="CheeksTongueAndBrows" xml:space="preserve">
+    <value>Cheeks, tongue and brows</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="CheeksTongueAndBrowsWorkWithoutCalibrationCalibratingYour" xml:space="preserve">
+    <value>Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="ClearSearch" xml:space="preserve">
+    <value>Clear search</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="CloseAnAppFirst" xml:space="preserve">
+    <value>Close an app first</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CloseOtherQFTWindowsThenOpenQFTAgain" xml:space="preserve">
+    <value>Close other QFT+ windows, then open QFT+ again.</value>
+    <comment>QFT+ Windows app. Program.cs</comment>
+  </data>
+  <data name="ComponentsStudioLog" xml:space="preserve">
+    <value>Components (studio.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="ConnectTheHeadsetToThisPCWithAUSB" xml:space="preserve">
+    <value>Connect the headset to this PC with a USB data cable. Setup runs once and takes a few minutes.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="ConnectTheHeadsetToThisPCWithAUSB_622bba14" xml:space="preserve">
+    <value>Connect the headset to this PC with a USB cable, or move closer to your router.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="ConnectYourQuestProWithUSBTheFirstTime" xml:space="preserve">
+    <value>Connect your Quest Pro with USB the first time. After that, QFT+ connects over Wi-Fi.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ConnectedBySerial" xml:space="preserve">
+    <value>Connected by {0}. Serial {1}.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = ways; {1} = group.Key</comment>
+  </data>
+  <data name="ConnectedOverExpressionsAreGoingToVRCFaceTracking" xml:space="preserve">
+    <value>Connected over {0}. Expressions are going to VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Placeholders: {0} = via</comment>
+  </data>
+  <data name="ConnectedOverHybridHandsAndControllersAreOnIn" xml:space="preserve">
+    <value>Connected over {0}. Hybrid hands and controllers are on in Virtual Desktop.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Placeholders: {0} = via</comment>
+  </data>
+  <data name="Connection" xml:space="preserve">
+    <value>Connection</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ConnectsToTheFirstQuestProItFinds" xml:space="preserve">
+    <value>Connects to the first Quest Pro it finds.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>Continue</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Controllers" xml:space="preserve">
+    <value>Controllers</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="ControllersTouchThumbrestTriggerScroll" xml:space="preserve">
+    <value>controllers touch thumbrest trigger scroll</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Convergence" xml:space="preserve">
+    <value>Convergence</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ConvergenceStrength" xml:space="preserve">
+    <value>Convergence strength</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ConvergenceStrengthDefault" xml:space="preserve">
+    <value>convergence strength default</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="CopiedToTheClipboard" xml:space="preserve">
+    <value>Copied to the clipboard.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="Copy12ExpressionsFromAMetaAvatarAbout75" xml:space="preserve">
+    <value>Copy 12 expressions from a Meta avatar · about 75 seconds</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="CopyLog" xml:space="preserve">
+    <value>Copy log</value>
+    <comment>QFT+ Windows app. LogViewer.xaml: Content</comment>
+  </data>
+  <data name="CouldnTChangeTheSteamVRDriver" xml:space="preserve">
+    <value>Couldn’t change the SteamVR driver. </value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTChangeTheThumbrest" xml:space="preserve">
+    <value>Couldn’t change the thumbrest. </value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTCheckForUpdatesCheckTheInternetConnection" xml:space="preserve">
+    <value>Couldn’t check for updates. Check the internet connection, then try again.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CouldnTCopyTheLog" xml:space="preserve">
+    <value>Couldn’t copy the log. </value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTFinish" xml:space="preserve">
+    <value>Couldn’t finish</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="CouldnTInstallTheUpdateCheckTheInternetConnection" xml:space="preserve">
+    <value>Couldn’t install the update. Check the internet connection, then try again. (</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CouldnTOpenFileExplorerTheFileIsIn" xml:space="preserve">
+    <value>Couldn’t open File Explorer. The file is in </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTOpenYourBrowserVisit" xml:space="preserve">
+    <value>Couldn’t open your browser. Visit </value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTOpenYourBrowserVisitGithubComYeusepe" xml:space="preserve">
+    <value>Couldn’t open your browser. Visit github.com/Yeusepe/QFTPlus/releases to get the update.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="CouldnTReadTheLog" xml:space="preserve">
+    <value>Couldn’t read the log. </value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTSearchForHeadsets" xml:space="preserve">
+    <value>Couldn’t search for headsets. </value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="CouldnTStart" xml:space="preserve">
+    <value>Couldn’t start</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="CouldnTStartTracking" xml:space="preserve">
+    <value>Couldn’t start tracking</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="CreatingYourCalibration" xml:space="preserve">
+    <value>Creating your calibration</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="DeadZone" xml:space="preserve">
+    <value>Dead zone</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="DeadZoneIgnoresMovementAroundNeutralThenScalesThe" xml:space="preserve">
+    <value>Dead zone ignores movement around neutral, then scales the remaining movement to reach full output. Offset shifts the result after this step.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="DefaultsEveryParameters" xml:space="preserve">
+    <value>defaults every parameters</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Diagnostics" xml:space="preserve">
+    <value>Diagnostics</value>
+    <comment>QFT+ Windows app. LogViewer.xaml: Header</comment>
+  </data>
+  <data name="Dismiss" xml:space="preserve">
+    <value>Dismiss</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="DismissThisFeedbackRequest" xml:space="preserve">
+    <value>Dismiss this feedback request</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="DismissThisUpdateNotice" xml:space="preserve">
+    <value>Dismiss this update notice</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="Done" xml:space="preserve">
+    <value>Done</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="DownloadingTheUpdate" xml:space="preserve">
+    <value>Downloading the update… {0}%</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Placeholders: {0} = percent</comment>
+  </data>
+  <data name="DownloadingTheUpdate_a14a1b55" xml:space="preserve">
+    <value>Downloading the update…</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="DragForAFullPush" xml:space="preserve">
+    <value>Drag for a full push</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="DragFromWhereYourThumbLandsToPushA" xml:space="preserve">
+    <value>Drag from where your thumb lands to push a stick. Lift to recenter.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="EnterAValueFromTo" xml:space="preserve">
+    <value>Enter a value from {0} to {1}{2}.</value>
+    <comment>QFT+ Windows app. NumericSetting.xaml.cs. Placeholders: {0} = Math.Round(min * scale, decimals); {1} = Math.Round(max * scale, decimals); {2} = unit</comment>
+  </data>
+  <data name="ExpressionsCanTFollowYourFaceUntilTheHeadset" xml:space="preserve">
+    <value> Expressions can’t follow your face until the headset’s own face and eye tracking are available.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="ExtraExpressions" xml:space="preserve">
+    <value>Extra expressions</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="EyeGaze" xml:space="preserve">
+    <value>Eye gaze</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="EyeTrackingEyesLog" xml:space="preserve">
+    <value>Eye tracking (eyes.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="Eyelids" xml:space="preserve">
+    <value>Eyelids</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="EyesDepthGainVergence" xml:space="preserve">
+    <value>eyes depth gain vergence</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="EyesIndependentStandard" xml:space="preserve">
+    <value>eyes independent standard</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="EyesPupils" xml:space="preserve">
+    <value>eyes pupils</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="EyesSeparatelyDepthConvergence" xml:space="preserve">
+    <value>eyes separately depth convergence</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Face" xml:space="preserve">
+    <value>Face</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="FaceAndEyeTracking" xml:space="preserve">
+    <value>Face and eye tracking</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="FaceAndEyeTrackingPlusHybridHandsWheneverYou" xml:space="preserve">
+    <value>Face and eye tracking, plus hybrid hands whenever you connect with Virtual Desktop.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="FaceAndTongue" xml:space="preserve">
+    <value>Face and tongue</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="FaceAndTongueFaceLog" xml:space="preserve">
+    <value>Face and tongue (face.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="FaceCalibration" xml:space="preserve">
+    <value>Face calibration</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="FaceCalibrationIsOn" xml:space="preserve">
+    <value>Face calibration is on.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="FaceCalibrationPuff" xml:space="preserve">
+    <value>face calibration puff</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="FaceCalibration_bca2dbed" xml:space="preserve">
+    <value>face calibration</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="FaceTracking" xml:space="preserve">
+    <value>Face tracking</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Features" xml:space="preserve">
+    <value>Features</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FindUsbWiFiWifiConnectHeadset" xml:space="preserve">
+    <value>find usb wi-fi wifi connect headset</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="FindYourQuestPro" xml:space="preserve">
+    <value>Find your Quest Pro</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="FinishCalibrationBeforeStoppingTracking" xml:space="preserve">
+    <value>Finish calibration before stopping tracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FinishCalibrationOrSetupThenInstallTheUpdate" xml:space="preserve">
+    <value>Finish calibration or setup, then install the update.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="FinishCalibrationOrSetupThenUninstall" xml:space="preserve">
+    <value>Finish calibration or setup, then uninstall.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="FinishOrCancelCalibrationBeforeClosingThisWindow" xml:space="preserve">
+    <value>Finish or cancel calibration before closing this window.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FinishOrCancelCalibrationBeforeQuitting" xml:space="preserve">
+    <value>Finish or cancel calibration before quitting.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FinishOrCancelCalibrationFirst" xml:space="preserve">
+    <value>Finish or cancel calibration first.</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FinishingTheCurrentStepBeforeQuitting" xml:space="preserve">
+    <value>Finishing the current step before quitting.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="FollowADotAsTheSpaceDarkensAndBrightens" xml:space="preserve">
+    <value>Follow a dot as the space darkens and brightens · about 80 seconds</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="FollowTheStrongerSide" xml:space="preserve">
+    <value>Follow the stronger side</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ForTestersPromptsReadingAndTalkingThatCheckHow" xml:space="preserve">
+    <value>For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ForTestersShortPromptsAndALittleReadingThat" xml:space="preserve">
+    <value>For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ForWiFiKeepThisPCAndTheHeadset" xml:space="preserve">
+    <value>For Wi-Fi, keep this PC and the headset on the same network.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="FpsFrameRateSpeedLatencyBatteryHeat" xml:space="preserve">
+    <value>fps frame rate speed latency battery heat</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="FullBenchmark" xml:space="preserve">
+    <value>Full benchmark</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="Gaze" xml:space="preserve">
+    <value>Gaze</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="GazeValuesUseRadiansSetTheMovementYouCan" xml:space="preserve">
+    <value>Gaze values use radians. Set the movement you can comfortably reach, then limit the output sent to VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="GitHubIsLimitingUpdateChecksFromThisNetworkQFT" xml:space="preserve">
+    <value>GitHub is limiting update checks from this network. QFT+ tries again later.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="Glide" xml:space="preserve">
+    <value>Glide</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="GpuCpuDirectmlGraphicsCardPerformance" xml:space="preserve">
+    <value>gpu cpu directml graphics card performance</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="GraphicsCard" xml:space="preserve">
+    <value>Graphics card</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="GraphicsCardDirectML" xml:space="preserve">
+    <value>Graphics card (DirectML)</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="HandTrackingAndControllersTogetherInVirtualDesktopDoesn" xml:space="preserve">
+    <value>Hand tracking and controllers together in Virtual Desktop. Doesn’t use VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="HandTrackingControllersFingersVirtualDesktop" xml:space="preserve">
+    <value>hand tracking controllers fingers virtual desktop</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="HandTrackingIsOn" xml:space="preserve">
+    <value>Hand tracking is on</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="HandsNeedAttention" xml:space="preserve">
+    <value>Hands need attention</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="HasItsOwnSettingsWhichTakePrecedenceHere" xml:space="preserve">
+    <value>{0} has its own settings, which take precedence here.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = Label(own[0])</comment>
+  </data>
+  <data name="Headset" xml:space="preserve">
+    <value>Headset</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="HeadsetPassthrough" xml:space="preserve">
+    <value>Headset passthrough</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="HeadsetRelayQuestproLiveRelayTxt" xml:space="preserve">
+    <value>Headset relay (questpro-live-relay.txt)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="HelpImproveTracking" xml:space="preserve">
+    <value>Help improve tracking</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml: Title | StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="HelpTranslateQFT" xml:space="preserve">
+    <value>Help translate QFT+</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="HoldAFewExpressionsForAFewSecondsEach" xml:space="preserve">
+    <value>Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="HowMuchYourEyesTurnTowardEachOtherWhen" xml:space="preserve">
+    <value>How much your eyes turn toward each other when you look at something nearby. 100% uses your calibrated movement; higher values increase it, and at 0% both eyes look the same way. Depth accuracy is experimental.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="HowOftenYourFaceIsMeasuredAndSentFaster" xml:space="preserve">
+    <value>How often your face is measured and sent. Faster rates follow your face more closely; slower rates use less battery and keep the headset cooler. Changing it restarts tracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="HowTheQuestProControllersThumbrestsActInSteamVR" xml:space="preserve">
+    <value>How the Quest Pro controllers’ thumbrests act in SteamVR. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
+  </data>
+  <data name="HybridHands" xml:space="preserve">
+    <value>Hybrid hands</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="HybridHandsAndControllers" xml:space="preserve">
+    <value>Hybrid hands and controllers</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="HybridHandsAreOn" xml:space="preserve">
+    <value> Hybrid hands are on.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="HybridHandsHybridLog" xml:space="preserve">
+    <value>Hybrid hands (hybrid.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="HybridHandsPauseVirtualDesktopBodyTrackingWhileThey" xml:space="preserve">
+    <value>Hybrid hands pause Virtual Desktop body tracking while they’re on.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="HybridHandsStoppedTheHybridHandsLogInSettings" xml:space="preserve">
+    <value>Hybrid hands stopped. The Hybrid hands log in Settings shows why.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="IAgreeToShareTheRecordingsISend" xml:space="preserve">
+    <value>I agree to share the recordings I send</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="IfAHeadsetShowsNotRespondingRestartItAnd" xml:space="preserve">
+    <value>If a headset shows “Not responding,” restart it and keep USB connected.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="IfItSTooBigToAttachToA" xml:space="preserve">
+    <value>If it’s too big to attach to a message, send a OneDrive or Google Drive link to it instead.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="IgnoreARestingThumb" xml:space="preserve">
+    <value>Ignore a resting thumb</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | ThumbrestSettings.xaml: Content</comment>
+  </data>
+  <data name="In" xml:space="preserve">
+    <value> in </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="InMagiskSuperuserAllowShell" xml:space="preserve">
+    <value>In Magisk → Superuser, allow Shell.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InProgress" xml:space="preserve">
+    <value>In progress</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InTheHeadsetAllowUSBDebuggingAndChooseAlways" xml:space="preserve">
+    <value>In the headset, allow USB debugging and choose “Always allow from this computer.”</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InTheHeadsetChooseAlwaysAllowFromThisComputer" xml:space="preserve">
+    <value>In the headset, choose “Always allow from this computer,” then Allow.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="IncludesReleaseCandidates" xml:space="preserve">
+    <value>Includes release candidates. </value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="Independent" xml:space="preserve">
+    <value>Independent</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="IndependentEyeDepthVergence" xml:space="preserve">
+    <value>independent eye depth vergence</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="IndependentEyeGaze" xml:space="preserve">
+    <value>Independent eye gaze</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="InputAndOutputLimits" xml:space="preserve">
+    <value>Input and output limits</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="InputMaximum" xml:space="preserve">
+    <value>Input maximum</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="InputMinimum" xml:space="preserve">
+    <value>Input minimum</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="InputMinimumMustBeBelowInputMaximumOutputMinimum" xml:space="preserve">
+    <value>Input minimum must be below input maximum. Output minimum cannot exceed output maximum. Changes are not saved until the ranges are valid.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InputNeutral" xml:space="preserve">
+    <value>Input neutral</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="InstallComponents" xml:space="preserve">
+    <value>Install components</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InstallModule" xml:space="preserve">
+    <value>Install module</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InstallSteamVRDriver" xml:space="preserve">
+    <value>Install SteamVR driver</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="InstallTheVRCFaceTrackingModule" xml:space="preserve">
+    <value>Install the VRCFaceTracking module</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="InstallUpdate" xml:space="preserve">
+    <value>Install update</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="InstalledVersion" xml:space="preserve">
+    <value>Installed version: {0}</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Placeholders: {0} = installedVersion</comment>
+  </data>
+  <data name="InstallingTheUpdate" xml:space="preserve">
+    <value>Installing the update…</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="InstallsTheQFTModuleVRCFaceTrackingClosesBrieflyIfIt" xml:space="preserve">
+    <value>Installs the QFT+ module. VRCFaceTracking closes briefly if it’s open.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="InvertOutput" xml:space="preserve">
+    <value>Invert output</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ItSCreatedWhenCalibrationOrHybridHandsRun" xml:space="preserve">
+    <value>It’s created when calibration or hybrid hands run a step.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="Jaw" xml:space="preserve">
+    <value>Jaw</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="Joystick" xml:space="preserve">
+    <value>Joystick</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="KeepsTheCableConnectedMostReliable" xml:space="preserve">
+    <value>Keeps the cable connected. Most reliable.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>Language</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="LastCheckedAt" xml:space="preserve">
+    <value>Last checked at {0:t}.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = at</comment>
+  </data>
+  <data name="LaunchAutomatic" xml:space="preserve">
+    <value>launch automatic</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="LeftEye" xml:space="preserve">
+    <value>Left eye</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="LeftFace" xml:space="preserve">
+    <value>Left face</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="LeftThumbrestAngle" xml:space="preserve">
+    <value>Left thumbrest angle</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="LetsYourAvatarSPupilsFollowYoursDimThe" xml:space="preserve">
+    <value>Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="Lips" xml:space="preserve">
+    <value>Lips</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="LiveAdjustmentValues" xml:space="preserve">
+    <value>Live adjustment values</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="LiveValues" xml:space="preserve">
+    <value>Live values</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="LiveValuesShowTheQFTModuleSOutputYour" xml:space="preserve">
+    <value>Live values show the QFT+ module’s output. Your avatar must support the selected expression; VRCFaceTracking’s own adjustments can change it further.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Log" xml:space="preserve">
+    <value>Log</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | LogViewer.xaml: Text | LogViewer.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="LogContents" xml:space="preserve">
+    <value>Log contents</value>
+    <comment>QFT+ Windows app. LogViewer.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="LogsDiagnostics" xml:space="preserve">
+    <value>logs diagnostics</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="LogsErrorsDiagnosticsTroubleshooting" xml:space="preserve">
+    <value>logs errors diagnostics troubleshooting</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="LookAtTheCircle" xml:space="preserve">
+    <value>Look at the circle</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="LooksForHeadsetsOverUSBAndWiFi" xml:space="preserve">
+    <value>Looks for headsets over USB and Wi-Fi.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.HelpText</comment>
+  </data>
+  <data name="LooksForYourHeadsetOverUSBAndWiFi" xml:space="preserve">
+    <value>Looks for your headset over USB and Wi-Fi.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="MakesSureSteamSteamVRAndVRCFaceTrackingAreInstalled" xml:space="preserve">
+    <value>Makes sure Steam, SteamVR, and VRCFaceTracking are installed.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="MakesSureSteamSteamVRAndVirtualDesktopAreInstalled" xml:space="preserve">
+    <value>Makes sure Steam, SteamVR, and Virtual Desktop are installed.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="MatchLeftAndRight" xml:space="preserve">
+    <value>Match left and right</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="Message" xml:space="preserve">
+    <value>Message</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="MessageOnDiscord" xml:space="preserve">
+    <value>Message on Discord</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="MoreTimeForEachPose" xml:space="preserve">
+    <value>More time for each pose</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="Mouse" xml:space="preserve">
+    <value>Mouse</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="Mouth" xml:space="preserve">
+    <value>Mouth</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="MovesTheTwoSidesOfEachPairTogetherAveraging" xml:space="preserve">
+    <value>Moves the two sides of each pair together. Averaging evens out one-sided jitter; following the stronger side keeps blinks together.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="MovesTheWindowsCursorLikeALaptopTouchpadPress" xml:space="preserve">
+    <value>Moves the Windows cursor like a laptop touchpad. Press firmly to click.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="NeedsSetup" xml:space="preserve">
+    <value>Needs setup</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="NeutralIsYourRestingInputClampedToTheInput" xml:space="preserve">
+    <value>Neutral is your resting input, clamped to the input range. Pupils default to 50%, open eyelids to 100%, and other parameters to 0%.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NoAudioNoColorCameraAndNoNameOr" xml:space="preserve">
+    <value>• No audio, no color camera, and no name or account. Each recording carries a random tester ID instead.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="NoHeadsetsFoundPlugInAUSBDataCable" xml:space="preserve">
+    <value>No headsets found. Plug in a USB data cable and put on the headset to wake it.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NoLiveResponseFromTheQFTModuleOpenVRCFaceTracking" xml:space="preserve">
+    <value>No live response from the QFT+ module. Open VRCFaceTracking; if it is already running, update the module in Setup and restart VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NoResultsFor" xml:space="preserve">
+    <value>No results for “{0}”</value>
+    <comment>QFT+ Windows app. StudioSearch.cs. Placeholders: {0} = SearchBox.Text.Trim()</comment>
+  </data>
+  <data name="Nose" xml:space="preserve">
+    <value>Nose</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="NotCalibrated" xml:space="preserve">
+    <value>Not calibrated · </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="NotCalibrated_8eadca56" xml:space="preserve">
+    <value>Not calibrated</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="NotCheckedYet" xml:space="preserve">
+    <value>Not checked yet.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NotProvidedByTheQFTModuleCheckItsEye" xml:space="preserve">
+    <value>Not provided by the QFT+ module: {0}. Check its eye and face modules in VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = string.Join(", ", missing.Select(Label))</comment>
+  </data>
+  <data name="NotResponding" xml:space="preserve">
+    <value>Not responding</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NotStarted" xml:space="preserve">
+    <value>Not started</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="NothingIsSentAutomaticallyYouSendRecordingsYourselfDirectly" xml:space="preserve">
+    <value>• Nothing is sent automatically. You send recordings yourself, directly to the developer.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="NothingLoggedYet" xml:space="preserve">
+    <value>Nothing logged yet. </value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="Of" xml:space="preserve">
+    <value>{0} of {1}</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Placeholders: {0} = index + 1; {1} = state["total"]?.GetValue&lt;int&gt;() ?? 4</comment>
+  </data>
+  <data name="OfThePad" xml:space="preserve">
+    <value>% of the pad</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="Off" xml:space="preserve">
+    <value>Off</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OffButQFTHeadsetIsStillOnTheHeadset" xml:space="preserve">
+    <value>Off, but QFT+ Headset is still on the headset. Connect the headset, then choose Retry to remove it.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OffTrackingRunsOnThisPC" xml:space="preserve">
+    <value>Off. Tracking runs on this PC.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Offset" xml:space="preserve">
+    <value>Offset</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="On" xml:space="preserve">
+    <value>On</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OnOffStartStopStatusSwitch" xml:space="preserve">
+    <value>on off start stop status switch</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OnQFTHeadsetIsPairedWithThisPCStart" xml:space="preserve">
+    <value>On. QFT+ Headset is paired with this PC; Start and Stop here control it.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OneTimeInstallOfTheTrackingRuntimeOnThis" xml:space="preserve">
+    <value>One-time install of the tracking runtime on this PC. This can take a few minutes.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="OnlyAboutCameraFramesASecondAreArrivingOver" xml:space="preserve">
+    <value>Only about {0:0} camera frames a second are arriving over {1}, so expressions lag. </value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Placeholders: {0} = fps; {1} = via. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="OnlySettingsYouChangeHereOverrideAndAllAreas" xml:space="preserve">
+    <value>Only settings you change here override {0} and All areas.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = area</comment>
+  </data>
+  <data name="OpenCalibrationInQFTHeadsetThisExperimentRecordsAnd" xml:space="preserve">
+    <value>Open Calibration in QFT+ Headset. This experiment records and processes calibration on the headset.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="OpenInEditor" xml:space="preserve">
+    <value>Open in editor</value>
+    <comment>QFT+ Windows app. LogViewer.xaml: Content</comment>
+  </data>
+  <data name="OpenQFT" xml:space="preserve">
+    <value>Open QFT+</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OpenRecordings" xml:space="preserve">
+    <value>Open recordings</value>
+    <comment>QFT+ Windows app. LogViewer.xaml: Content</comment>
+  </data>
+  <data name="OpenSetup" xml:space="preserve">
+    <value>Open Setup</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OpenSetupLog" xml:space="preserve">
+    <value>Open setup log</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="OpenVRAppsOnStart" xml:space="preserve">
+    <value>Open VR apps on Start</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="OpenVRCFaceTrackingToTestMovements" xml:space="preserve">
+    <value>Open VRCFaceTracking to test movements.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="OutputDeadzone" xml:space="preserve">
+    <value>output deadzone</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputDestinationOscVrchatReceiver" xml:space="preserve">
+    <value>output destination osc vrchat receiver</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputEyesPupils" xml:space="preserve">
+    <value>output eyes pupils</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputFaceCheeksBrows" xml:space="preserve">
+    <value>output face cheeks brows</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputFilterJitter" xml:space="preserve">
+    <value>output filter jitter</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputGainMultiplier" xml:space="preserve">
+    <value>output gain multiplier</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OutputMaximum" xml:space="preserve">
+    <value>Output maximum</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="OutputMinimum" xml:space="preserve">
+    <value>Output minimum</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="OutputShift" xml:space="preserve">
+    <value>output shift</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="OverrideLiveTracking" xml:space="preserve">
+    <value>Override live tracking</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="Pages" xml:space="preserve">
+    <value>Pages</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="Parameter" xml:space="preserve">
+    <value>Parameter</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ParametersHaveTheirOwnSettingsWhichTakePrecedenceHere" xml:space="preserve">
+    <value>{0} parameters have their own settings, which take precedence here.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = own.Length</comment>
+  </data>
+  <data name="Pause" xml:space="preserve">
+    <value>Pause</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="Paused" xml:space="preserve">
+    <value>Paused</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="PointerSpeed" xml:space="preserve">
+    <value>Pointer speed</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="PrepareEyeTracking" xml:space="preserve">
+    <value>Prepare eye tracking</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="PreparingYourRecording" xml:space="preserve">
+    <value>Preparing your recording</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="PressSensitivity" xml:space="preserve">
+    <value>Press sensitivity</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="Processing" xml:space="preserve">
+    <value>Processing</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ProcessorCPU" xml:space="preserve">
+    <value>Processor (CPU)</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="PupilCalibration" xml:space="preserve">
+    <value>Pupil calibration</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="PupilCalibrationIsOn" xml:space="preserve">
+    <value>Pupil calibration is on.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="PupilDilation" xml:space="preserve">
+    <value>Pupil dilation</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="PupilTrackingIsOffOrHasNoFreshData" xml:space="preserve">
+    <value>Pupil tracking is off or has no fresh data: input stays at 50%. Offset and output limits still apply. Dilation combines both eyes.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Pupils" xml:space="preserve">
+    <value>Pupils</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="PutOnTheHeadsetThenStartTracking" xml:space="preserve">
+    <value>Put on the headset, then start tracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="PutOnTheHeadsetThenStartTrackingQFTHeadset" xml:space="preserve">
+    <value>Put on the headset, then start tracking. QFT+ Headset tracks there and sends expressions to this PC.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="QFTCouldnTFindItsUninstallerUninstallItFrom" xml:space="preserve">
+    <value>QFT+ couldn’t find its uninstaller. Uninstall it from Windows Settings &gt; Apps.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="QFTCouldnTOpenItsFolder" xml:space="preserve">
+    <value>QFT+ couldn’t open its folder</value>
+    <comment>QFT+ Windows app. Program.cs</comment>
+  </data>
+  <data name="QFTCouldnTReadItsSettings" xml:space="preserve">
+    <value>QFT+ couldn’t read its settings</value>
+    <comment>QFT+ Windows app. Program.cs</comment>
+  </data>
+  <data name="QFTHeadsetIsTrackingAndSendingExpressionsToVRCFaceTracking" xml:space="preserve">
+    <value>QFT+ Headset is tracking and sending expressions to VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="QFTIsAvailable" xml:space="preserve">
+    <value>QFT+ {0} is available.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Placeholders: {0} = AvailableVersion</comment>
+  </data>
+  <data name="QFTIsAvailableInstallingTakesAFewMinutes" xml:space="preserve">
+    <value>QFT+ {0} is available. Installing takes a few minutes</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Placeholders: {0} = AvailableVersion</comment>
+  </data>
+  <data name="QFTSCameraModelsDonTTrackTheseParameters" xml:space="preserve">
+    <value> QFT+’s camera models don’t track these parameters, so they always come from the headset.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="QFTSCameraModelsDonTTrackThisParameter" xml:space="preserve">
+    <value> QFT+’s camera models don’t track this parameter, so it always comes from the headset.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="QuestPro" xml:space="preserve">
+    <value>Quest Pro · {0}</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = state</comment>
+  </data>
+  <data name="QuestProNotFoundRightNow" xml:space="preserve">
+    <value>Quest Pro · Not found right now</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="QuestProReady" xml:space="preserve">
+    <value>Quest Pro · Ready</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="QuestPro_5cf76899" xml:space="preserve">
+    <value>Quest Pro, {0}</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Placeholders: {0} = status</comment>
+  </data>
+  <data name="QuitQFT" xml:space="preserve">
+    <value>Quit QFT+</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RangeClampRest" xml:space="preserve">
+    <value>range clamp rest</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="ReadingCalibrationFromTheHeadset" xml:space="preserve">
+    <value>Reading calibration from the headset…</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ReadingSettingsFromTheHeadset" xml:space="preserve">
+    <value>Reading settings from the headset…</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Ready" xml:space="preserve">
+    <value>Ready</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="ReadyToTrack" xml:space="preserve">
+    <value>Ready to track</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RecordABenchmark" xml:space="preserve">
+    <value>Record a benchmark</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="RecordABenchmarkThenSendTheFileItMakes" xml:space="preserve">
+    <value>Record a benchmark, then send the file it makes to the QFT+ developer directly. Use your tester ID to ask for your recordings to be deleted.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="RecordAShortSessionAndSendItToThe" xml:space="preserve">
+    <value>Record a short session and send it to the QFT+ developer. Recordings from many different faces make tracking better for everyone.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="RecordingsAreUsedOnlyToTestAndImproveQFT" xml:space="preserve">
+    <value>• Recordings are used only to test and improve QFT+ face tracking.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="RecordingsStayOnThisPC" xml:space="preserve">
+    <value>Recordings stay on this PC.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ReleaseFade" xml:space="preserve">
+    <value>release fade</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="RemoveDelete" xml:space="preserve">
+    <value>remove delete</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="RemovesQFTItsSteamVRDriverAndItsVRCFaceTrackingModule" xml:space="preserve">
+    <value>Removes QFT+, its SteamVR driver, and its VRCFaceTracking module. Your calibrations, recordings, and settings stay unless you choose to delete them too.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="RemovesTheAppItsSteamVRDriverItsVRCFaceTrackingModule" xml:space="preserve">
+    <value>Removes the app, its SteamVR driver, its VRCFaceTracking module, and its shortcuts. Tracking stops.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="RequiresVirtualDesktop" xml:space="preserve">
+    <value>Requires Virtual Desktop</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RequiresVirtualDesktopSteamLinkUsesItsOwnHand" xml:space="preserve">
+    <value>Requires Virtual Desktop. Steam Link uses its own hand tracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Reset" xml:space="preserve">
+    <value>Reset</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ResetDefaults" xml:space="preserve">
+    <value>Reset defaults</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ResetRestore" xml:space="preserve">
+    <value>reset restore</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="ResetTo100" xml:space="preserve">
+    <value>Reset to 100%</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="Response" xml:space="preserve">
+    <value>Response</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="ResponseCurve" xml:space="preserve">
+    <value>Response curve</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="RestartTheHeadsetAndKeepUSBConnectedThenSearch" xml:space="preserve">
+    <value>Restart the headset and keep USB connected, then search again.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Resume" xml:space="preserve">
+    <value>Resume</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ResumeAfterRestart" xml:space="preserve">
+    <value>Resume after restart</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RetryHeadsetCleanup" xml:space="preserve">
+    <value>Retry headset cleanup</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="ReverseTriggerSlide" xml:space="preserve">
+    <value>Reverse trigger slide</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="ReverseTriggerSlideNormallySlidingTowardTheTipIs" xml:space="preserve">
+    <value>Reverse trigger slide (normally, sliding toward the tip is up)</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml: Content</comment>
+  </data>
+  <data name="ReviewVideo" xml:space="preserve">
+    <value>Review video</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="RightEye" xml:space="preserve">
+    <value>Right eye</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RightFace" xml:space="preserve">
+    <value>Right face</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RightThumbrestAngle" xml:space="preserve">
+    <value>Right thumbrest angle</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="RunSetupOncePerHeadsetOrAgainAfterAn" xml:space="preserve">
+    <value>Run setup once per headset, or again after an update.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="RunSetupToCreateIt" xml:space="preserve">
+    <value>Run setup to create it.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="RunningSlowly" xml:space="preserve">
+    <value>Running slowly</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="RunsInQFTHeadsetWhereAnAvatarShowsEach" xml:space="preserve">
+    <value>Runs in QFT+ Headset, where an avatar shows each expression to copy.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="SaveFaceTrackingLogs" xml:space="preserve">
+    <value>Save face-tracking logs</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="SaveFaceTrackingLogsOnThisPCNumbersOnly" xml:space="preserve">
+    <value>Save face-tracking logs on this PC (numbers only, no images)</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="SavedInQFTHeadsetChangesHereAndInThe" xml:space="preserve">
+    <value>Saved in QFT+ Headset. Changes here and in the headset stay in step. Eye gaze uses Meta’s standard calibration in this experiment.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="SavedInQFTHeadsetChangingItRestartsTrackingFor" xml:space="preserve">
+    <value>Saved in QFT+ Headset. Changing it restarts tracking for a moment.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SearchAgain" xml:space="preserve">
+    <value>Search again</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="SearchQFT" xml:space="preserve">
+    <value>Search QFT+</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.Name | StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="SearchResults" xml:space="preserve">
+    <value>Search results</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Searching" xml:space="preserve">
+    <value>Searching…</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SearchingUSBAndWiFi" xml:space="preserve">
+    <value>Searching USB and Wi-Fi…</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SelectOneAndChooseUseInheritedSettingsToRemove" xml:space="preserve">
+    <value> Select one and choose Use inherited settings to remove them.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="SendThisFileToTheQFTDeveloperDirectlyMB" xml:space="preserve">
+    <value>Send this file to the QFT+ developer directly: {0} ({1:0} MB). </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Placeholders: {0} = Path.GetFileName(candidate); {1} = new FileInfo(candidate).Length / 1e6. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="SendTrackingTo" xml:space="preserve">
+    <value>Send tracking to</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="SendsTheHeadsetSOwnTrackingInsteadOfQFT" xml:space="preserve">
+    <value>Sends the headset’s own tracking instead of QFT+’s camera models. The adjustments below still apply.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SendsYourExpressionsAndEyeMovementToVRCFaceTracking" xml:space="preserve">
+    <value>Sends your expressions and eye movement to VRCFaceTracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SerialWakeTheHeadsetThenSearchAgain" xml:space="preserve">
+    <value>Serial {0}. Wake the headset, then search again.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = preferred</comment>
+  </data>
+  <data name="SetTheInputRangeYouCanComfortablyReachOutput" xml:space="preserve">
+    <value>Set the input range you can comfortably reach. Output limits clamp the adjusted result; equal limits hold a fixed value.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetUpAction" xml:space="preserve">
+    <value>Set up</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetUpAgain" xml:space="preserve">
+    <value>Set up again</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetUpEyeTracking" xml:space="preserve">
+    <value>Set up eye tracking</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetUpFace" xml:space="preserve">
+    <value>Set up face</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="SetUpQuestPro" xml:space="preserve">
+    <value>Set up Quest Pro</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="SetUpTheHeadsetOnStart" xml:space="preserve">
+    <value>Set up the headset on Start</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="SetUpYourFaceFirstSoTheBenchmarkChecks" xml:space="preserve">
+    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. </value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="SetUp_703abab9" xml:space="preserve">
+    <value>Set up…</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>Settings</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="Setup" xml:space="preserve">
+    <value>Setup</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="SetupCompleteChooseStartToBeginTracking" xml:space="preserve">
+    <value>Setup complete. Choose Start to begin tracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetupCouldnTFinishTheStepBelowShowsWhat" xml:space="preserve">
+    <value>Setup couldn’t finish. The step below shows what to do.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetupPausedYourProgressIsSaved" xml:space="preserve">
+    <value>Setup paused. Your progress is saved.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SetupSetupLog" xml:space="preserve">
+    <value>Setup (setup.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="SetupSteps" xml:space="preserve">
+    <value>Setup steps</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="ShareRecordings" xml:space="preserve">
+    <value>Share recordings</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="ShareWhatTracksWellAndWhatDoesnTFeedback" xml:space="preserve">
+    <value>Share what tracks well and what doesn’t. Feedback from many different faces makes tracking better for everyone.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Message</comment>
+  </data>
+  <data name="ShortBenchmark" xml:space="preserve">
+    <value>Short benchmark</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ShowFile" xml:space="preserve">
+    <value>Show file</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="ShowPupilOutlines" xml:space="preserve">
+    <value>Show pupil outlines</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="ShowingTheMostRecentPart" xml:space="preserve">
+    <value>. Showing the most recent part.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="SkipPose" xml:space="preserve">
+    <value>Skip pose</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="Skipped" xml:space="preserve">
+    <value>Skipped</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SkippedFaceTrackingIsnTSelected" xml:space="preserve">
+    <value>Skipped. Face tracking isn’t selected.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SkippedWhileIndependentEyeGazeIsOffUsesStandard" xml:space="preserve">
+    <value>Skipped while independent eye gaze is off. Uses standard eye tracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="SlowCalibration" xml:space="preserve">
+    <value>slow calibration</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="SmallInfraredImagesOfYourEyesBrowsAndMouth" xml:space="preserve">
+    <value>• Small infrared images of your eyes, brows and mouth from the headset’s face cameras, and the expression values the headset reports.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="Smoothing" xml:space="preserve">
+    <value>Smoothing</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="SmoothingWhenRelaxing" xml:space="preserve">
+    <value>Smoothing when relaxing</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="SourceMetaNative" xml:space="preserve">
+    <value>source meta native</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="StandaloneQftHeadsetAppOnDevice" xml:space="preserve">
+    <value>standalone qft+ headset app on-device</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Standard" xml:space="preserve">
+    <value>Standard</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Start" xml:space="preserve">
+    <value>Start</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="StartCalibration" xml:space="preserve">
+    <value>Start calibration</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="StartTrackingThenStartCalibration" xml:space="preserve">
+    <value>Start tracking, then start calibration.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="StartTrackingToCreateIt" xml:space="preserve">
+    <value>Start tracking to create it.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="StartTrackingToViewCameras" xml:space="preserve">
+    <value>Start tracking to view cameras.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="StartTrackingWithIndependentEyeGazeOnToCreate" xml:space="preserve">
+    <value>Start tracking with independent eye gaze on to create it.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="StartWithVRCFaceTracking" xml:space="preserve">
+    <value>Start with VRCFaceTracking</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="StartWithoutSetup" xml:space="preserve">
+    <value>Start without setup</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="StartsWithTracking" xml:space="preserve">
+    <value>Starts with tracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Startup" xml:space="preserve">
+    <value>Startup</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="SteamVRIsUsingTheQFTDriverFromItClose" xml:space="preserve">
+    <value>SteamVR is using the QFT+ driver from it. Close SteamVR, then open QFT+ again.</value>
+    <comment>QFT+ Windows app. Program.cs</comment>
+  </data>
+  <data name="SteamvrVirtualDesktopLaunch" xml:space="preserve">
+    <value>steamvr virtual desktop launch</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="StepOf" xml:space="preserve">
+    <value>Step {0} of {1}: {2}</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = setupStep + 1; {1} = SetupSteps.Length; {2} = SetupSteps[setupStep].Title</comment>
+  </data>
+  <data name="Stop" xml:space="preserve">
+    <value>Stop</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="StopBeingATester" xml:space="preserve">
+    <value>Stop being a tester</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="StopTrackingToChangeEyeGaze" xml:space="preserve">
+    <value>Stop tracking to change eye gaze.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="StopTrackingToChangeThis" xml:space="preserve">
+    <value>Stop tracking to change this.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Stopped" xml:space="preserve">
+    <value>Stopped</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="StoppingCalibration" xml:space="preserve">
+    <value>Stopping calibration…</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="StraightenScrolling" xml:space="preserve">
+    <value>Straighten scrolling</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | ThumbrestSettings.xaml: Content</comment>
+  </data>
+  <data name="Strength" xml:space="preserve">
+    <value>Strength</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="Swipe" xml:space="preserve">
+    <value>Swipe</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="SwipeSpeed" xml:space="preserve">
+    <value>Swipe speed</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="SwipeSpeedPushesTheStickAndGlidesOutLike" xml:space="preserve">
+    <value>Swipe speed pushes the stick and glides out, like scrolling on a phone.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="SwitchesTheHeadsetToWiFiSoYouCan" xml:space="preserve">
+    <value>Switches the headset to Wi-Fi so you can unplug the cable. Skipped when Wi-Fi is already on.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TakesEffectTheNextTimeTrackingStartsToLeave" xml:space="preserve">
+    <value>Takes effect the next time tracking starts. To leave more performance for VR, choose Graphics card, then a different card from the one running your game.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TestMovements" xml:space="preserve">
+    <value>Test movements</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TestMovementsManualSlidersPreviewAvatar" xml:space="preserve">
+    <value>test movements manual sliders preview avatar</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="TesterShareRecordingsBenchmark" xml:space="preserve">
+    <value>tester share recordings benchmark</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="Text1IsLinearBelow1BoostsSmallMovementsAbove" xml:space="preserve">
+    <value>1 is linear. Below 1 boosts small movements; above 1 makes them gentler.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TheDownloadStoppedMakingProgressCheckTheInternetConnection" xml:space="preserve">
+    <value>The download stopped making progress. Check the internet connection, then try again.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="TheDriverIsInstalledStartTrackingToUseIt" xml:space="preserve">
+    <value>The driver is installed. Start tracking to use it.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="TheDriverIsRemoved" xml:space="preserve">
+    <value>The driver is removed.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="TheHeadsetDoesnTMeasurePupilsSoTheyStay" xml:space="preserve">
+    <value> The headset doesn’t measure pupils, so they stay at 50%.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="TheInstalledVersionCouldnTBeRead" xml:space="preserve">
+    <value>The installed version couldn’t be read.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="TheQFTDriverAddsTheThumbrestTrackpadAndTrigger" xml:space="preserve">
+    <value>The QFT+ driver adds the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml: AutomationProperties.HelpText</comment>
+  </data>
+  <data name="TheRequestIsHiddenForNowYourPreferenceCouldn" xml:space="preserve">
+    <value>The request is hidden for now. Your preference couldn’t be saved.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="TheTwoSidesHaveDifferentSettingsValuesShownAre" xml:space="preserve">
+    <value>The two sides have different settings. Values shown are from {0}; changes apply to both.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = Label(sides[0])</comment>
+  </data>
+  <data name="TheUpdateIsHiddenForNowYourPreferenceCouldn" xml:space="preserve">
+    <value>The update is hidden for now. Your preference couldn’t be saved.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="TheseSettingsApplyToEveryParameterInOnlySettings" xml:space="preserve">
+    <value>These settings apply to every parameter in {0}. Only settings you change here override All areas.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = area</comment>
+  </data>
+  <data name="TheseSettingsApplyToEveryParameterUnlessAnArea" xml:space="preserve">
+    <value>These settings apply to every parameter unless an area or parameter changes them.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="ThisCopyWasnTInstalledByQFTSetupSo" xml:space="preserve">
+    <value>This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="ThisPCIsKeepingUpWithOnlyAboutCamera" xml:space="preserve">
+    <value>This PC is keeping up with only about {0:0} camera frames a second, so expressions lag. Close other demanding apps.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs. Placeholders: {0} = fps</comment>
+  </data>
+  <data name="ThisTakesAFewSecondsTrackingStaysOn" xml:space="preserve">
+    <value>This takes a few seconds. Tracking stays on.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ThisTakesAboutAMinuteTrackingStaysOn" xml:space="preserve">
+    <value>This takes about a minute. Tracking stays on.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="ThumbrestAndTrigger" xml:space="preserve">
+    <value>Thumbrest and trigger</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | ThumbrestSettings.xaml: Text</comment>
+  </data>
+  <data name="ThumbrestMode" xml:space="preserve">
+    <value>Thumbrest mode</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | ThumbrestSettings.xaml: Text | ThumbrestSettings.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="ToSeeThisWindowInTheHeadsetOpenThe" xml:space="preserve">
+    <value> To see this window in the headset, open the desktop in the Steam overlay.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="ToSendAMessage" xml:space="preserve">
+    <value> to send a message.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="TogetherLeftRightEyes" xml:space="preserve">
+    <value> together left right eyes</value>
+    <comment>QFT+ Windows app. StudioSearch.cs. Keep leading/trailing spaces; this text joins adjacent text.</comment>
+  </data>
+  <data name="Tongue" xml:space="preserve">
+    <value>Tongue</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="TongueDirection" xml:space="preserve">
+    <value>Tongue direction</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackOnTheHeadsetExperimental" xml:space="preserve">
+    <value>Track on the headset (experimental)</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Tracking" xml:space="preserve">
+    <value>Tracking</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs | StudioWindow.xaml: AutomationProperties.Name | Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="TrackingArea" xml:space="preserve">
+    <value>Tracking area</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text | StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="TrackingIsOff" xml:space="preserve">
+    <value>Tracking is off</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackingIsOn" xml:space="preserve">
+    <value>Tracking is on</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackingIsRunningSlowly" xml:space="preserve">
+    <value>Tracking is running slowly</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackingNeedsAttention" xml:space="preserve">
+    <value>Tracking needs attention</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackingProcessor" xml:space="preserve">
+    <value>Tracking processor</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="TrackingStopped" xml:space="preserve">
+    <value>Tracking stopped</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TrackingTrackingLog" xml:space="preserve">
+    <value>Tracking (tracking.log)</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="Trackpad" xml:space="preserve">
+    <value>Trackpad</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="TracksTheDirectionOfEachEyeSeparately" xml:space="preserve">
+    <value>Tracks the direction of each eye separately.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TracksYourFacePupilsAndCalibrationInQFTHeadset" xml:space="preserve">
+    <value>Tracks your face, pupils and calibration in QFT+ Headset on the headset instead of on this PC. This PC starts, stops and sets it up, and VRCFaceTracking receives its expressions.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TranslationsFollowYourWindowsDisplayLanguageHelpBringQFT" xml:space="preserve">
+    <value>Translations follow your Windows display language. Help bring QFT+ to more people.</value>
+    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
+  </data>
+  <data name="TryAgain" xml:space="preserve">
+    <value>Try again</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs | StudioControls.cs</comment>
+  </data>
+  <data name="TryAnotherUSBPortOrCable" xml:space="preserve">
+    <value>Try another USB port or cable.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TryRecordingYourPosesAgain" xml:space="preserve">
+    <value>Try recording your poses again.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="TurnOffOnlyIfYouInstallTheModuleYourself" xml:space="preserve">
+    <value>Turn off only if you install the module yourself.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TurnOnDeveloperModeForYourHeadsetInThe" xml:space="preserve">
+    <value>Turn on Developer Mode for your headset in the Meta Horizon app.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TurnOnHybridHandsThenStartTrackingToCreate" xml:space="preserve">
+    <value>Turn on hybrid hands, then start tracking to create it.</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
+  </data>
+  <data name="TurnOnIndependentEyeGaze" xml:space="preserve">
+    <value>Turn on independent eye gaze</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TurnOnWiFi" xml:space="preserve">
+    <value>Turn on Wi-Fi</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="TurnUntilAStraightUpAndDownSwipeReads" xml:space="preserve">
+    <value>Turn until a straight up-and-down swipe reads as straight, like Steam Input’s trackpad rotation.</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
+  </data>
+  <data name="TurningItOnInstallsQFTHeadsetAndPairsIt" xml:space="preserve">
+    <value>Turning it on installs QFT+ Headset and pairs it with this PC; allow its root request in the headset the first time. Turning it off removes the app and its calibration. Accuracy and headset load are still being tested.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="TurnsTrackingBackOnIfItWasOnWhen" xml:space="preserve">
+    <value>Turns tracking back on if it was on when the headset restarted.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="Uninstall" xml:space="preserve">
+    <value>Uninstall</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioUpdates.cs</comment>
+  </data>
+  <data name="UninstallQFT" xml:space="preserve">
+    <value>Uninstall QFT+</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioUpdates.cs</comment>
+  </data>
+  <data name="UninstallQFT_1021541b" xml:space="preserve">
+    <value>Uninstall QFT+?</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="UninstallQFT_71877bb4" xml:space="preserve">
+    <value>Uninstall QFT+…</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="UninstallSteamVRDriver" xml:space="preserve">
+    <value>Uninstall SteamVR driver</value>
+    <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
+  </data>
+  <data name="Unknown" xml:space="preserve">
+    <value>Unknown</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="UnplugAfterSetupIfTheHeadsetRestartsConnectUSB" xml:space="preserve">
+    <value>Unplug after setup. If the headset restarts, connect USB once to turn Wi-Fi back on.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UpdateAvailable" xml:space="preserve">
+    <value>Update available</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Title</comment>
+  </data>
+  <data name="UpdateDownload" xml:space="preserve">
+    <value>Update download</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs | StudioWindow.xaml: AutomationProperties.Name</comment>
+  </data>
+  <data name="UpdateQFTHeadset" xml:space="preserve">
+    <value>Update QFT+ Headset</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="UpdateRate" xml:space="preserve">
+    <value>Update rate</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="UpdateVRCFaceTracking" xml:space="preserve">
+    <value>Update VRCFaceTracking</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="Updates" xml:space="preserve">
+    <value>Updates</value>
+    <comment>QFT+ Windows app. StudioSearch.cs | StudioUpdates.cs</comment>
+  </data>
+  <data name="UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd" xml:space="preserve">
+    <value>Updates install here and keep your settings, calibrations, and recordings.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="UpdatesLiveLastChangedAt" xml:space="preserve">
+    <value>Updates live. Last changed at {0:T}</value>
+    <comment>QFT+ Windows app. LogViewer.xaml.cs. Placeholders: {0} = info.LastWriteTime</comment>
+  </data>
+  <data name="UseAUSBCableThatCarriesDataChargeOnly" xml:space="preserve">
+    <value>Use a USB cable that carries data. Charge-only cables don’t work.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UseHandTrackingOnly" xml:space="preserve">
+    <value>Use hand tracking only</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UseInheritedSettings" xml:space="preserve">
+    <value>Use inherited settings</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UseModeFaceHandsControllersVirtualDesktop" xml:space="preserve">
+    <value>use mode face hands controllers virtual desktop</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="UsedWhileAnExpressionReturnsToRestHigherValues" xml:space="preserve">
+    <value>Used while an expression returns to rest. Higher values let it fade out slowly. Matches Smoothing until you change it.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UsesStandardEyeTracking" xml:space="preserve">
+    <value>Uses standard eye tracking.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UsesWiFiWhenItSAvailableAndUSB" xml:space="preserve">
+    <value>Uses Wi-Fi when it’s available and USB otherwise.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="UsesYourFaceCalibration" xml:space="preserve">
+    <value>Uses your face calibration.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="UsesYourPupilCalibration" xml:space="preserve">
+    <value>Uses your pupil calibration.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="VersionUpdateRelease" xml:space="preserve">
+    <value>version update release</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="ViewCameras" xml:space="preserve">
+    <value>View cameras</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="ViewLogs" xml:space="preserve">
+    <value>View logs</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="ViewReleases" xml:space="preserve">
+    <value>View releases</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="ViewUpdate" xml:space="preserve">
+    <value>View update</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs | StudioWindow.xaml: Content</comment>
+  </data>
+  <data name="VrcftLaunchAutomatic" xml:space="preserve">
+    <value>vrcft launch automatic</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="VrcftModule" xml:space="preserve">
+    <value>vrcft module</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
+  <data name="WaitForTheCurrentStepToFinishToChange" xml:space="preserve">
+    <value>Wait for the current step to finish to change this.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="WaitForTheCurrentStepToFinishToChange_85f9003a" xml:space="preserve">
+    <value>Wait for the current step to finish to change eye gaze.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="WaitingForCameras" xml:space="preserve">
+    <value>Waiting for cameras…</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
+  </data>
+  <data name="WaitingForLiveValues" xml:space="preserve">
+    <value>Waiting for live values</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="WaitingForPermission" xml:space="preserve">
+    <value>Waiting for permission</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="WaitingForTheHeadsetCamerasMakeSureTheHeadset" xml:space="preserve">
+    <value>Waiting for the headset cameras. Make sure the headset is awake and connected.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="WaitingForThePreviousAction" xml:space="preserve">
+    <value>Waiting for the previous action…</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="WhatDoYouWantToUse" xml:space="preserve">
+    <value>What do you want to use?</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
+  </data>
+  <data name="WhatNeedsAttention" xml:space="preserve">
+    <value>What needs attention</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="WhatSShared" xml:space="preserve">
+    <value>What’s shared</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Header</comment>
+  </data>
+  <data name="WhileItSOnVRCFaceTrackingGetsTheseValuesInstead" xml:space="preserve">
+    <value>While it’s on, VRCFaceTracking gets these values instead of your face.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="WiFi" xml:space="preserve">
+    <value>Wi-Fi ({0})</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Placeholders: {0} = q.Target</comment>
+  </data>
+  <data name="WorksWithIndependentEyeGazeWhichIsOff" xml:space="preserve">
+    <value>Works with independent eye gaze, which is off.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="YouCanAskForYourRecordingsToBeDeleted" xml:space="preserve">
+    <value>• You can ask for your recordings to be deleted at any time with your tester ID.</value>
+    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
+  </data>
+  <data name="YouReUpToDate" xml:space="preserve">
+    <value>You’re up to date.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="YourCurrentCalibrationHasnTChanged" xml:space="preserve">
+    <value>Your current calibration hasn't changed.</value>
+    <comment>QFT+ Windows app. StudioCalibration.cs</comment>
+  </data>
+  <data name="YourSettingsCalibrationsAndRecordingsStay" xml:space="preserve">
+    <value>. Your settings, calibrations, and recordings stay.</value>
+    <comment>QFT+ Windows app. StudioUpdates.cs</comment>
+  </data>
+  <data name="ThroatAndNeck" xml:space="preserve">
+    <value>Throat and neck</value>
+    <comment>Tracking area name</comment>
+  </data>
+  <data name="CameraName" xml:space="preserve">
+    <value>{0} camera</value>
+    <comment>Accessible camera name. {0} is the localized camera title.</comment>
+  </data>
+  <data name="SettingValue" xml:space="preserve">
+    <value>{0} value</value>
+    <comment>Accessible numeric input name. {0} is the localized setting title.</comment>
+  </data>
+</root>
