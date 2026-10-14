@@ -173,10 +173,15 @@ def install(root, runtime, config):
     if fresh:
         try:
             path, serial = backup_location(root, config)
+        except Exception as error:
+            if str(error) == 'HeadsetBackupWrongDevice':
+                raise
+            raise RuntimeError('HeadsetRestoreFailed') from error
+        try:
             if path.exists():
                 saved = read_backup(path, serial)
         except Exception as error:
-            raise RuntimeError('HeadsetRestoreFailed') from error
+            raise RuntimeError('HeadsetBackupUnreadable') from error
     if not fresh:
         stop(root)
         try:
@@ -237,7 +242,7 @@ def main():
         else:
             install(root, Path(__file__).resolve().parent, config)
     except Exception as error:
-        if str(error) not in {'HeadsetBackupFailed', 'HeadsetRestoreFailed', 'HeadsetBackupWrongDevice'}:
+        if str(error) not in {'HeadsetBackupFailed', 'HeadsetRestoreFailed', 'HeadsetBackupWrongDevice', 'HeadsetBackupUnreadable'}:
             raise
         print(str(error), flush=True)
         raise SystemExit(1) from None

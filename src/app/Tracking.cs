@@ -43,7 +43,8 @@ internal sealed class Tracking
 
     string? Direct => Regex.Match(target, @"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$") is { Success: true } match ? match.Groups[1].Value : null;
 
-    internal async Task StopAsync() { stop.Cancel(); await Run; }
+    bool childrenStopped = true;
+    internal async Task<bool> StopAsync() { stop.Cancel(); await Run; return childrenStopped; }
 
     string Restore => (headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --stop; " : "") + $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}" + (eyes ? "; " + EyeRestore : "");
 
@@ -96,7 +97,7 @@ internal sealed class Tracking
         finally
         {
             State = "stopping";
-            await Task.WhenAll(new[] { receiver, gaze }.OfType<Process>().Select(Session.StopChild));
+            childrenStopped = (await Task.WhenAll(new[] { receiver, gaze }.OfType<Process>().Select(Session.StopChild))).All(stopped => stopped);
             receiver?.Dispose(); gaze?.Dispose();
             if (cleanup is not null)
             {
@@ -105,7 +106,7 @@ internal sealed class Tracking
                 Kill(relay);
                 await Processes.RunAsync(adb, ["-s", target, "forward", "--remove", $"tcp:{StreamPort}"]);
             }
-            Write("Tracking stopped");
+            Write(childrenStopped ? "Tracking stopped" : "Tracking cleanup finished, but a PC tracking process is still running.");
         }
     }
 

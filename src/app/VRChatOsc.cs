@@ -55,7 +55,7 @@ internal static class VRChatOsc
                 foreach (var client in read.Clients) if (asked.Add(client)) Ask(client, 33);
             }
         }
-        catch (SocketException) { }
+        catch (Exception error) when (error is SocketException or NetworkInformationException) { }
         return (osc, query);
     }
 

@@ -50,7 +50,7 @@ public partial class StudioWindow : Ui.FluentWindow
         lipSync = new(root, () => session.Running && session.Use != "hands", () => new HeadsetMicrophone(session));
         if (!preview) lipSync.Apply(LipSync.Load(LipSyncPath));
         saveTimer.Tick += (_, _) => SaveNow();
-        Closed += (_, _) => SaveNow();
+        Closed += (_, _) => { lipSyncMeters?.Stop(); SaveNow(); };
         session.Changed += _ => Dispatcher.Invoke(() =>
         {
             SidebarStatus();
@@ -400,6 +400,7 @@ public partial class StudioWindow : Ui.FluentWindow
 
     void Clear(string title)
     {
+        lipSyncMeters?.Stop(); lipSyncMeters = null;
         StopManual();
         setupRefresh = trackingRefresh = adjustmentRefresh = updateRefresh = null;
         Page.Children.Clear();
@@ -628,7 +629,7 @@ public partial class StudioWindow : Ui.FluentWindow
             if (value != lipSyncShown) Show(lipSyncRow, lipSyncShown = value, problem);
         }
         ShowLipSync();
-        var lipSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        var lipSyncTimer = lipSyncMeters = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         lipSyncTimer.Tick += (_, _) =>
         {
             if (page == "Tracking") ShowLipSync();
