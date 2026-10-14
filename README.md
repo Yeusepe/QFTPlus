@@ -19,6 +19,8 @@ Use Virtual Desktop or Steam Link with a **[supported rooted Quest Pro](https://
 4. Connect through Virtual Desktop or Steam Link. Select **Start**.
 5. Open **Calibration**. Use the Steam overlay to see the app in VR. Install or update QFT+ Headset for the avatar guide.
 
+Removing QFT+ Headset through Windows backs up settings and calibration to `%LOCALAPPDATA%\QFTPlus\headset-backups`. Reinstalling through the same PC restores them for that headset.
+
 - After each headset restart, connect USB once to restore Wi-Fi access.
 - Use a trusted network. Wi-Fi setup allows ADB access to the headset.
 - Use QFT+'s VRCFT module. Disable the standalone SteamLink module to avoid a port 9015 conflict.
