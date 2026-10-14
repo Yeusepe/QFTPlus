@@ -458,9 +458,12 @@ internal sealed class Session
         try { process.StandardInput.Close(); } catch (Exception error) when (error is IOException or InvalidOperationException) { }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { try { process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
-        await process.WaitForExitAsync();
-        if (outputDrains.TryGetValue(process, out var drain)) await drain;
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(true); } catch (InvalidOperationException) { }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        if (outputDrains.TryGetValue(process, out var drain)) await drain.WaitAsync(TimeSpan.FromSeconds(5));
     }
     static readonly Lock logLock = new();
     internal static void Log(string path, string text)
