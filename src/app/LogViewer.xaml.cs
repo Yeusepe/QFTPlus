@@ -63,7 +63,7 @@ public partial class LogViewer : UserControl
         {
             first = read = 0;
             LogText.Clear();
-            LogCaption.Text = Loc.Get("NothingLoggedYet") + Logs[LogPicker.SelectedIndex].Empty;
+            LogCaption.Text = Loc.Format("LogEmpty", Logs[LogPicker.SelectedIndex].Empty);
             return;
         }
         if (!force && info.Length == read) return;
@@ -84,16 +84,16 @@ public partial class LogViewer : UserControl
             else LogText.AppendText(text);
             read = stream.Position;
         }
-        catch (IOException error) { LogCaption.Text = Loc.Get("CouldnTReadTheLog") + error.Message; return; }
+        catch (IOException error) { LogCaption.Text = Loc.Format("LogReadFailure", error.Message); return; }
         if (following) LogText.ScrollToEnd();
         else LogText.ScrollToVerticalOffset(offset);
-        LogCaption.Text = Loc.Format("UpdatesLiveLastChangedAt", info.LastWriteTime) + (first > 0 ? Loc.Get("ShowingTheMostRecentPart") : ".");
+        LogCaption.Text = Loc.Format(first > 0 ? "LogUpdatedTail" : "LogUpdated", info.LastWriteTime);
     }
 
     void CopyLog(object sender, RoutedEventArgs e)
     {
         try { Clipboard.SetText(LogText.Text); LogCaption.Text = Loc.Get("CopiedToTheClipboard"); }
-        catch (Exception error) { LogCaption.Text = Loc.Get("CouldnTCopyTheLog") + error.Message; }
+        catch (Exception error) { LogCaption.Text = Loc.Format("LogCopyFailure", error.Message); }
     }
 
     static void Launch(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();

@@ -23,8 +23,8 @@ internal static class Program
     }
     catch(Exception error) when(error is IOException or UnauthorizedAccessException)
     {
-        System.Windows.Forms.TaskDialog.ShowDialog(new System.Windows.Forms.TaskDialogPage{Caption="QFT+",Heading=Loc.Get("QFTCouldnTOpenItsFolder"),
-            Text=(SteamVrDriver.Loaded()?Loc.Get("SteamVRIsUsingTheQFTDriverFromItClose"):Loc.Get("CloseOtherQFTWindowsThenOpenQFTAgain"))+"\n\n"+error.Message});
+        System.Windows.Forms.TaskDialog.ShowDialog(new System.Windows.Forms.TaskDialogPage{Caption=Loc.Get("AppName"),Heading=Loc.Get("QFTCouldnTOpenItsFolder"),
+            Text=Loc.Format(SteamVrDriver.Loaded()?"FolderFailureDriver":"FolderFailureOtherWindow",error.Message)});
         return;
     }
     Session.ClearTemp(root);
@@ -37,7 +37,7 @@ internal static class Program
     try{window=new StudioWindow(root);}
     catch(InvalidDataException error)
     {
-        System.Windows.Forms.TaskDialog.ShowDialog(new System.Windows.Forms.TaskDialogPage{Caption="QFT+",Heading=Loc.Get("QFTCouldnTReadItsSettings"),Text=error.Message});
+        System.Windows.Forms.TaskDialog.ShowDialog(new System.Windows.Forms.TaskDialogPage{Caption=Loc.Get("AppName"),Heading=Loc.Get("QFTCouldnTReadItsSettings"),Text=error.Message});
         return;
     }
     app.MainWindow=window;
