@@ -125,10 +125,11 @@ public partial class StudioWindow
             AutomationProperties.SetHelpText(on, Loc.Get("LipSyncAbout"));
             Wrap(on, main);
             var devices = LipSync.Devices().Prepend((Id: LipSync.Headset, Name: Loc.Get("HeadsetMicrophone"))).ToArray();
+            var selected = Array.FindIndex(devices, d => d.Id == s.Device);
             var microphone = new ComboBox
             {
                 ItemsSource = new[] { Loc.Format("WindowsDefault", LipSync.DefaultDevice()) }.Concat(devices.Select(d => d.Name)).ToList(),
-                SelectedIndex = Array.FindIndex(devices, d => d.Id == s.Device) + 1, Width = 300,
+                SelectedIndex = s.Device.Length == 0 ? 0 : selected < 0 ? -1 : selected + 1, Width = 300,
             };
             Row(Loc.Get("Microphone"), null, microphone, main);
             var level = new ProgressBar { Minimum = -60, Maximum = 0, Height = 6, Width = 300 };

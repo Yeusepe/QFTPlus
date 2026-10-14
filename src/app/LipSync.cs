@@ -130,7 +130,7 @@ internal sealed class LipSync : IDisposable
 
     void Watch()
     {
-        if (settings.Enabled && capture is null && settings.Device != Headset) Start();
+        if (settings.Enabled && capture is null) Start();
         if (settings.Enabled && target is null && Environment.TickCount64 >= discoverAt)
         {
             discoverAt = Environment.TickCount64 + 30_000;
@@ -164,9 +164,12 @@ internal sealed class LipSync : IDisposable
         lock (sync)
         {
             var reopen = next.Device != settings.Device || next.Enabled != settings.Enabled;
+            if (reopen) Stop();
+            else if (next.Index != settings.Index || next.IndexName != settings.IndexName
+                || next.WeightName != settings.WeightName || next.Laughter != settings.Laughter
+                || Visemes.Skip(1).Any(v => settings.Of(v).On && !next.Of(v).On)) Silence();
             settings = next;
             if (!reopen) return;
-            Stop();
         }
         if (next.Enabled) Start();
         else Status = Loc.Get("LipSyncOff");
@@ -184,13 +187,17 @@ internal sealed class LipSync : IDisposable
                 started.DataAvailable += (_, e) => { if (capture == started) Feed(started.WaveFormat, e.Buffer, e.BytesRecorded); };
                 started.RecordingStopped += (_, e) =>
                 {
-                    lock (sync) if (capture == started) { capture = null; Silence(); }
-                    if (e.Exception is not null) Status = started is HeadsetMicrophone ? e.Exception.Message : Loc.Format("MicrophoneUnavailable", e.Exception.Message);
+                    lock (sync) if (capture == started)
+                    {
+                        capture = null; Silence();
+                        if (e.Exception is not null) Status = started is HeadsetMicrophone ? e.Exception.Message : Loc.Format("MicrophoneUnavailable", e.Exception.Message);
+                    }
                     started.Dispose();
                 };
-                started.StartRecording();
                 capture = started;
-                Status = Loc.Get("Listening");
+                try { started.StartRecording(); }
+                catch { capture = null; started.Dispose(); throw; }
+                if (capture == started) Status = Loc.Get("Listening");
             }
             catch (Exception error) when (error is COMException or IOException or ArgumentException or DllNotFoundException or EntryPointNotFoundException)
             {
