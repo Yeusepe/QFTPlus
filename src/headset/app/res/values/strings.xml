@@ -131,6 +131,12 @@
     <string name="offset">Offset</string>
     <string name="on_off_start_stop_status">on off start stop status</string>
     <string name="open_your_mouth_wide">Open your mouth wide</string>
+    <string name="avatar_preview_unavailable">The avatar could not load. You can still follow the calibration instructions.</string>
+    <string name="calibration_scene_failed">Calibration could not open. Restart QFT+ Headset and try again. Your previous calibration is unchanged.</string>
+    <string name="calibration_input_leave">Leave calibration</string>
+    <string name="calibration_input_start">Start calibration</string>
+    <string name="calibration_input_select">Select</string>
+    <string name="calibration_input_point">Point</string>
     <string name="osc_apps">OSC apps</string>
     <string name="other_receivers">Other receivers</string>
     <string name="output">Output</string>

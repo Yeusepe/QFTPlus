@@ -24,8 +24,11 @@ public partial class StudioWindow
     bool FreshState() => state["time"]?.GetValue<double>() is { } time && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - time) < 3;
     static string GroupTitle(string kind) => kind == "pupils" ? Loc.Get("Pupils") : kind.StartsWith("benchmark") ? Loc.Get("Benchmark") : Loc.Get("Face");
 
-    void DrawFace(JsonObject targets) =>
-        face.Show(targets, poseTitle.Text, kind, !preview, recording ? state["index"]?.GetValue<int>() ?? -1 : -1, state["count"]?.GetValue<int>() ?? 0);
+    void DrawFace(JsonObject targets)
+    {
+        face.Configure(preview ? null : session);
+        face.Show(targets, state["condition"]?.GetValue<string>() ?? "", kind, !preview, recording ? state["index"]?.GetValue<int>() ?? -1 : -1, state["count"]?.GetValue<int>() ?? 0);
+    }
 
     void ResizeGuide()
     {
