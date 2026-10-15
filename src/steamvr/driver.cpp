@@ -22,6 +22,11 @@ constexpr u_short kPort = 27055;
 constexpr uint64_t kStaleUs = 200000;
 constexpr const char *kSection = "driver_qftplus";
 
+struct Battery {
+    int percent = -1;
+    uint64_t received = 0;
+};
+
 struct Trackpad {
     PropertyContainerHandle_t container = k_ulInvalidPropertyContainer;
     VRInputComponentHandle_t x = k_ulInvalidInputComponentHandle, y = k_ulInvalidInputComponentHandle;
@@ -29,6 +34,7 @@ struct Trackpad {
     VRInputComponentHandle_t click = k_ulInvalidInputComponentHandle;
     VRInputComponentHandle_t slideX = k_ulInvalidInputComponentHandle, slideY = k_ulInvalidInputComponentHandle;
     VRInputComponentHandle_t slideTouch = k_ulInvalidInputComponentHandle;
+    Battery battery;
 };
 
 struct Cursor {
@@ -38,6 +44,7 @@ struct Cursor {
 
 std::mutex g_lock;
 Pad g_pads[2];
+Battery g_batteries[2];
 Trackpad g_trackpads[2];
 Cursor g_cursors[2];
 struct Slide {
@@ -144,15 +151,39 @@ void Adopt(uint32_t id) {
     Log(std::string("thumbrest trackpad added to ") + (side ? "right " : "left ") + model);
 }
 
+void UpdateBattery(Trackpad &pad, Battery battery, uint64_t now) {
+    if (pad.container == k_ulInvalidPropertyContainer) return;
+    if (now - battery.received >= 15000000) battery.percent = -1;
+    if (battery.received == pad.battery.received && battery.percent == pad.battery.percent) return;
+    auto *props = VRProperties();
+    if (battery.percent >= 0) {
+        props->SetFloatProperty(pad.container, Prop_DeviceBatteryPercentage_Float, battery.percent / 100.0f);
+        props->SetBoolProperty(pad.container, Prop_DeviceProvidesBatteryStatus_Bool, true);
+    } else if (pad.battery.percent >= 0) {
+        props->EraseProperty(pad.container, Prop_DeviceBatteryPercentage_Float);
+        props->SetBoolProperty(pad.container, Prop_DeviceProvidesBatteryStatus_Bool, false);
+    }
+    pad.battery = battery;
+}
+
 class Shim : public ITrackedDeviceServerDriver {
 public:
     explicit Shim(ITrackedDeviceServerDriver *inner) : inner_(inner) {}
     EVRInitError Activate(uint32_t id) override {
         EVRInitError result = inner_->Activate(id);
-        if (result == VRInitError_None) Adopt(id);
+        if (result == VRInitError_None) { id_ = id; Adopt(id); }
         return result;
     }
-    void Deactivate() override { inner_->Deactivate(); }
+    void Deactivate() override {
+        auto container = VRProperties()->TrackedDeviceToPropertyContainer(id_);
+        {
+            std::lock_guard<std::mutex> hold(g_lock);
+            for (auto &pad : g_trackpads)
+                if (pad.container == container) pad = Trackpad{};
+        }
+        id_ = k_unTrackedDeviceIndexInvalid;
+        inner_->Deactivate();
+    }
     void EnterStandby() override { inner_->EnterStandby(); }
     void *GetComponent(const char *name) override { return inner_->GetComponent(name); }
     void DebugRequest(const char *request, char *response, uint32_t size) override { inner_->DebugRequest(request, response, size); }
@@ -160,6 +191,7 @@ public:
 
 private:
     ITrackedDeviceServerDriver *inner_;
+    uint32_t id_ = k_unTrackedDeviceIndexInvalid;
 };
 
 using AddedFn = bool (*)(IVRServerDriverHost *, const char *, ETrackedDeviceClass, ITrackedDeviceServerDriver *);
@@ -192,6 +224,13 @@ bool Hook() {
 }
 
 void Store(const char *packet) {
+    if (packet[0] == 4 || packet[0] == 5) {
+        int percent = static_cast<uint8_t>(packet[1]);
+        if (percent > 100 && percent != 255) return;
+        std::lock_guard<std::mutex> hold(g_lock);
+        g_batteries[packet[0] - 4] = {percent == 255 ? -1 : percent, Now()};
+        return;
+    }
     if (packet[0] == 2 || packet[0] == 3) {
         Slide slide;
         std::memcpy(&slide.position, packet + 6, 4);
@@ -251,6 +290,10 @@ void Receive() {
             }
         }
         closesocket(s);
+        {
+            std::lock_guard<std::mutex> hold(g_lock);
+            for (auto &battery : g_batteries) battery = Battery{};
+        }
         if (streaming) Log("headset thumbrest stream disconnected");
         for (int i = 0; i < 4 && g_running; i++) Sleep(250);
     }
@@ -328,6 +371,7 @@ public:
             uint64_t now = Now();
             for (int side = 0; side < 2; side++) {
                 Frame &f = frames[side];
+                UpdateBattery(g_trackpads[side], g_batteries[side], now);
                 f.t = g_trackpads[side];
                 if (f.t.container == k_ulInvalidPropertyContainer) continue;
                 Pad &p = g_pads[side];

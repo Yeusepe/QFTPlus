@@ -3,6 +3,10 @@ QFT+ third-party notices
 QFT+ is independent of Meta, Virtual Desktop, VRCFaceTracking, and VRChat.
 Project source is provided under LICENSE.
 
+Controller battery polling uses Lateir's Quest Pro Touch Plus / qptp-module as
+a reference (0BSD): https://github.com/Lateir/qptp-module/tree/3ad44b1df2512da353712ebbfc47a22cb706bf10 .
+It reads Meta's installed trackinginterface_cli; no additional module is bundled.
+
 Android Platform Tools: upstream official binaries; platform-tools/NOTICE.txt.
 CPython 3.13.15 embedded distribution: python-runtime/LICENSE.txt.
 Frida 17.18.0: hybrid/FRIDA-COPYING; corresponding source is available at

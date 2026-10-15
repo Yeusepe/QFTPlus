@@ -1023,7 +1023,7 @@
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="HowTheQuestProControllersThumbrestsActInSteamVR" xml:space="preserve">
-    <value>How the Quest Pro controllers’ thumbrests act in SteamVR. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR.</value>
+    <value>Show Quest Pro controller battery levels in SteamVR and choose how the thumbrests act. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
   </data>
   <data name="HybridHands" xml:space="preserve">
@@ -2127,7 +2127,7 @@
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="TheQFTDriverAddsTheThumbrestTrackpadAndTrigger" xml:space="preserve">
-    <value>The QFT+ driver adds the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers.</value>
+    <value>The QFT+ driver adds controller battery levels, the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: AutomationProperties.HelpText</comment>
   </data>
   <data name="TheRequestIsHiddenForNowYourPreferenceCouldn" xml:space="preserve">
@@ -2835,7 +2835,7 @@
     <value>SteamVR isn’t installed. Install it, start it once, then try again.</value>
   </data>
   <data name="RestartSteamVRToUseTheThumbrestAndTrigger" xml:space="preserve">
-    <value>Restart SteamVR to use the thumbrest and trigger.</value>
+    <value>Restart SteamVR to use controller battery levels, the thumbrest and trigger.</value>
   </data>
   <data name="PackageInstallationFailedTheSetupLogHasTheDetails" xml:space="preserve">
     <value>Package installation failed. The Setup log has the details.</value>

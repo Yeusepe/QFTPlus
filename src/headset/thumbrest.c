@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -13,6 +14,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "shared.h"
@@ -132,7 +134,106 @@ static int read_packet(const uint8_t *page, int kind, int side, uint32_t *seq, u
     return 1;
 }
 
+typedef struct {
+    pid_t pid;
+    int fd;
+    uint64_t started, next;
+    size_t used;
+    char output[4096];
+} BatteryQuery;
+
+static void battery_packets(char *text, uint8_t packets[2 * PACKET_BYTES]) {
+    memset(packets, 0, 2 * PACKET_BYTES);
+    // Types 4/5 carry left/right battery percent in byte 1; 255 means unavailable.
+    for (int side = 0; side < 2; side++) {
+        packets[side * PACKET_BYTES] = (uint8_t)(4 + side);
+        packets[side * PACKET_BYTES + 1] = 255;
+    }
+    char *save;
+    for (char *line = strtok_r(text, "\n", &save); line != NULL; line = strtok_r(NULL, "\n", &save)) {
+        if (strstr(line, "[Device ") == NULL) continue;
+        const char *hand = strstr(line, "handedness=");
+        const char *value = strstr(line, "battery=");
+        if (hand == NULL || value == NULL) continue;
+        hand += strlen("handedness=");
+        size_t length = strcspn(hand, " \t\r]");
+        int side = length == 4 && strncmp(hand, "Left", 4) == 0 ? 0 :
+                   length == 5 && strncmp(hand, "Right", 5) == 0 ? 1 : -1;
+        value += strlen("battery=");
+        if (side < 0 || !isdigit((unsigned char)*value)) continue;
+        char *end;
+        errno = 0;
+        long percent = strtol(value, &end, 10);
+        if (*end == '%') end++;
+        if (errno == 0 && percent <= 100 && (*end == '\0' || *end == ']' || isspace((unsigned char)*end)))
+            packets[side * PACKET_BYTES + 1] = (uint8_t)percent;
+    }
+}
+
+static void stop_battery_query(BatteryQuery *query) {
+    if (query->fd >= 0) close(query->fd);
+    if (query->pid > 0) {
+        kill(query->pid, SIGKILL);
+        while (waitpid(query->pid, NULL, 0) < 0 && errno == EINTR) {}
+    }
+    query->fd = -1;
+    query->pid = -1;
+}
+
+static int poll_battery(BatteryQuery *query, uint8_t packets[2 * PACKET_BYTES]) {
+    uint64_t now = monotonic_nanoseconds();
+    if (query->pid < 0) {
+        if (now < query->next) return 0;
+        query->started = now;
+        query->next = now + UINT64_C(5000000000);
+        query->used = 0;
+        int pipes[2];
+        if (pipe2(pipes, O_CLOEXEC) != 0) goto failed;
+        if (fcntl(pipes[0], F_SETFL, O_NONBLOCK) < 0) {
+            close(pipes[0]); close(pipes[1]);
+            goto failed;
+        }
+        query->pid = fork();
+        if (query->pid == 0) {
+            if (dup2(pipes[1], STDOUT_FILENO) < 0) _exit(127);
+            close(pipes[0]); close(pipes[1]);
+            execl("/system_ext/bin/trackinginterface_cli", "trackinginterface_cli", "ls", (char *)NULL);
+            _exit(127);
+        }
+        close(pipes[1]);
+        query->fd = pipes[0];
+        if (query->pid < 0) goto failed;
+    }
+    // Poll without blocking the touch stream; firmware commands can hang during reconnects.
+    if (now - query->started >= UINT64_C(2000000000)) goto failed;
+    ssize_t count = read(query->fd, query->output + query->used, sizeof query->output - 1 - query->used);
+    if (count > 0) {
+        query->used += (size_t)count;
+        if (query->used == sizeof query->output - 1) goto failed;
+        return 0;
+    }
+    if (count < 0) {
+        if (errno == EAGAIN || errno == EINTR) return 0;
+        goto failed;
+    }
+    int status;
+    pid_t done = waitpid(query->pid, &status, WNOHANG);
+    if (done == 0 || (done < 0 && errno == EINTR)) return 0;
+    query->pid = -1;
+    if (done < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) goto failed;
+    query->output[query->used] = '\0';
+    battery_packets(query->output, packets);
+    stop_battery_query(query);
+    return 1;
+failed:
+    stop_battery_query(query);
+    query->output[0] = '\0';
+    battery_packets(query->output, packets);
+    return 1;
+}
+
 static void stream(int client, Source *source) {
+    BatteryQuery battery = {.pid = -1, .fd = -1};
     uint32_t sent[2][2] = {{0}};
     int have[2][2] = {{0}};
     uint64_t checked = monotonic_nanoseconds();
@@ -142,7 +243,7 @@ static void stream(int client, Source *source) {
             checked = monotonic_nanoseconds();
             if (!ensure_source(source)) memset(have, 0, sizeof have);
         }
-        uint8_t packets[4 * PACKET_BYTES];
+        uint8_t packets[6 * PACKET_BYTES];
         size_t used = 0;
         for (int side = 0; side < 2 && source->pages[side] != NULL; side++) {
             for (int kind = 0; kind < 2; kind++) {
@@ -153,15 +254,17 @@ static void stream(int client, Source *source) {
                 have[kind][side] = 1;
             }
         }
-        if (used && !send_all(client, packets, used)) return;
+        if (poll_battery(&battery, packets + used)) used += 2 * PACKET_BYTES;
+        if (used && !send_all(client, packets, used)) break;
         int ready = poll(&watch, 1, 1);
-        if (ready < 0 && errno != EINTR) return;
+        if (ready < 0 && errno != EINTR) break;
         if (ready > 0) {
             char byte;
             ssize_t count = recv(client, &byte, 1, MSG_DONTWAIT);
-            if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) return;
+            if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) break;
         }
     }
+    stop_battery_query(&battery);
 }
 
 static int listen_socket(void) {
