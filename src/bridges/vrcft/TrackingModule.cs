@@ -5,7 +5,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
@@ -13,8 +12,6 @@ using VRCFaceTracking;
 using VRCFaceTracking.Core.Params.Expressions;
 
 namespace Qpro.GazeBridge;
-
-[SupportedOSPlatform("windows")]
 
 public sealed class TrackingModule : ExtTrackingModule
 {
@@ -167,7 +164,7 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private void WakeOnPackets(UdpClient socket)
     {
-        if (WSAEventSelect(socket.Client.Handle, _packetSignal.SafeWaitHandle.DangerousGetHandle(), FdRead) != 0)
+        if (OperatingSystem.IsWindows() && WSAEventSelect(socket.Client.Handle, _packetSignal.SafeWaitHandle.DangerousGetHandle(), FdRead) != 0)
             Logger.LogWarning("QFT+ socket wake-up unavailable ({Error}); packets are read on the {Wait} ms fallback", Marshal.GetLastWin32Error(), WaitMs);
         _wakeSignals = _frameSignal is null ? [_packetSignal] : [_frameSignal, _packetSignal];
     }
@@ -263,7 +260,7 @@ public sealed class TrackingModule : ExtTrackingModule
             var config = ReadAutoStart() ?? throw new InvalidDataException("QproAutoStart.json is unreadable");
             if (config.Count == 0) return;
             string root = _settingsRoot ?? throw new InvalidDataException("QproAutoStart.json has no root");
-            if (config["headsetStandalone"]?.GetValue<bool>() == true) return;
+            if (config["headsetStandalone"]?.GetValue<bool>() == true || !OperatingSystem.IsWindows()) return;
             if (config["startWithVrcft"]?.GetValueKind() == JsonValueKind.False) return;
             string app = config["studioApp"]?.GetValue<string>() ?? Path.Combine(root, "QproFaceTracking.exe");
             if (!File.Exists(app)) throw new FileNotFoundException("QFT+ is missing", app);
@@ -389,6 +386,7 @@ public sealed class TrackingModule : ExtTrackingModule
 
     private void TryOpenMap(long now)
     {
+        if (!OperatingSystem.IsWindows()) return;
         if (_view is not null && _frameSignal is not null || now - _mapTick < 1000) return;
         _mapTick = now;
         if (_frameSignal is null && EventWaitHandle.TryOpenExisting(FrameEventName, out var frame))

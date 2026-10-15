@@ -123,7 +123,7 @@ internal sealed class SetupService(string root)
 
     internal static string EyeModel(string root) => Path.Combine(root, "models/eye/bolt-independent-axes.ptl");
 
-    static readonly string[] ConflictingModules = ["7f9be083-a4f1-4e30-b28a-8e6ec878d583", "91a90618-b020-4064-8832-809b2ca2b3bc", "2a8c8080-2a76-46af-bf76-1da7c0127ef8"];
+    static readonly string[] ConflictingModules = ["7f9be083-a4f1-4e30-b28a-8e6ec878d583", "91a90618-b020-4064-8832-809b2ca2b3bc", "2a8c8080-2a76-46af-bf76-1da7c0127ef8", "c2541113-e1d1-4f5d-9c8e-c2c6fda90cf0"];
 
     internal async Task InstallModule(string source, string destination)
     {

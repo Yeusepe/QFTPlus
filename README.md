@@ -30,6 +30,10 @@ Removing QFT+ Headset through Windows backs up settings and calibration to `%LOC
 
 **Help:** If setup stops responding, cancel it. Start setup again. If VRCFT stops loading, restart it.
 
+## Standalone VRCFaceTracking module
+
+Download the **VRCFT module ZIP** and **Headset APK** from [Releases](https://github.com/Yeusepe/QFTPlus/releases). Import the ZIP into a .NET 10-based VRCFT build and follow its `INSTALL.txt` for pairing. Headset processing works without the Windows hub, including on Linux; PC processing requires Windows.
+
 ## Translations
 
 [Help translate the Windows and Quest apps on Crowdin](https://crowdin.com/project/qftplus). Approved translations sync hourly to a public pull request and ship after review, merge, and release.
@@ -52,7 +56,7 @@ These credits cover shipped features. Each row links a source to its use in QFT+
 | [Frida injection example, Ole André Vadla Ravnås](https://github.com/oleavr/android-inject-custom/tree/ee64bd404cdbb62ae0e8fa382726f9a0c722a27b) | Reference for [injection](src/headset/capture_attach.c) and [camera](src/headset/camera_capture.c)/[stream](src/headset/streamer.c) code. Frida also runs the [hybrid hooks](src/tracking/hybrid). |
 | [scrcpy, Genymobile](https://github.com/Genymobile/scrcpy/blob/19871982cefb9de4c981c2314dfda2ac81564b48/server/src/main/java/com/genymobile/scrcpy/CleanUp.java) | Design reference for [cleanup after disconnect](src/app/HeadsetCleanup.cs). |
 | [VirtualDesktop.VRCFaceTracking, Guy Godin](https://github.com/guygodin/VirtualDesktop.VRCFaceTracking/blob/1c0499252040ead367dade9b56da89a1d8ae4332/TrackingModule.cs) | Adapted [face mapping](src/headset/app/java/com/qftplus/headset/FaceExpressions.java) and [bridge code](src/bridges/vrcft/TrackingModule.cs). |
-| [VRCFaceTracking, benaclejames and contributors](https://github.com/benaclejames/VRCFaceTracking/tree/6432e6a8d85fa7ec5115fc725c6abcb6dbdd4f35) | Adapted [Java formulas](src/headset/app/java/com/qftplus/headset/FaceExpressions.java), [OSC encoding](src/headset/app/java/com/qftplus/headset/OscOutput.java) and [parameters](assets/tracking-parameters.json). |
+| [VRCFaceTracking, benaclejames and contributors](https://github.com/benaclejames/VRCFaceTracking/tree/6432e6a8d85fa7ec5115fc725c6abcb6dbdd4f35) | Adapted [Java formulas](src/headset/app/java/com/qftplus/headset/FaceExpressions.java), [OSC encoding](src/headset/app/java/com/qftplus/headset/OscOutput.java) and [parameters](assets/tracking-parameters.json). Its [module installer](https://github.com/benaclejames/VRCFaceTracking/blob/e1056bb98843dd0fd1b152f24cce3b09d0d19db4/VRCFaceTracking.Core/Services/ModuleInstaller.cs) defines the standalone ZIP format. |
 | [VRCFT-SteamLink, danwillm](https://github.com/danwillm/VRCFT-SteamLink); [LinkFT, ykeara](https://github.com/ykeara/LinkFT) | References for [Steam Link support](src/bridges/vrcft/SteamLinkState.cs) and [setup](src/app/SteamVr.cs). |
 | [OpenCV](https://github.com/opencv/opencv/blob/4.13.0/modules/imgproc/src/contours.cpp) | Adapted [pupil outline detection](src/headset/pupil_contours.hpp). |
 | [OpenVR, Valve](https://github.com/ValveSoftware/openvr) | [Driver header](src/steamvr/openvr_driver.h) and [API](src/steamvr/driver.cpp). [Input profiles](src/steamvr/qftplus/resources/input) adapt Valve's SteamVR Touch files. |
