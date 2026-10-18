@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
+from label_capture import tongue_out
 
 
 DONNING_GAP_NS = 2_000_000_000
@@ -124,7 +125,7 @@ class FaceEvents:
             gain = min(self.config[name].gain_max, max(.7, 1. / max(self.reach.get(name, 1.) - n, 1e-3)))
             v = min(1., max(0., (float(raw) - n) * gain))
             if self.config[name].gate == "sealed" and native is not None and {"JawDrop", "LipsToward", "TongueOut"} <= native.keys():
-                v *= 1. - max(ramp(native["JawDrop"] - native["LipsToward"], *LIPS_APART), ramp(native["TongueOut"], *TONGUE_OUT))
+                v *= 1. - max(ramp(native["JawDrop"] - native["LipsToward"], *LIPS_APART), ramp(tongue_out(native), *TONGUE_OUT))
             post[name] = v
             e = self.config[name]
             settled = v < .5 if e.continuous else not self.on[name] and v < e.on and not self.speaking

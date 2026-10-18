@@ -6,7 +6,8 @@ brows: missing neutral + 2-layer MLP) and metadata pinned to the graph's sha256.
 fallback); no PyTorch. One pass over all five cameras: a shared front, then three tails -- mouth (cams 2/3,
 anchor-conditioned outputs), tongue (cams 2/3, direction head) and brows (eye cams 0/1 + glabella cam 4, per side, against
 the wearer's neutral). The enrollment file's anchor frames are encoded once at load. Per frame: network -> heads (numpy) ->
-face_events -> the VRCFT module (extra expressions and tongue, both on UDP 27275). Tongue visibility stays on Meta's TongueOut.
+face_events -> the VRCFT module (extra expressions and tongue, both on UDP 27275). Tongue visibility stays on Meta's
+tongue-out (label_capture.tongue_out).
 """
 import hashlib
 import json
@@ -19,7 +20,7 @@ from dataclasses import replace
 from face_events import BROW, PUFF, SUCK, TONGUE, FaceEvents
 from gpu_lock import GPU_LOCK
 from capture_format import scan_frames
-from label_capture import FRESH_NS, fresh_values
+from label_capture import FRESH_NS, fresh_values, tongue_out
 
 SCHEMA = "universal-face-v2"
 META = {"schema", "names", "slots", "browNames", "imageSize", "approvedForOutput", "allowsNoEnrollment", "provenance", "graphSha256"}
@@ -271,7 +272,8 @@ class UniversalFace:
 
     def benchmark_tongue(self, prefix):
         """A recorded benchmark -> mouth embeddings (k, 512) and prompted directions (k, 2) of its tongue prompts' frames where
-        Meta's TongueOut is above .5. Computed once per model and cached next to the recording; empty if unreadable."""
+        Meta's tongue-out (label_capture.tongue_out) is above .5. Computed once per model and cached next to the recording;
+        empty if unreadable."""
         prefix, empty = Path(prefix), (np.zeros((0, 512), np.float32), np.zeros((0, 2)))
         cache = prefix.with_name(prefix.name + ".tongue.npz")
         try:
@@ -288,7 +290,7 @@ class UniversalFace:
                 if r.get("type") == "schema":
                     names = r["names"]
                 elif r.get("type") == "sample" and names and "TongueOut" in names:
-                    nt.append(int(r["arrivalMonotonicNs"])); out.append(float(r["values"][names.index("TongueOut")]))
+                    nt.append(int(r["arrivalMonotonicNs"])); out.append(tongue_out(dict(zip(names, r["values"]))))
             capture = prefix.with_name(prefix.name + ".qpcap")
             entries = scan_frames(capture, 0x1F)
         except (OSError, ValueError, KeyError, TypeError):
@@ -363,7 +365,7 @@ class UniversalFace:
             if left in nv and right in nv:
                 amp = (nv[left] + nv[right]) / 2
                 p[base + "Left"], p[base + "Right"] = min(1., amp * 2 * share), min(1., amp * 2 * (1 - share))
-        tongue_native = nv.get("TongueOut", 0.)
+        tongue_native = tongue_out(nv)
         values = {n: float(p[n]) for n in CHEEKS + BROWS}
         values["TongueOut"] = tongue_native
         out = self.events.step(values, native, fresh, now_ns)

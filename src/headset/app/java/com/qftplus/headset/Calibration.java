@@ -121,7 +121,7 @@ final class Calibration {
             double phase = t-faceStep*6;
             holdVisible = false;
             if (phase>=2 && phase<5) {
-                float nativeValue = faceStep==1 ? b.getFloat(296+24*4) : faceStep==2 ? Math.max(b.getFloat(296+40*4),b.getFloat(296+41*4)) : faceStep>=6 && faceStep<=10 ? b.getFloat(296+68*4) : 1;
+                float nativeValue = faceStep==1 ? b.getFloat(296+24*4) : faceStep==2 ? Math.max(b.getFloat(296+40*4),b.getFloat(296+41*4)) : faceStep>=6 && faceStep<=10 ? Math.max(b.getFloat(296+68*4),b.getFloat(296+63*4)) : 1;
                 float threshold = faceStep>=6 && faceStep<=10 ? .5f : faceStep==1 ? .4f : .3f;
                 holdVisible = (b.getInt(288)&1)!=0 && Float.isFinite(nativeValue) && nativeValue>=threshold;
                 if ((b.getInt(288)&1)!=0 && Float.isFinite(nativeValue)) peak = Math.max(peak,nativeValue);

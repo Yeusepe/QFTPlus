@@ -11,6 +11,7 @@ import random
 import sys
 import time
 import numpy as np
+from label_capture import tongue_out
 
 
 @dataclass(frozen=True)
@@ -260,6 +261,7 @@ class EnrollmentSession(GuidedSession):
         s = self.current
         if s.slot and self.elapsed >= s.ramp and not self.completed:
             roi = mouth_roi(strip)
+            native = native and {**native, "TongueOut": tongue_out(native)}
             self.observed.append((roi, native, frozen, float(roi.mean(dtype=np.float64))))
 
     def evaluate(self, step):

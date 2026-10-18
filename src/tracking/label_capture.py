@@ -18,6 +18,12 @@ def fresh_values(sample: dict | None, names: list[str], now_ns: int) -> dict[str
     return dict(zip(names, map(float, sample["values"])))
 
 
+def tongue_out(native: dict[str, float]) -> float:
+    """Meta's tongue-out evidence. For some wearers Meta reports a tongue held fully out only as TongueTipInterdental while
+    TongueOut stays 0; for the rest TongueTipInterdental stays near 0 with the tongue out and in speech."""
+    return max(native.get("TongueOut", 0.), native.get("TongueTipInterdental", 0.))
+
+
 def _no_constant(name):
     raise ValueError(f"{name} is not a number")
 

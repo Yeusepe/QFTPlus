@@ -261,7 +261,8 @@ struct TrackingModel {
             }
         }
         share_ready = true;
-        values[12] = valid ? static_cast<float>(native(68)) : 0;
+        // Some wearers' tongue held out reads only as TongueTipInterdental (63), with TongueOut (68) at 0.
+        values[12] = valid ? static_cast<float>(std::max(native(68), native(63))) : 0;
         out.tongue[0] = std::max(.4f, values[12]);
         double dt = last < 0 ? 0 : std::max(0., now - last);
         last = now;
@@ -285,7 +286,7 @@ struct TrackingModel {
             double n = neutral[i], gain = clip(1 / std::max(p.reach[i] - n, .001), .7, i < 2 ? 2.5 : 1.5);
             double v = clip((values[i] - n) * gain);
             if (i < 4 && valid && has(24) && has(50) && has(68))
-                v *= 1 - std::max(ramp(native(24) - native(50), .2, .4), ramp(native(68), .3, .7));
+                v *= 1 - std::max(ramp(native(24) - native(50), .2, .4), ramp(values[12], .3, .7));
             post[i] = v;
             bool settled = brow ? v < .5 : !on[i] && v < .5 && !talking;
             if ((brow ? qbrow : qface) && settled && dt)
