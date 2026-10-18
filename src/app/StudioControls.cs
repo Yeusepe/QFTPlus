@@ -561,16 +561,41 @@ public partial class StudioWindow
         else if (session.State is not ("SetupPaused" or "CouldnTConnect")) setupStep = Array.FindLastIndex(SetupSteps, s => s.From <= session.Progress);
     }
 
+    ContentControl Row(string glyph, string title, string detail = "", string brush = "Muted", bool current = false, bool muted = true, string status = "") => new()
+    {
+        ContentTemplate = (DataTemplate)FindResource("SetupStatusRow"),
+        Content = new { Glyph = glyph, Title = title, Detail = detail, Brush = brush, Muted = muted, Weight = current ? FontWeights.SemiBold : FontWeights.Normal,
+            Name = status.Length == 0 ? title : Loc.Format("SetupStepStatus", title, status) }
+    };
+
+    internal async Task PrepareHeadset()
+    {
+        if (busy) return;
+        (busy, setupDone, setupProblem, moduleMissing, setupStep) = (true, false, "", false, 0);
+        StartButton.Content = Loc.Get("Cancel");
+        ClearNotice();
+        setupRefresh?.Invoke();
+        onboardingRefresh?.Invoke();
+        try { await session.Prepare(); }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            (setupProblem, moduleMissing) = (error.Message, error is ModuleNotInstalledException);
+            if (onboardingRefresh is null) Error(error.Message);
+        }
+        finally
+        {
+            busy = false;
+            SidebarStatus();
+            setupRefresh?.Invoke();
+            onboardingRefresh?.Invoke();
+        }
+    }
+
     void SetupOptions()
     {
         Subtitle.Text = Loc.Get("ConnectYourQuestProWithUSBTheFirstTime");
         Subtitle.Visibility = Visibility.Visible;
-        ContentControl Row(string glyph, string title, string detail = "", string brush = "Muted", bool current = false, bool muted = true, string status = "") => new()
-        {
-            ContentTemplate = (DataTemplate)FindResource("SetupStatusRow"),
-            Content = new { Glyph = glyph, Title = title, Detail = detail, Brush = brush, Muted = muted, Weight = current ? FontWeights.SemiBold : FontWeights.Normal,
-                Name = status.Length == 0 ? title : Loc.Format("SetupStepStatus", title, status) }
-        };
         Ui.Card Template(string name) => (Ui.Card)((DataTemplate)FindResource(name)).LoadContent();
         var use = session.Use;
         var (useCard, useRefresh, selectUse) = UseOptions(id =>
@@ -684,28 +709,8 @@ public partial class StudioWindow
         }
         async Task RunSetup()
         {
-            if (busy) return;
-            (busy, setupDone, setupProblem, moduleMissing, setupStep) = (true, false, "", false, 0);
-            StartButton.Content = Loc.Get("Cancel");
-            ClearNotice();
-            ShowSteps();
-            try { await session.Prepare(); }
-            catch (OperationCanceledException) { }
-            catch (Exception error)
-            {
-                (setupProblem, moduleMissing) = (error.Message, error is ModuleNotInstalledException);
-                Error(error.Message);
-            }
-            finally
-            {
-                busy = false;
-                SidebarStatus();
-                if (page == "Setup")
-                {
-                    setupRefresh?.Invoke();
-                    _ = Search();
-                }
-            }
+            await PrepareHeadset();
+            if (page == "Setup") _ = Search();
         }
         go.Click += async (_, _) =>
         {
@@ -732,7 +737,10 @@ public partial class StudioWindow
         }.Select(tip => Row("•", tip)), openLog]);
         foreach (var element in new UIElement[] { useCard, headsetCard, connection, steps, new Ui.CardExpander { Header = Loc.Get("CanTFindYourHeadset"), Content = tips, Margin = new(0, 0, 0, 8) } })
             Page.Children.Add(element);
+        var guide = Button(Loc.Get("SetupGuide"), ShowOnboarding);
+        (guide.Margin, guide.IsEnabled) = (new(8, 0, 0, 0), !busy);
         Actions.Children.Add(go);
+        Actions.Children.Add(guide);
         ShowSteps();
         ShowHeadsets();
         if (!busy) _ = Search();

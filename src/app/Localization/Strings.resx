@@ -3991,4 +3991,100 @@
   <data name="WiFiConnection" xml:space="preserve">
     <value>Wi-Fi</value>
   </data>
+  <data name="FinishSetup" xml:space="preserve">
+    <value>Finish setup</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="StartTracking" xml:space="preserve">
+    <value>Start tracking</value>
+  </data>
+  <data name="ConnectYourQuestProFirst" xml:space="preserve">
+    <value>Connect your Quest Pro first, then come back to this step.</value>
+  </data>
+  <data name="CouldnTOpenHeadsetSettings" xml:space="preserve">
+    <value>Couldn’t open it in the headset: {0}. Open it there yourself.</value>
+  </data>
+  <data name="EyeTracking" xml:space="preserve">
+    <value>Eye tracking</value>
+  </data>
+  <data name="HandsAndControllersTogether" xml:space="preserve">
+    <value>Hands and controllers together</value>
+  </data>
+  <data name="SetUpQFT" xml:space="preserve">
+    <value>Set up QFT+</value>
+  </data>
+  <data name="OnboardingWelcomeAbout" xml:space="preserve">
+    <value>Choose what you want to use. QFT+ sets up the rest.</value>
+  </data>
+  <data name="OnboardingConnectAbout" xml:space="preserve">
+    <value>Plug your Quest Pro into this PC with a USB data cable and put it on. When the headset asks, choose Always allow, then allow Shell in Magisk.</value>
+  </data>
+  <data name="OnboardingFinishAbout" xml:space="preserve">
+    <value>QFT+ installs and checks what it needs on this PC. Keep the headset awake.</value>
+  </data>
+  <data name="YouReAllSet" xml:space="preserve">
+    <value>You’re all set</value>
+  </data>
+  <data name="OnboardingReadyAbout" xml:space="preserve">
+    <value>Put on your headset and start tracking. You can change any of this later in Setup or Settings.</value>
+  </data>
+  <data name="SetUpLater" xml:space="preserve">
+    <value>Set up later</value>
+  </data>
+  <data name="SetupGuide" xml:space="preserve">
+    <value>Setup guide</value>
+  </data>
+  <data name="StepOfSteps" xml:space="preserve">
+    <value>Step {0} of {1}</value>
+  </data>
+  <data name="NaturalFacialExpressions" xml:space="preserve">
+    <value>Natural facial expressions</value>
+  </data>
+  <data name="HandAndBodyTracking" xml:space="preserve">
+    <value>Hand and body tracking</value>
+  </data>
+  <data name="ShowInHeadset" xml:space="preserve">
+    <value>Show in headset</value>
+  </data>
+  <data name="RunSetupGuide" xml:space="preserve">
+    <value>Run setup guide</value>
+  </data>
+  <data name="SetupGuideAbout" xml:space="preserve">
+    <value>Walks you through connecting your Quest Pro, turning on tracking in the headset and finishing setup.</value>
+  </data>
+  <data name="UseFaceShort" xml:space="preserve">
+    <value>Face and eyes</value>
+  </data>
+  <data name="UseHandsShort" xml:space="preserve">
+    <value>Hybrid hands</value>
+  </data>
+  <data name="GettingYourHeadsetReady" xml:space="preserve">
+    <value>Getting your headset ready</value>
+  </data>
+  <data name="CheckingYourHeadset" xml:space="preserve">
+    <value>Checking your headset…</value>
+  </data>
+  <data name="SwitchOnInYourHeadset" xml:space="preserve">
+    <value>{0} is open in your headset. Switch it on there.</value>
+  </data>
+  <data name="YourHeadsetIsReady" xml:space="preserve">
+    <value>Your headset is ready</value>
+  </data>
+  <data name="EverythingQFTNeedsIsOn" xml:space="preserve">
+    <value>Everything QFT+ needs is on.</value>
+  </data>
+  <data name="TurnOnItem" xml:space="preserve">
+    <value>Turn on {0}</value>
+  </data>
+  <data name="QFTOpensTheRightSettingInYourHeadset" xml:space="preserve">
+    <value>QFT+ opens the right setting in your headset.</value>
+  </data>
+  <data name="SetupFinished" xml:space="preserve">
+    <value>Setup finished</value>
+  </data>
+  <data name="EverythingIsInstalled" xml:space="preserve">
+    <value>Everything QFT+ needs is installed on this PC.</value>
+  </data>
 </root>

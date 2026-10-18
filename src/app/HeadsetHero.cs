@@ -21,6 +21,10 @@ internal sealed class HeadsetHero : Grid
     Action? next, leaving;
 
     internal Brush Glow { get; }
+    // The first-run journey: one continuous render cut into a segment per step, so the headset never leaves between steps.
+    static readonly string[] Segments = ["journey-in", "journey-connect", "journey-prepare", "journey-ready"];
+    internal bool Journey { get; init; }
+    int stop = -1, wanted;
 
     static BitmapSource[]? Frames(string name)
     {
@@ -125,22 +129,41 @@ internal sealed class HeadsetHero : Grid
         Play(clip, () => { pose = to; Route(target, done); });
     }
 
-    void Play(string clip, Action done)
+    internal void Travel(int target)
+    {
+        wanted = target;
+        if (!IsLoaded || stop < 0) return;
+        var from = stop;
+        stop = target;
+        if (from == target || !Animated)
+        {
+            Stop();
+            if (Frames($"{variant}-{Segments[target]}") is { Length: > 0 } still) image.Source = still[^1];
+            return;
+        }
+        var path = new Queue<(string, bool)>(target > from
+            ? Enumerable.Range(from + 1, target - from).Select(i => (Segments[i], false))
+            : Enumerable.Range(target + 1, from - target).Reverse().Select(i => (Segments[i], true)));
+        void Next() { if (path.TryDequeue(out var segment)) Play(segment.Item1, Next, segment.Item2); }
+        Next();
+    }
+
+    void Play(string clip, Action done, bool back = false)
     {
         Stop();
         var frames = Frames($"{variant}-{clip}");
         if (frames is not { Length: > 0 } || !Animated)
         {
-            if (frames is { Length: > 0 }) image.Source = frames[^1];
+            if (frames is { Length: > 0 }) image.Source = back ? frames[0] : frames[^1];
             done();
             return;
         }
         var start = DateTime.UtcNow;
-        image.Source = frames[0];
+        image.Source = frames[back ? ^1 : 0];
         playing = (_, _) =>
         {
             var index = (int)((DateTime.UtcNow - start).TotalSeconds * 60);
-            image.Source = frames[Math.Min(index, frames.Length - 1)];
+            image.Source = frames[back ? Math.Max(frames.Length - 1 - index, 0) : Math.Min(index, frames.Length - 1)];
             if (index < frames.Length - 1) return;
             Stop();
             done();
@@ -173,12 +196,22 @@ internal sealed class HeadsetHero : Grid
 
     void Appear()
     {
+        if (Journey && stop >= 0) { var resume = wanted; wanted = stop; Travel(resume); return; }
         Rest();
-        if (!Animated || Frames($"{variant}-in") is not { Length: > 0 } frames) return;
+        var entrance = Journey ? Segments[0] : "in";
+        if (!Animated || Frames($"{variant}-{entrance}") is not { Length: > 0 } frames)
+        {
+            if (Journey) { stop = 0; Travel(wanted); }
+            return;
+        }
         pose = "rest";
         Tint(Look.Idle, animate: false);
         Feather(true, frames.Length * 1000 / 60);
-        Play("in", () => { if (variant != "touch" && look != Look.Idle) Go(); else Finish(null); });
+        Play(entrance, () =>
+        {
+            if (Journey) { stop = 0; Travel(wanted); return; }
+            if (variant != "touch" && look != Look.Idle) Go(); else Finish(null);
+        });
     }
 
     void Leave(Action done)

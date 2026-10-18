@@ -56,6 +56,7 @@ public partial class StudioWindow : Ui.FluentWindow
             SidebarStatus();
             if (session.SettingUp) SetupProgress();
             trackingRefresh?.Invoke();
+            onboardingRefresh?.Invoke();
             if (page == "Setup") setupRefresh?.Invoke();
             else if (page != "Tracking" && busy && session.Detail.Length > 0) Error(session.Detail);
         });
@@ -79,6 +80,7 @@ public partial class StudioWindow : Ui.FluentWindow
         var last = session.Config["window"]?["page"]?.GetValue<string>() ?? "";
         Navigate(Pages.Concat(["LipSync/MouthShapes", "LipSync/Sound", "LipSync/VRChat"]).Contains(last) && last is not ("Setup" or "Calibration") ? last : "Tracking");
         RestorePlacement();
+        if (!SetUp && session.Config["onboarded"] is null) ShowOnboarding();
         SizeChanged += (_, _) => ResizeGuide();
         PageScroll.ScrollChanged += (_, _) => FadeEdges();
         if (!preview)
@@ -108,7 +110,8 @@ public partial class StudioWindow : Ui.FluentWindow
         KeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape) return;
-            if (recording && cancel is { IsVisible: true, IsEnabled: true }) cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            if (onboardingStep >= 0) CloseOnboarding();
+            else if (recording && cancel is { IsVisible: true, IsEnabled: true }) cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             else if (busy && Equals(StartButton.Content, Loc.Get("Cancel"))) session.CancelSetup();
             else return;
             e.Handled = true;
@@ -249,7 +252,7 @@ public partial class StudioWindow : Ui.FluentWindow
 
     async void StartClick(object sender, RoutedEventArgs e)
     {
-        if (!SetUp && !busy) { Navigate("Setup"); return; }
+        if (!SetUp && !busy) { ShowOnboarding(); return; }
         if (busy) session.CancelSetup();
         else if (!session.Running) await Start();
         else if (recording || training) Error(Loc.Get("FinishCalibrationBeforeStoppingTracking"));
@@ -551,7 +554,8 @@ public partial class StudioWindow : Ui.FluentWindow
 
     void TrackingActionClick(object sender, RoutedEventArgs e)
     {
-        if (!SetUp || Problem && moduleMissing) Navigate("Setup");
+        if (!SetUp) ShowOnboarding();
+        else if (Problem && moduleMissing) Navigate("Setup");
         else StartClick(sender, e);
     }
 
@@ -783,6 +787,7 @@ public partial class StudioWindow : Ui.FluentWindow
         foreach (var element in new[]
         {
             Heading(Loc.Get("Tracking"), 23), useCard, Face(eyes), Face(Card(OutputOptions())), Card(HeadsetHero.Controllers(96), new ThumbrestSettings(session)),
+            Card(Heading(Loc.Get("SetupGuide")), Muted(Loc.Get("SetupGuideAbout")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
             Face(HeadsetModelOptions()), Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,

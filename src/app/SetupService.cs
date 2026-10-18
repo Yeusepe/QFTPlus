@@ -203,10 +203,21 @@ internal sealed class SetupService(string root)
         }
     }
 
-    internal async Task<string?> HandSettingsProblemAsync(string target, CancellationToken token)
+    internal async Task<string?> HandSettingsProblemAsync(string target, CancellationToken token) => HandSettingsProblem(await HeadsetFeaturesAsync(target, token));
+
+    internal async Task<string> HeadsetFeaturesAsync(string target, CancellationToken token) => (await ProbeAsync(Adb.Su(target,
+        "for k in ft_enabled et_enabled hand_tracking_enabled; do oculuspreferences --get $k; done; oculuspreferences --getc simultaneous_hands_and_controllers_mode; pidof frida-server >/dev/null && echo SINGULARITY_FRIDA"), token, 10)).Text;
+
+    internal static bool? Feature(string output, string key) => Regex.Match(output, $@"\[{key} : (\w+)\]") is { Success: true } match ? match.Groups[1].Value is "true" or "1" : null;
+
+    internal const string Singularity = "singularity";
+
+    // "setting" scrolls Meta's Settings to that row.
+    internal async Task OpenInHeadsetAsync(string target, string place, CancellationToken token)
     {
-        var read = await ProbeAsync(Adb.Su(target, "oculuspreferences --get hand_tracking_enabled; oculuspreferences --get multimodal_hands_and_controllers_enabled; oculuspreferences --getc simultaneous_hands_and_controllers_mode; pidof frida-server >/dev/null && echo SINGULARITY_FRIDA"), token, 10);
-        return HandSettingsProblem(read.Text);
+        var open = await ProbeAsync(["-s", target, "shell", place == Singularity ? "am start -n com.lumi.singularity/.ui.activities.MainActivity"
+            : $"am start -a com.oculus.action.SETTINGS -p com.oculus.panelapp.settings --es uri '/movement_tracking?setting={place}' -f 0x10008000"], token, 10);
+        if (open.Code != 0 || open.Text.Contains("Error")) throw new IOException(open.Text.Trim());
     }
 
     internal static string? HandSettingsProblem(string output)
@@ -215,7 +226,7 @@ internal sealed class SetupService(string root)
         bool Off(string key) => values.TryGetValue(key, out var value) && value is "false" or "0";
         var problems = new List<string>();
         if (Off("hand_tracking_enabled")) problems.Add(Loc.Get("TurnOnHandTrackingInTheHeadsetSettingsMovementTracking"));
-        if (Off("multimodal_hands_and_controllers_enabled") || Off("simultaneous_hands_and_controllers_mode")) problems.Add(Loc.Get("InSingularityTurnOnSimultaneousHandsControllers"));
+        if (Off("simultaneous_hands_and_controllers_mode")) problems.Add(Loc.Get("InSingularityTurnOnSimultaneousHandsControllers"));
         if (output.Contains("SINGULARITY_FRIDA")) problems.Add(Loc.Get("InSingularityTurnOffFridaServerHybridTrackingStartsIts"));
         return problems.Count == 0 ? null : string.Join(" ", problems);
     }
