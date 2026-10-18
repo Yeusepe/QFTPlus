@@ -1,4 +1,4 @@
-![SillyFace](https://github.com/user-attachments/assets/1f2c8f06-87b8-4bb9-8cdb-bd53305045ff)
+![Promo](https://raw.githubusercontent.com/Yeusepe/QFTPlus-FT-Templates/366045a14b36d056ebc3e8b198f13fc329d383f5/Website/assets/og.png)
 ![SillyFace](https://github.com/user-attachments/assets/11596c0a-00c8-4848-9243-031f420c1e69)
 ![Multimodal](https://github.com/user-attachments/assets/584e7bec-1ee3-40d1-97e4-6c778780f77e)
 # QFT+
