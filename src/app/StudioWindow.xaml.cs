@@ -409,7 +409,7 @@ public partial class StudioWindow : Ui.FluentWindow
         ClearNotice();
         SaveNow();
         Back.Visibility = Visible(page != ParentPage(page));
-        (Back.Content, Back.Icon) = (TitleOf(ParentPage(page)), Symbols.Icon("chevron_left", (Brush)FindResource("Ink")));
+        (Back.Content, Back.Icon) = (TitleOf(ParentPage(page)), Symbols.Icon("chevron_left", Back));
         AutomationProperties.SetName(Back, Loc.Format("BackTo", TitleOf(ParentPage(page))));
         PageTitle.Text = title;
         Title = Loc.Format("WindowTitle", title);
@@ -722,7 +722,7 @@ public partial class StudioWindow : Ui.FluentWindow
         var detail = Muted(value);
         detail.Margin = new(0, 2, 0, 0);
         content.Children.Add(value.Length > 0 ? Stack(name, detail) : name);
-        (row.Content, row.Icon) = (content, icon is null ? null : Symbols.Icon(problem ? "warning" : icon, (Brush)FindResource("Ink")));
+        (row.Content, row.Icon) = (content, icon is null ? null : Symbols.Icon(problem ? "warning" : icon, name));
         row.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         AutomationProperties.SetName(row, value.Length > 0 ? Loc.Format("FeatureStatus", title, value) : title);
     }
@@ -732,10 +732,10 @@ public partial class StudioWindow : Ui.FluentWindow
         action.VerticalAlignment = VerticalAlignment.Center;
         action.Margin = new(16, 0, 0, 0);
         DockPanel.SetDock(action, Dock.Right);
-        var glyph = Symbols.Icon(icon, (Brush)FindResource("Ink"));
+        var name = Text(title);
+        var glyph = Symbols.Icon(icon, name);
         glyph.Margin = new(0, 0, 14, 0);
         glyph.VerticalAlignment = VerticalAlignment.Center;
-        var name = Text(title);
         (name.Margin, value.Margin) = (new(0), new(0, 2, 0, 0));
         var text = Stack(name, value);
         text.VerticalAlignment = VerticalAlignment.Center;

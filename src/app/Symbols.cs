@@ -44,13 +44,19 @@ internal static class Symbols
         return shape;
     }
 
-    internal static Wpf.Ui.Controls.ImageIcon Icon(string name, Brush brush, double size = 20)
+    internal static Wpf.Ui.Controls.ImageIcon Icon(string name, Brush brush, double size = 20) => Icon(name, size, glyph => glyph.Brush = brush);
+
+    // follows the text's foreground like Shape, so the icon keeps up with theme changes (the drawing stays unfrozen for the binding)
+    internal static Wpf.Ui.Controls.ImageIcon Icon(string name, FrameworkElement text, double size = 20) => Icon(name, size, glyph =>
+        BindingOperations.SetBinding(glyph, GeometryDrawing.BrushProperty, new Binding(text is System.Windows.Controls.Control ? "Foreground" : "(TextElement.Foreground)") { Source = text }));
+
+    static Wpf.Ui.Controls.ImageIcon Icon(string name, double size, Action<GeometryDrawing> paint)
     {
         var drawing = new DrawingGroup();
         drawing.Children.Add(new GeometryDrawing(Brushes.Transparent, null, new RectangleGeometry(new Rect(0, 0, size, size))));
-        drawing.Children.Add(new GeometryDrawing(brush, null, Outline(name, size)));
-        var image = new DrawingImage(drawing);
-        image.Freeze();
-        return new() { Source = image, Width = size, Height = size, Tag = name };
+        var glyph = new GeometryDrawing { Geometry = Outline(name, size) };
+        paint(glyph);
+        drawing.Children.Add(glyph);
+        return new() { Source = new DrawingImage(drawing), Width = size, Height = size, Tag = name };
     }
 }
