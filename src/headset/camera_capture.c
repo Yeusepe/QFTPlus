@@ -170,11 +170,17 @@ static int face_views(const uint8_t *map) {
 int camera_capture_read(CameraCapture *capture, uint8_t *frame, uint64_t *sequence, uint64_t *timestamp) {
     const uint8_t *newest = NULL;
     uint32_t latest = capture->counter;
+    uint32_t observed = counter(capture->maps[0]);
     for (unsigned i = 0; i < CAMERA_COUNT; i++) {
         uint32_t value = counter(capture->maps[i]);
+        if ((int32_t)(value - observed) > 0) observed = value;
         if ((int32_t)(value - latest) > 0 && face_views(capture->maps[i])) { newest = capture->maps[i]; latest = value; }
     }
-    if (!newest) return 0;
+    if (!newest) {
+        // Sleep/wake can reset every hardware counter without restarting the camera provider.
+        if ((int32_t)(observed - capture->counter) < 0) capture->counter = observed;
+        return 0;
+    }
     *timestamp = monotonic_nanoseconds();
     memcpy(capture->first, newest, SENSOR_BYTES);
     usleep(250);
