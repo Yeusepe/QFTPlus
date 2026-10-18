@@ -47,7 +47,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         boolean restart = intent.hasExtra("rate") && intent.getIntExtra("rate", 0) != settings.getInt("rate", 0);
         restart |= intent.hasExtra("convergence") && intent.getBooleanExtra("convergence", true) != settings.getBoolean("convergence", true);
         SharedPreferences.Editor edit = settings.edit();
-        for (String key : new String[]{"tongue", "pupils", "boot", "convergence"}) if (intent.hasExtra(key)) edit.putBoolean(key, intent.getBooleanExtra(key, false));
+        for (String key : new String[]{"tongue", "pupils", "boot", "convergence", "setupDone"}) if (intent.hasExtra(key)) edit.putBoolean(key, intent.getBooleanExtra(key, false));
         if (intent.hasExtra("vergenceGain")) edit.putFloat("vergenceGain", intent.getFloatExtra("vergenceGain", 1));
         if (intent.hasExtra("rate")) edit.putInt("rate", intent.getIntExtra("rate", 0));
         restart |= intent.hasExtra("output") && !intent.getStringExtra("output").equals(TrackingService.outputMode(settings));
@@ -121,7 +121,7 @@ public final class ControlReceiver extends BroadcastReceiver {
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))
                 .put("tongue", settings.getBoolean("tongue", false)).put("pupils", settings.getBoolean("pupils", false))
                 .put("convergence", settings.getBoolean("convergence", true)).put("vergenceGain", settings.getFloat("vergenceGain", 1))
-                .put("boot", settings.getBoolean("boot", false)).put("rate", settings.getInt("rate", 0)))
+                .put("boot", settings.getBoolean("boot", false)).put("setupDone", settings.getBoolean("setupDone", false)).put("rate", settings.getInt("rate", 0)))
             .put("calibrated", new JSONObject().put("face", (capabilities & 1) != 0).put("pupils", (capabilities & 8) != 0))
             .put("calibration", new JSONObject().put("running", TrackingService.calibrating).put("result", TrackingService.lastCalibration))
             .put("adjustments", hash(TrackingService.adjustmentsFile(context)));

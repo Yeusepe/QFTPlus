@@ -141,9 +141,9 @@ internal class Ocui(private val host: Context) {
 
     @Composable fun Button(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, style: String = "SECONDARY", enabled: Boolean = true) {
         val click by rememberUpdatedState(onClick)
-        AndroidView(modifier = modifier.height(44.dp), factory = { pillButton(style).apply { setOnClickListener { click() } } }, update = {
+        key(style) { AndroidView(modifier = modifier.height(44.dp), factory = { pillButton(style).apply { setOnClickListener { click() } } }, update = {
             it.text = label; it.isEnabled = enabled; it.alpha = if (enabled) 1f else .4f
-        })
+        }) }
     }
 
     @Composable fun Progress(value: Float) {
@@ -291,6 +291,41 @@ internal class Ocui(private val host: Context) {
         setImageDrawable(drawable("oc_icon_chevron_right_filled_24")); imageTintList = android.content.res.ColorStateList.valueOf(attribute(0x7f040279).data)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     } }) {}
+
+    // Meta's dialog layout, filled in directly instead of through OCDialog so steps can change in place.
+    fun sheet(): View = android.view.LayoutInflater.from(context).inflate(0x7f0c0015, null).also {
+        (sheetPart(it, "body_text") as TextView).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL; textAlignment = View.TEXT_ALIGNMENT_CENTER }
+        // Meta's surface is translucent for the system blur, which app panels don't get.
+        it.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xFF3A3A3A.toInt(), 0xFF2A2A2A.toInt())).apply {
+            cornerRadius = android.util.TypedValue.complexToDimension(attribute(0x7f040270).data, context.resources.displayMetrics)
+        }
+    }
+    val sheetWidth get() = android.util.TypedValue.complexToDimensionPixelSize(attribute(0x7f040335).data, context.resources.displayMetrics)
+    fun sheetPart(sheet: View, name: String): View = sheet.findViewById(context.resources.getIdentifier("oc_dialog_$name", "id", PROVIDER))
+        ?: error(host.getString(R.string.ocui_resource_missing, name))
+    fun hero(sheet: View, media: View, aspect: Float) {
+        val space = sheetPart(sheet, "hero_space") as ViewGroup
+        val image = sheetPart(sheet, "hero_image")
+        // Reuses the image's params: the obfuscated ConstraintLayout params have no copy constructor.
+        val params = image.layoutParams
+        space.removeView(image)
+        media.id = image.id
+        params.height = (sheetWidth / aspect).toInt()
+        val radius = android.util.TypedValue.complexToDimension(attribute(0x7f040270).data, context.resources.displayMetrics)
+        space.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: android.graphics.Outline) { outline.setRoundRect(0, 0, view.width, view.height + radius.toInt(), radius) }
+        }
+        space.clipToOutline = true
+        (space.layoutParams as ViewGroup.MarginLayoutParams).topMargin = 0
+        space.visibility = View.VISIBLE
+        space.addView(media, params)
+    }
+    fun sheetText(sheet: View, name: String, text: String) = (sheetPart(sheet, name) as TextView).let { if (it.text.toString() != text) it.text = text }
+    fun sheetButton(sheet: View, name: String, label: String?, click: () -> Unit) = sheetPart(sheet, name).run {
+        visibility = if (label == null) View.GONE else View.VISIBLE
+        if (this is TextView && name != "back_button") text = label
+        contentDescription = label; setOnClickListener { click() }
+    }
 
     @Composable fun Row(title: String, subtitle: String? = null, icon: String? = null, trailing: Slot? = null, below: Slot? = null,
                         modifier: Modifier = Modifier, highlighted: Boolean = false, onClick: (() -> Unit)? = null) {

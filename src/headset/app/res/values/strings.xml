@@ -511,4 +511,20 @@
     <string name="headset_command_failed">The headset could not complete setup. Restart QFT+ Headset and try again.</string>
     <string name="tracking_worker_failed">Face tracking could not start. Restart QFT+ Headset and check root access.</string>
     <string name="calibration_fit_failed">Calibration could not be saved. Adjust the headset fit and try again. Your previous calibration is unchanged.</string>
+    <string name="open_settings">Open Settings</string>
+    <string name="open_settings_failed">Settings didn\'t open: %1$s. Open Settings yourself and switch it on there.</string>
+    <string name="headset_setup">Headset setup</string>
+    <string name="shows_which_headset_settings_qft_needs">Checks that your headset is ready for QFT+</string>
+    <string name="face_eye_hand_movement_tracking_settings">face eye hand movement tracking settings first time welcome</string>
+    <string name="turn_on_natural_facial_expressions">Turn on natural facial expressions</string>
+    <string name="setup_face_about">QFT+ builds on your headset\'s face tracking to move your avatar\'s face.</string>
+    <string name="turn_on_eye_tracking">Turn on eye tracking</string>
+    <string name="setup_eye_about">QFT+ uses eye tracking for your gaze and blinks.</string>
+    <string name="done">Done</string>
+    <string name="not_now">Not now</string>
+    <string name="allow_qft_in_magisk">Allow QFT+ in Magisk</string>
+    <string name="allow_qft_in_magisk_about">QFT+ needs superuser access to read the headset\'s cameras. Allow it when Magisk asks.</string>
+    <string name="headset_ready">Your headset is ready</string>
+    <string name="headset_ready_about">QFT+ has everything it needs.</string>
+    <string name="try_again">Try again</string>
 </resources>

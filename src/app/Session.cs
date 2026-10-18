@@ -140,6 +140,8 @@ internal sealed class Session
             Config["headsetSerial"]?.GetValue<string>()??"", Config["installModule"]?.GetValue<bool>()??true, Use); }
         finally { setup=null; }
         Save("studioApp",Environment.ProcessPath);
+        // Fails harmlessly when QFT+ Headset isn't installed.
+        try { await HeadsetApp.SendAsync(this, CancellationToken.None, ("setupDone", true)); } catch (IOException) { }
     }
     internal async Task<System.Collections.Generic.List<SetupService.Headset>> Discover()
     {

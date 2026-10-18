@@ -22,7 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
 
@@ -31,6 +35,7 @@ class MainActivity : ComponentActivity() {
     private var resumed by mutableStateOf(false)
     private var notice by mutableStateOf("")
     private var resetting by mutableStateOf(false)
+    private var setup by mutableStateOf(false)
     private val pages get() = listOf(getString(R.string.tracking), getString(R.string.adjustments), getString(R.string.calibration), getString(R.string.connections))
     private val icons = listOf("oc_icon_face_tracking_on_filled_24", "tune", "frame_person", "wifi_tethering")
     private val areaIcons = mapOf("Brows" to "eyebrow", "Eyelids" to "visibility", "Gaze" to "eye_tracking", "Pupils" to "adjust", "Nose" to "face",
@@ -46,6 +51,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tab = (savedInstanceState?.getInt("page") ?: intent.getIntExtra("page", 0)).coerceIn(0, pages.lastIndex)
+        setup = !settings.getBoolean("setupDone", settings.contains("enabled"))
         try {
             ocui = Ocui(this)
             setContentView(ocui.root)
@@ -134,6 +140,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            if (setup) SetupSheet()
         }
     }
     private fun open(page: Int) { if (page == tab) root++; tab = page; notice = ""; query = "" }
@@ -150,6 +157,7 @@ class MainActivity : ComponentActivity() {
     private fun index(): List<Hit> {
         val hits = mutableListOf(
             Hit(getString(R.string.face_and_eye_tracking), null, 0, words = getString(R.string.on_off_start_stop_status)),
+            Hit(getString(R.string.headset_setup), null, 0, words = getString(R.string.face_eye_hand_movement_tracking_settings)),
             Hit(getString(R.string.pupil_dilation), getString(R.string.features), 0, words = getString(R.string.eyes_pupils)),
             Hit(getString(R.string.convergence), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.independent_eye_gaze_depth_startup)),
             Hit(getString(R.string.convergence_strength), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.eyes_depth_gain_vergence)),
@@ -227,6 +235,132 @@ class MainActivity : ComponentActivity() {
             row(getString(R.string.update_rate), trailing = ocui.select(rateNames, rates.indexOf(rate).coerceAtLeast(0), getString(R.string.update_rate)) { i ->
                 rate = rates[i]; settings.edit().putInt("rate", rate).apply(); restartTracking()
             }))
+        Group(null, null, row(getString(R.string.headset_setup), getString(R.string.shows_which_headset_settings_qft_needs), "oc_icon_settings_filled_24", ocui.chevron()) { setupReview = true; setup = true })
+    }
+
+    private class Need(val key: String, val place: String?, val icon: String, val title: Int, val about: Int)
+    private val needs = listOf(
+        Need("root", null, "oc_icon_lock_filled_24", R.string.allow_qft_in_magisk, R.string.allow_qft_in_magisk_about),
+        Need("ft_enabled", "face_tracking_turn_on", "oc_icon_face_tracking_on_filled_24", R.string.turn_on_natural_facial_expressions, R.string.setup_face_about),
+        Need("et_enabled", "eye_tracking_turn_on", "oc_icon_eye_tracking_on_filled_24", R.string.turn_on_eye_tracking, R.string.setup_eye_about))
+    private var setupReview = false
+    private fun completeSetup() { settings.edit().putBoolean("setupDone", true).apply(); setup = false; setupReview = false }
+
+    // Design-language springs; settle is when they come to rest (movement overshoots about 1%).
+    private class Spring(val response: Float, val damping: Float, val settle: Float) : android.animation.TimeInterpolator {
+        override fun getInterpolation(t: Float): Float {
+            if (t >= 1f) return 1f
+            val omega = 2 * Math.PI / response; val damped = omega * Math.sqrt(1.0 - damping * damping); val time = t * settle
+            return (1 - Math.exp(-damping * omega * time) * (Math.cos(damped * time) + damping * omega / damped * Math.sin(damped * time))).toFloat()
+        }
+        val millis get() = (settle * 1000).toLong()
+    }
+    private val move = Spring(.6f, .82f, .77f)
+    private val fade = Spring(.9f, .92f, .91f)
+
+    @Composable private fun SetupSheet() {
+        var attempt by remember { mutableIntStateOf(0) }
+        var known by remember { mutableStateOf<Map<String, Boolean>?>(null) }
+        LaunchedEffect(resumed, attempt) {
+            if (resumed) withContext(Dispatchers.IO) { runCatching {
+                // One root shell for the whole sheet, so Magisk grants once instead of on every check.
+                val shell = ProcessBuilder("su").redirectErrorStream(true).start()
+                try {
+                    val input = shell.inputStream.bufferedReader(); val output = shell.outputStream.bufferedWriter()
+                    while (isActive) {
+                        output.write("for k in ft_enabled et_enabled; do oculuspreferences --get \$k; done; echo QFT_DONE\n"); output.flush()
+                        val text = generateSequence(input::readLine).takeWhile { it != "QFT_DONE" }.joinToString("\n")
+                        val read = Regex("""\[(\w+) : (\w+)]""").findAll(text).associate { it.groupValues[1] to (it.groupValues[2] in setOf("true", "1")) }
+                        known = read + ("root" to read.isNotEmpty())
+                        delay(1000)
+                    }
+                } finally { shell.destroy() }
+            }.onFailure { if (it !is kotlinx.coroutines.CancellationException) known = mapOf("root" to false) } }
+        }
+        val state = known ?: return
+        val missing = needs.firstOrNull { state[it.key] != true }
+        val needed = remember { missing != null }
+        if (!needed && !setupReview) { LaunchedEffect(Unit) { completeSetup() }; return }
+        val frame = remember { arrayOfNulls<android.view.View>(1) }
+        fun close() {
+            val view = frame[0] ?: return completeSetup()
+            view.animate().alpha(0f).setDuration(220).setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction { completeSetup() }
+            (view as ViewGroup).getChildAt(0).animate().scaleX(.96f).scaleY(.96f).translationY(16 * resources.displayMetrics.density).setDuration(220).setInterpolator(android.view.animation.AccelerateInterpolator())
+        }
+        BackHandler { close() }
+        val density = resources.displayMetrics.density
+        AndroidView(modifier = Modifier.fillMaxSize(), factory = { context ->
+            android.widget.FrameLayout(context).apply {
+                frame[0] = this
+                setBackgroundColor(0xCC000000.toInt()); isClickable = true
+                val sheet = ocui.sheet()
+                addView(sheet, android.widget.FrameLayout.LayoutParams(ocui.sheetWidth, -2, android.view.Gravity.CENTER))
+                ocui.hero(sheet, bubbles(context), ocui.sheetWidth / (158 * density))
+                alpha = 0f
+                animate().alpha(1f).setDuration(fade.millis).setInterpolator(fade)
+                sheet.scaleX = .94f; sheet.scaleY = .94f; sheet.translationY = 28 * density
+                sheet.animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(move.millis).setInterpolator(move)
+            }
+        }, update = { view ->
+            val sheet = (view as ViewGroup).getChildAt(0)
+            val key = missing?.key ?: "ready"
+            if (sheet.tag != null && sheet.tag != key) for (name in listOf("title", "body_text", "primary_button"))
+                ocui.sheetPart(sheet, name).apply { alpha = 0f; animate().alpha(1f).setDuration(fade.millis).setInterpolator(fade) }
+            sheet.tag = key
+            showBubbles(sheet.findViewWithTag("bubbles"), state, missing)
+            ocui.sheetText(sheet, "title", getString(missing?.title ?: R.string.headset_ready))
+            ocui.sheetText(sheet, "body_text", getString(missing?.about ?: R.string.headset_ready_about))
+            ocui.sheetButton(sheet, "primary_button", getString(when { missing == null -> R.string.done; missing.place == null -> R.string.try_again; else -> R.string.open_settings })) {
+                when { missing == null -> close(); missing.place == null -> attempt++; else -> openMovementTracking(missing.place) }
+            }
+            ocui.sheetButton(sheet, "secondary_button", if (missing == null) null else getString(R.string.not_now)) { close() }
+        })
+    }
+
+    private fun bubbles(context: android.content.Context) = android.widget.FrameLayout(context).apply {
+        tag = "bubbles"
+        val density = resources.displayMetrics.density
+        val width = ocui.sheetWidth.toFloat(); val height = 158 * density
+        // Discs circle-packed with a 4 dp gap (each frame adds a 3 dp ring inset), centred as a group.
+        listOf(Triple(14f, 46f, 64), Triple(-35f, -12f, 92), Triple(45f, -12f, 72)).forEachIndexed { i, (x, y, size) ->
+            val side = (size * density).toInt()
+            addView(android.widget.FrameLayout(context).apply {
+                addView(android.view.View(context).apply { background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setStroke((1.5f * density).toInt().coerceAtLeast(1), 0xFFFFFFFF.toInt()) }; alpha = 0f },
+                    android.widget.FrameLayout.LayoutParams(-1, -1))
+                addView(android.view.View(context).apply { background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL } },
+                    android.widget.FrameLayout.LayoutParams(-1, -1).apply { setMargins((3 * density).toInt(), (3 * density).toInt(), (3 * density).toInt(), (3 * density).toInt()) })
+                addView(android.widget.ImageView(context).apply { setImageDrawable(ocui.icon(needs[i].icon).mutate()); imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt()) },
+                    android.widget.FrameLayout.LayoutParams(side * 2 / 5, side * 2 / 5, android.view.Gravity.CENTER))
+                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, android.widget.FrameLayout.LayoutParams(side, side).apply { leftMargin = (width / 2 + x * density - side / 2).toInt(); topMargin = (height / 2 + y * density - side / 2).toInt() })
+        }
+    }
+
+    private fun showBubbles(cluster: ViewGroup, state: Map<String, Boolean>, missing: Need?) {
+        for (i in needs.indices) {
+            val bubble = cluster.getChildAt(i) as ViewGroup
+            val on = state[needs[i].key] == true
+            val disc = bubble.getChildAt(1); val ring = bubble.getChildAt(0)
+            if (bubble.tag != on) {
+                if (on && bubble.tag != null) { bubble.scaleX = .8f; bubble.scaleY = .8f; bubble.animate().scaleX(1f).scaleY(1f).setDuration(move.millis).setInterpolator(move) }
+                bubble.tag = on
+                (disc.background as android.graphics.drawable.GradientDrawable).setColor(if (on) 0xFFFFFFFF.toInt() else 0x26FFFFFF)
+                (bubble.getChildAt(2) as android.widget.ImageView).imageTintList = android.content.res.ColorStateList.valueOf(if (on) 0xFF1C1E21.toInt() else 0xFFFFFFFF.toInt())
+            }
+            val attention = needs[i] == missing
+            if (attention && ring.animation == null && ring.tag == null) {
+                ring.tag = android.animation.ObjectAnimator.ofFloat(ring, "alpha", .15f, .7f).apply {
+                    duration = 1100; repeatMode = android.animation.ValueAnimator.REVERSE; repeatCount = android.animation.ValueAnimator.INFINITE; start()
+                }
+            } else if (!attention) { (ring.tag as? android.animation.Animator)?.cancel(); ring.tag = null; ring.alpha = 0f }
+        }
+    }
+
+    private fun openMovementTracking(setting: String) {
+        try {
+            startActivity(Intent("com.oculus.action.SETTINGS").setPackage(Ocui.PROVIDER).putExtra("uri", "/movement_tracking?setting=$setting")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        } catch (e: Exception) { notice = getString(R.string.open_settings_failed, e.message.orEmpty()) }
     }
 
     @Composable private fun ConvergenceGroups() {
