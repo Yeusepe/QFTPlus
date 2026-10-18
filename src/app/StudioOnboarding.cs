@@ -20,15 +20,15 @@ public partial class StudioWindow
     Grid? journeyStage;
     const int StepCount = 5;
 
-    // Design-language springs; settle is when they come to rest (movement overshoots about 1%).
     sealed class Spring(double response, double damping, double settle) : EasingFunctionBase
     {
         internal double Seconds => settle;
         protected override double EaseInCore(double t)
         {
             var omega = 2 * Math.PI / response;
-            var damped = omega * Math.Sqrt(1 - damping * damping);
             var time = t * settle;
+            if (damping == 1) return t >= 1 ? 1 : 1 - Math.Exp(-omega * time) * (1 + omega * time);
+            var damped = omega * Math.Sqrt(1 - damping * damping);
             return t >= 1 ? 1 : 1 - Math.Exp(-damping * omega * time) * (Math.Cos(damped * time) + damping * omega / damped * Math.Sin(damped * time));
         }
         protected override Freezable CreateInstanceCore() => new Spring(response, damping, settle);
@@ -421,7 +421,7 @@ public partial class StudioWindow
         });
     }
 
-    // The design language's Quest Pro wash; it stays light in dark mode by design.
+    // Keep the wash light in dark mode, too.
     static Grid Wash()
     {
         var wash = new Grid { Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xE4, 0xEC)) };

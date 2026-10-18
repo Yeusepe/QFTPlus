@@ -133,7 +133,6 @@ def progress(phase, value):
 
 @contextlib.contextmanager
 def reporting(phase, value):
-    """Reports value() for `phase` twice a second while the block runs."""
     done = threading.Event()
     def tick():
         while not done.wait(0.5):

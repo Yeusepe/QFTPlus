@@ -55,7 +55,7 @@ class Automatic:
     delay seen in the last 10 s; a queue building up means the connection is full. It starts at Latency first over USB
     and Quality over Wi-Fi, drops a level after 1 s of frames over 20 ms late, and tries a level up after a calm wait
     that doubles (up to 160 s) each time the try fails. A busy PC queues frames too, so lateness then doesn't count.
-    ponytail: the wait never shrinks back within a session; reset it after a long calm stretch if that ever matters."""
+    The wait resets when a new session starts."""
 
     def __init__(self, usb):
         self.level = SMALL if usb else LOSSLESS

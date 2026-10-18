@@ -328,7 +328,8 @@ def main() -> int:
                     measurements = face.update(payload, labels.latest, now_ns)
                     if measurements is not None:
                         studio.update_pupils(measurements, now_ns)
-                elif not headset:
+                # A model reload can leave compact frames in flight after we request full strips.
+                elif not headset and (not is_small or face.small is not None):
                     face.update(cameras if is_small else strip, labels.latest, labels.schema_names, now_ns, thumbs=thumbs)
     except ReceiverStopped:
         pass

@@ -531,7 +531,6 @@ public partial class StudioWindow
         return new Ui.CardExpander { Header = Loc.Get("Processing"), Content = hardware, Margin = new(0, 0, 0, 16) };
     }
 
-    // How the headset sends camera frames when this PC tracks; the receiver reads the setting live (stream_codec.py).
     StackPanel TransmissionOptions()
     {
         string[] levels = ["auto", "latency", "quality", "saver"];

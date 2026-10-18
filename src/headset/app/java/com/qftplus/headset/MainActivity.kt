@@ -246,7 +246,6 @@ class MainActivity : ComponentActivity() {
     private var setupReview = false
     private fun completeSetup() { settings.edit().putBoolean("setupDone", true).apply(); setup = false; setupReview = false }
 
-    // Design-language springs; settle is when they come to rest (movement overshoots about 1%).
     private class Spring(val response: Float, val damping: Float, val settle: Float) : android.animation.TimeInterpolator {
         override fun getInterpolation(t: Float): Float {
             if (t >= 1f) return 1f
