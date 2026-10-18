@@ -34,6 +34,7 @@ internal static class HeadsetModelExperiment
             session.Notify("Ready", Loc.Get("TrackingRunsOnThisPC"));
             return;
         }
+        session.Progress = -1;
         session.Notify(enabled ? "InstallingQFTHeadset" : "RemovingQFTHeadset", Loc.Get("ThisTakesAMinuteOrTwoKeepTheHeadsetAwake"));
         string? target = null;
         var appInstalled = false;
@@ -120,11 +121,21 @@ internal static class HeadsetModelExperiment
     {
         var info = session.Info(session.Python, [Path.Combine(session.Root, "headset_app.py"), action, "--config", session.ConfigPath]);
         info.Environment["ANDROID_SERIAL"] = target;
-        var result = await Processes.RunAsync(info, token, 240);
-        Session.Log(Path.Combine(session.Root, "headset-model.log"), result.Text);
-        if (result.Code != 0 || !result.Text.Contains(action == "setup" ? "HEADSET_APP_READY" : "HEADSET_APP_REMOVED", StringComparison.Ordinal))
-            throw new HeadsetAppFailure(result.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "HeadsetAppSetupFailed",
-                action == "setup" && result.Text.Contains("HEADSET_APP_INSTALLING", StringComparison.Ordinal));
+        const string Progress = "HEADSET_APP_PROGRESS ";
+        var state = session.State;
+        var result = await Processes.RunAsync(info, token, 240, onLine: line =>
+        {
+            if (line.StartsWith(Progress, StringComparison.Ordinal) && line.Split(' ') is [_, var phase, var percent])
+            {
+                session.Progress = int.Parse(percent, System.Globalization.CultureInfo.InvariantCulture);
+                session.Notify(state, Loc.Format(phase, session.Progress));
+            }
+        });
+        var text = string.Join('\n', result.Text.Split('\n').Where(line => !line.StartsWith(Progress, StringComparison.Ordinal)));
+        Session.Log(Path.Combine(session.Root, "headset-model.log"), text);
+        if (result.Code != 0 || !text.Contains(action == "setup" ? "HEADSET_APP_READY" : "HEADSET_APP_REMOVED", StringComparison.Ordinal))
+            throw new HeadsetAppFailure(text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "HeadsetAppSetupFailed",
+                action == "setup" && text.Contains("HEADSET_APP_INSTALLING", StringComparison.Ordinal));
     }
 
     static async Task RunAsync(Session session, string target, string action, CancellationToken token)

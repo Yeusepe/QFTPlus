@@ -1953,6 +1953,15 @@
   <data name="InstallingQFTHeadset" xml:space="preserve">
     <value>Installing QFT+ Headset</value>
   </data>
+  <data name="SendingQFTHeadsetToTheHeadset" xml:space="preserve">
+    <value>Sending the app to the headset… {0}%</value>
+  </data>
+  <data name="HeadsetIsCheckingAndInstallingQFTHeadset" xml:space="preserve">
+    <value>The headset is checking and installing the app… {0}%</value>
+  </data>
+  <data name="RestoringCalibrationAndPairingQFTHeadset" xml:space="preserve">
+    <value>Restoring calibration and pairing… {0}%</value>
+  </data>
   <data name="RemovingQFTHeadset" xml:space="preserve">
     <value>Removing QFT+ Headset</value>
   </data>

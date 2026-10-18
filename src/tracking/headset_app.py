@@ -1,15 +1,20 @@
 """One-time install/pairing and owned cleanup for the standalone headset app."""
 import argparse
 import base64
+import contextlib
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import secrets
 import shlex
 import socket
+import subprocess
 import tempfile
+import threading
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -122,6 +127,29 @@ def restore(root, files):
     print('HEADSET_BACKUP_RESTORED', flush=True)
 
 
+def progress(phase, value):
+    print(f'HEADSET_APP_PROGRESS {phase} {round(value)}', flush=True)
+
+
+@contextlib.contextmanager
+def reporting(phase, value):
+    """Reports value() for `phase` twice a second while the block runs."""
+    done = threading.Event()
+    def tick():
+        while not done.wait(0.5):
+            try:
+                progress(phase, value())
+            except (subprocess.SubprocessError, ValueError):
+                pass  # a missed sample only delays the next update
+    thread = threading.Thread(target=tick, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        done.set()
+        thread.join()
+
+
 def installed():
     return 'package:' in adb('shell', f'pm path {PACKAGE} || true')
 
@@ -189,8 +217,22 @@ def install(root, runtime, config):
         except Exception as error:
             raise RuntimeError('HeadsetBackupFailed') from error
     print('HEADSET_APP_INSTALLING', flush=True)
-    if 'Success' not in adb('install', '-r', str(apk), timeout=180):
+    remote = '/data/local/tmp/qft-headset-' + secrets.token_hex(8) + '.apk'
+    size = apk.stat().st_size
+    try:
+        with reporting('SendingQFTHeadsetToTheHeadset',
+                       lambda: 35 * int(adb('shell', f'stat -c %s {remote} 2>/dev/null || echo 0')) / size):
+            adb('push', str(apk), remote, timeout=180)
+        started = time.monotonic()
+        # Paced for Meta's ~15 s package verifier plus ~2 s commit (logcat, 2026-10-15); retune if that changes.
+        with reporting('HeadsetIsCheckingAndInstallingQFTHeadset',
+                       lambda: 35 + 57 * (1 - math.exp(-(time.monotonic() - started) / 7))):
+            result = adb('shell', 'pm install -r ' + remote, timeout=180)
+    finally:
+        root.run('rm -f ' + remote, check=False)
+    if 'Success' not in result:
         raise RuntimeError('Android did not install the headset app.')
+    progress('RestoringCalibrationAndPairingQFTHeadset', 92)
     if saved:
         try:
             restore(root, saved)
@@ -226,6 +268,7 @@ def install(root, runtime, config):
         raise RuntimeError('Headset app did not confirm pairing.')
     if fresh:
         adb('shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity')
+    progress('RestoringCalibrationAndPairingQFTHeadset', 100)
     print('HEADSET_APP_READY', flush=True)
 
 

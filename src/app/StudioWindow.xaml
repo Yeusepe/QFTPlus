@@ -240,6 +240,7 @@
          <TextBlock x:Name="TrackingMessage" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,2,0,0" AutomationProperties.LiveSetting="Polite"/>
         </StackPanel>
        </DockPanel>
+       <ProgressBar x:Name="TrackingProgress" Margin="0,8,0,4" Visibility="Collapsed"/>
        </StackPanel>
       </ui:Card>
       <WrapPanel Margin="0,12,0,0">

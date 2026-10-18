@@ -18,7 +18,7 @@ internal static class Processes
     internal static Task<(int Code, string Text)> RunAsync(string exe, IEnumerable<string> args, CancellationToken token = default, int seconds = 15, string? successPrefix = null) =>
         RunAsync(Info(exe, args), token, seconds, successPrefix);
 
-    internal static async Task<(int Code, string Text)> RunAsync(ProcessStartInfo info, CancellationToken token = default, int seconds = 15, string? successPrefix = null, Stream? output = null)
+    internal static async Task<(int Code, string Text)> RunAsync(ProcessStartInfo info, CancellationToken token = default, int seconds = 15, string? successPrefix = null, Stream? output = null, Action<string>? onLine = null)
     {
         info.RedirectStandardOutput = info.RedirectStandardError = true;
         Process? started;
@@ -35,6 +35,7 @@ internal static class Processes
             while (await process.StandardOutput.ReadLineAsync(timeout.Token) is { } line)
             {
                 if (successPrefix is not null && line.StartsWith(successPrefix, StringComparison.Ordinal)) return (0, line);
+                onLine?.Invoke(line);
                 text.AppendLine(line);
             }
             await process.WaitForExitAsync(timeout.Token);

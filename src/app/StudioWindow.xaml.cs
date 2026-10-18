@@ -672,6 +672,7 @@ public partial class StudioWindow : Ui.FluentWindow
                 : (Loc.Get("ReadyToTrack"), onHeadset ? Loc.Get("PutOnTheHeadsetThenStartTrackingQFTHeadset") : Loc.Get("PutOnTheHeadsetThenStartTracking"));
             (TrackingTitle.Text, TrackingMessage.Text) = (title, about);
             TrackingMessage.Visibility = Visible(about.Length > 0);
+            ShowAppProgress(TrackingProgress, busy);
             trackingHero.Present(!SetUp);
             var needsSetup = !SetUp || Problem && moduleMissing;
             TrackingAction.Content = !SetUp ? Loc.Get("SetUp_703abab9") : Loc.Get("OpenSetup");
@@ -805,12 +806,10 @@ public partial class StudioWindow : Ui.FluentWindow
         status.VerticalAlignment = VerticalAlignment.Center;
         var retry = AsyncButton(Loc.Get("RetryHeadsetCleanup"), async () => await Change(false));
         var update = AsyncButton(Loc.Get("UpdateQFTHeadset"), async () => { await Change(true); session.AppProblem = ""; });
-        var working = new Ui.ProgressRing { IsIndeterminate = true, Width = 20, Height = 20, Margin = new(0, 0, 12, 0) };
-        working.SetResourceReference(ForegroundProperty, "Accent");
+        var working = new ProgressBar { Margin = new(0, 0, 0, 8) };
         var cancel = Button(Loc.Get("Cancel"), session.CancelSetup);
         cancel.Margin = new(16, 0, 0, 0);
         DockPanel.SetDock(cancel, Dock.Right);
-        DockPanel.SetDock(working, Dock.Left);
         var changing = false;
         async Task Change(bool enabled)
         {
@@ -837,7 +836,8 @@ public partial class StudioWindow : Ui.FluentWindow
             option.IsEnabled = retry.IsEnabled = update.IsEnabled = !busy && !recording && !training && !session.Running;
             retry.Visibility = Visible(!changing && HeadsetModelExperiment.Pending(session));
             update.Visibility = Visible(HeadsetModelExperiment.Standalone(session) && session.AppProblem == HeadsetApp.Outdated && !changing);
-            working.Visibility = cancel.Visibility = Visible(changing);
+            cancel.Visibility = Visible(changing);
+            ShowAppProgress(working, changing);
             about.Visibility = Visible(!changing);
             status.Text = changing ? Loc.Format("StatusDetail", session.StateTitle, session.Detail) : HeadsetModelExperiment.Pending(session) ? Loc.Get("OffButQFTHeadsetIsStillOnTheHeadset")
                 : update.Visibility == Visibility.Visible ? HeadsetApp.Outdated
@@ -845,7 +845,15 @@ public partial class StudioWindow : Ui.FluentWindow
         }
         trackingRefresh += Refresh;
         Refresh();
-        return Card(option, about, new DockPanel { Margin = new(0, 0, 0, 8), Children = { cancel, working, status } }, Buttons(retry, update));
+        return Card(option, about, new DockPanel { Margin = new(0, 0, 0, 8), Children = { cancel, status } }, working, Buttons(retry, update));
+    }
+
+    void ShowAppProgress(ProgressBar bar, bool working)
+    {
+        bar.Visibility = Visible(working && session.State is "InstallingQFTHeadset" or "RemovingQFTHeadset");
+        bar.IsIndeterminate = session.Progress < 0;
+        bar.Value = Math.Max(session.Progress, 0);
+        AutomationProperties.SetName(bar, session.StateTitle);
     }
 
     StackPanel OutputOptions()
