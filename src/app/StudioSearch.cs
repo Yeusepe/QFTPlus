@@ -133,6 +133,7 @@ public partial class StudioWindow
         {
             yield return new(Loc.Get("TrackOnTheHeadsetExperimental"), null, "Settings", Loc.Get("StandaloneQftHeadsetAppOnDevice"));
             yield return new(Loc.Get("TrackingProcessor"), Loc.Get("Processing"), "Settings", Loc.Get("GpuCpuDirectmlGraphicsCardPerformance"));
+            yield return new(Loc.Get("TransmissionQuality"), Loc.Get("Processing"), "Settings", Loc.Get("BandwidthDataWiFiCompressionLatencyMbps"));
             yield return new(Loc.Get("SaveFaceTrackingLogs"), Loc.Get("FaceCalibration"), "Settings", Loc.Get("LogsDiagnostics"));
             yield return new(Loc.Get("HelpImproveTracking"), null, "Settings", Loc.Get("TesterShareRecordingsBenchmark"));
         }

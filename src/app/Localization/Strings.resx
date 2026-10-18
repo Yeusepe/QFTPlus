@@ -2226,6 +2226,46 @@
     <value>Tracking processor</value>
     <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs</comment>
   </data>
+  <data name="TransmissionQuality" xml:space="preserve">
+    <value>Transmission quality</value>
+    <comment>QFT+ Windows app. StudioControls.cs | StudioSearch.cs. How the headset sends camera frames to this PC.</comment>
+  </data>
+  <data name="LatencyFirst" xml:space="preserve">
+    <value>Latency first</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Transmission quality option.</comment>
+  </data>
+  <data name="Quality" xml:space="preserve">
+    <value>Quality</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Transmission quality option.</comment>
+  </data>
+  <data name="DataSaver" xml:space="preserve">
+    <value>Data saver</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Transmission quality option.</comment>
+  </data>
+  <data name="PicksTheBestOptionForYourConnectionAndSwitches" xml:space="preserve">
+    <value>Picks the best option for your connection and switches as it changes: Latency first over USB, Quality over Wi-Fi, Data saver when frames start to queue.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Describes the Automatic transmission quality.</comment>
+  </data>
+  <data name="SendsUncompressedFramesAtTrackingResolutionAbout16Mbps" xml:space="preserve">
+    <value>Sends uncompressed frames at tracking resolution, about 16 Mbps, with no compression delay.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Describes Latency first.</comment>
+  </data>
+  <data name="CompressesWithoutLossAbout7MbpsTrackingIsIdentical" xml:space="preserve">
+    <value>Compresses without loss, about 7 Mbps. Tracking is identical.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Describes Quality.</comment>
+  </data>
+  <data name="SmallestStreamAbout4MbpsTrackingCanDifferSlightly" xml:space="preserve">
+    <value>Smallest stream, about 4 Mbps. Tracking can differ slightly.</value>
+    <comment>QFT+ Windows app. StudioControls.cs. Describes Data saver.</comment>
+  </data>
+  <data name="AppliesRightAwayRecordingsCalibrationTheCamerasPage" xml:space="preserve">
+    <value>Applies right away. Recordings, calibration, the Cameras page and pupil dilation also send full camera frames.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
+  <data name="BandwidthDataWiFiCompressionLatencyMbps" xml:space="preserve">
+    <value>bandwidth data wi-fi compression latency mbps</value>
+    <comment>QFT+ Windows app. StudioSearch.cs</comment>
+  </data>
   <data name="TrackingStopped" xml:space="preserve">
     <value>Tracking stopped</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>

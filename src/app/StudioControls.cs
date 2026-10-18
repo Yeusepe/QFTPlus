@@ -527,7 +527,31 @@ public partial class StudioWindow
         }
         hardware.Children.Add(graphics);
         hardware.Children.Add(Muted(Loc.Get("TakesEffectTheNextTimeTrackingStartsToLeave")));
+        hardware.Children.Add(TransmissionOptions());
         return new Ui.CardExpander { Header = Loc.Get("Processing"), Content = hardware, Margin = new(0, 0, 0, 16) };
+    }
+
+    // How the headset sends camera frames when this PC tracks; the receiver reads the setting live (stream_codec.py).
+    StackPanel TransmissionOptions()
+    {
+        string[] levels = ["auto", "latency", "quality", "saver"];
+        string[] about = [Loc.Get("PicksTheBestOptionForYourConnectionAndSwitches"), Loc.Get("SendsUncompressedFramesAtTrackingResolutionAbout16Mbps"),
+            Loc.Get("CompressesWithoutLossAbout7MbpsTrackingIsIdentical"), Loc.Get("SmallestStreamAbout4MbpsTrackingCanDifferSlightly")];
+        var picker = new ComboBox { ItemsSource = new[] { Loc.Get("Automatic"), Loc.Get("LatencyFirst"), Loc.Get("Quality"), Loc.Get("DataSaver") }, Margin = new(0, 0, 0, 8),
+            SelectedIndex = Math.Max(0, Array.IndexOf(levels, session.Config["transmissionQuality"]?.GetValue<string>() ?? "auto")) };
+        var detail = Muted(about[picker.SelectedIndex], live: true);
+        AutomationProperties.SetHelpText(picker, detail.Text);
+        picker.SelectionChanged += (_, _) =>
+        {
+            detail.Text = about[picker.SelectedIndex];
+            AutomationProperties.SetHelpText(picker, detail.Text);
+            session.Save("transmissionQuality", levels[picker.SelectedIndex]);
+        };
+        var stream = new StackPanel { Margin = new(0, 12, 0, 0), Visibility = Visible(!HeadsetModelExperiment.Enabled(session)) };
+        Field(stream, Loc.Get("TransmissionQuality"), picker);
+        stream.Children.Add(detail);
+        stream.Children.Add(Muted(Loc.Get("AppliesRightAwayRecordingsCalibrationTheCamerasPage")));
+        return stream;
     }
 
     void SetupProgress()

@@ -136,6 +136,16 @@ static void close_model(void) {
 #endif
 #else
 #define RELAY_NAME "questpro-camera-relay"
+#include <zlib.h>
+// Stream levels the PC picks with one control byte (0x80 asks for one full strip): the full strip, or each camera
+// area-resized to the PC model's 128 px plus the exact puff thumbnail sums, raw, lossless or near-lossless (step 5).
+enum { LEVEL_STRIP, LEVEL_SMALL, LEVEL_LOSSLESS, LEVEL_SAVER, LEVEL_COUNT };
+#define SMALL_SIDE 128
+#define SMALL_PIXELS (5 * SMALL_SIDE * SMALL_SIDE)
+#define SMALL_BYTES (SMALL_PIXELS + 2 * 256 * 4)
+static uint8_t *g_small, *g_packed;
+static uLong g_packed_capacity;
+static z_stream g_zip;
 #endif
 
 #define CAPTURE_LEASE_NS UINT64_C(2000000000)
@@ -395,23 +405,94 @@ static void wait_for_frame(const uint8_t *shared, uint32_t last_generation) {
 }
 
 #endif
-static int send_frame(int client, uint64_t sequence, uint64_t timestamp,
-                      const uint8_t *frame) {
+static int send_payload(int client, uint64_t sequence, uint64_t timestamp, uint32_t width, uint32_t height,
+                        uint32_t pixel_format, const uint8_t *payload, uint32_t size) {
     uint8_t header[64] = {0};
     memcpy(header, "QPLIVE3", 7);
     put_u32(header, 8, 3);
     put_u32(header, 12, sizeof(header));
     put_u64(header, 16, sequence);
     put_u64(header, 24, timestamp);
-    put_u32(header, 32, SENSOR_WIDTH);
-    put_u32(header, 36, SENSOR_HEIGHT);
-    put_u32(header, 40, SENSOR_WIDTH);
-    put_u32(header, 44, 1);
-    put_u32(header, 48, SENSOR_BYTES);
+    put_u32(header, 32, width);
+    put_u32(header, 36, height);
+    put_u32(header, 40, width);
+    put_u32(header, 44, pixel_format);
+    put_u32(header, 48, size);
     put_u32(header, 52, 0x1fu);
     return send_all(client, header, sizeof(header)) &&
-           send_all(client, frame, SENSOR_BYTES);
+           send_all(client, payload, size);
 }
+
+static int send_frame(int client, uint64_t sequence, uint64_t timestamp,
+                      const uint8_t *frame) {
+    return send_payload(client, sequence, timestamp, SENSOR_WIDTH, SENSOR_HEIGHT, 1, frame, SENSOR_BYTES);
+}
+
+#ifndef QFT_HEADSET_MODEL
+// Output o of a 400 -> 128 area resize covers [25o, 25o + 25) in 1/8 pixels: at most 4 source pixels, weights sum to 25.
+static unsigned area_weights(unsigned o, unsigned weight[4]) {
+    unsigned first = o * 25 / 8;
+    for (unsigned k = 0; k < 4; ++k) {
+        unsigned s = first + k, low = 8 * s > 25 * o ? 8 * s : 25 * o;
+        unsigned high = 8 * s + 8 < 25 * o + 25 ? 8 * s + 8 : 25 * o + 25;
+        weight[k] = s < 400 && high > low ? high - low : 0;
+    }
+    return first;
+}
+
+// Same integers as the PC model's graph (weights, sum / 625, round half up; no ties: 625 is odd).
+static void resize_small(const uint8_t *strip, uint8_t *small) {
+    unsigned first[SMALL_SIDE], weight[SMALL_SIDE][4];
+    uint16_t rows[400];
+    for (unsigned o = 0; o < SMALL_SIDE; ++o) first[o] = area_weights(o, weight[o]);
+    for (unsigned camera = 0; camera < 5; ++camera)
+        for (unsigned y = 0; y < SMALL_SIDE; ++y) {
+            for (unsigned x = 0; x < 400; ++x) {
+                unsigned sum = 0;
+                for (unsigned k = 0; k < 4; ++k)
+                    if (weight[y][k]) sum += weight[y][k] * strip[(first[y] + k) * SENSOR_WIDTH + camera * 400 + x];
+                rows[x] = (uint16_t)sum;
+            }
+            for (unsigned x = 0; x < SMALL_SIDE; ++x) {
+                uint32_t sum = 0;
+                for (unsigned k = 0; k < 4; ++k)
+                    if (weight[x][k]) sum += weight[x][k] * rows[first[x] + k];
+                small[(camera * SMALL_SIDE + y) * SMALL_SIDE + x] = (uint8_t)((sum + 312) / 625);
+            }
+        }
+}
+
+// universal_face.thumbnails before its division: 25x25 block sums of cameras 2 and 3, [camera][row][column].
+static void puff_sums(const uint8_t *strip, uint32_t *sums) {
+    memset(sums, 0, 2 * 256 * sizeof *sums);
+    for (unsigned y = 0; y < 400; ++y)
+        for (unsigned x = 0; x < 800; ++x)
+            sums[x / 400 * 256 + y / 25 * 16 + x % 400 / 25] += strip[y * SENSOR_WIDTH + 800 + x];
+}
+
+// g_small = 128 px cameras + thumbnail sums; for the compressed levels each pixel becomes its gradient residual
+// (x - left - above + above-left, mod 256: two prefix sums undo it) and zlib Huffman-codes the whole buffer.
+static const uint8_t *encode_small(const uint8_t *strip, unsigned level, uint32_t *size) {
+    resize_small(strip, g_small);
+    puff_sums(strip, (uint32_t *)(void *)(g_small + SMALL_PIXELS));
+    *size = SMALL_BYTES;
+    if (level == LEVEL_SMALL) return g_small;
+    if (level == LEVEL_SAVER)
+        for (size_t i = 0; i < SMALL_PIXELS; ++i) g_small[i] = (uint8_t)((g_small[i] + 2) / 5);
+    for (size_t i = SMALL_PIXELS; i-- > 0;) {
+        size_t x = i % SMALL_SIDE, y = i / SMALL_SIDE % SMALL_SIDE;
+        unsigned left = x ? g_small[i - 1] : 0, above = y ? g_small[i - SMALL_SIDE] : 0;
+        unsigned corner = x && y ? g_small[i - SMALL_SIDE - 1] : 0;
+        g_small[i] = (uint8_t)(g_small[i] - left - above + corner);
+    }
+    g_zip.next_in = g_small; g_zip.avail_in = SMALL_BYTES;
+    g_zip.next_out = g_packed; g_zip.avail_out = (uInt)g_packed_capacity;
+    int done = deflate(&g_zip, Z_FINISH) == Z_STREAM_END;
+    *size = (uint32_t)(g_packed_capacity - g_zip.avail_out);
+    deflateReset(&g_zip);
+    return done ? g_packed : NULL;
+}
+#endif
 
 static int parse_arguments(int argc, char **argv, unsigned *max_fps,
                            const char **token, struct in_addr *bind_address) {
@@ -603,6 +684,13 @@ static int run(int argc, char **argv) {
 #endif
     uint8_t *frame = malloc(SENSOR_BYTES);
     if (!frame) return 4;
+#ifndef QFT_HEADSET_MODEL
+    if (deflateInit2(&g_zip, 1, Z_DEFLATED, 15, 9, Z_HUFFMAN_ONLY) != Z_OK) return 4;
+    g_packed_capacity = deflateBound(&g_zip, SMALL_BYTES);
+    g_small = malloc(SMALL_BYTES);
+    g_packed = malloc(g_packed_capacity);
+    if (!g_small || !g_packed) return 4;
+#endif
     char address_text[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &bind_address, address_text, sizeof(address_text));
     printf("RELAY_LISTENING address=%s port=%d max_fps=%u\n",
@@ -626,6 +714,10 @@ static int run(int argc, char **argv) {
 #ifndef QFT_ANDROID_APP
         set_capture_lease(shared, monotonic_nanoseconds() + CAPTURE_LEASE_NS);
         uint32_t last_generation = 0;
+#ifndef QFT_HEADSET_MODEL
+        unsigned level = LEVEL_STRIP;
+        int strip_once = 0;
+#endif
 #else
         uint64_t last_control = monotonic_nanoseconds();
 #endif
@@ -692,6 +784,14 @@ static int run(int argc, char **argv) {
             }
             }
             if (disconnected || g_stopped) break;
+#else
+            uint8_t request;
+            ssize_t received;
+            while ((received = recv(client, &request, 1, MSG_DONTWAIT)) == 1 && (request == 0x80 || request < LEVEL_COUNT)) {
+                if (request == 0x80) strip_once = 1;
+                else if (request != level) printf("STREAM_LEVEL %u\n", level = request);
+            }
+            if (received >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) break;
 #endif
 #ifdef QFT_ANDROID_APP
             if (now - last_control > UINT64_C(5000000000)) {
@@ -795,7 +895,15 @@ static int run(int argc, char **argv) {
             }
             REFRESH_UNLOCK();
 #else
-            int sent = send_frame(client, sequence, timestamp, frame);
+            int sent;
+            if (level == LEVEL_STRIP || strip_once) {
+                sent = send_frame(client, sequence, timestamp, frame);
+                strip_once = 0;
+            } else {
+                uint32_t size;
+                const uint8_t *payload = encode_small(frame, level, &size);
+                sent = payload && send_payload(client, sequence, timestamp, 5 * SMALL_SIDE, SMALL_SIDE, 5 + level, payload, size);
+            }
 #endif
             if (!sent) {
                 fprintf(stderr, "CLIENT_SEND_FAILED error=%s\n", strerror(errno));
@@ -825,6 +933,10 @@ static int run(int argc, char **argv) {
     close(server);
     g_server = -1;
     free(frame);
+#ifndef QFT_HEADSET_MODEL
+    deflateEnd(&g_zip);
+    free(g_small); free(g_packed);
+#endif
 #ifndef QFT_ANDROID_APP
     set_capture_lease(shared, 0);
 #ifdef QFT_HEADSET_MODEL

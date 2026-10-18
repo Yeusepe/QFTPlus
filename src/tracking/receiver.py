@@ -18,6 +18,7 @@ import numpy as np
 from capture_format import TRANSPORT_HEADER as HEADER
 from headset import stop_event
 from label_capture import LabelSidecarRecorder
+from stream_codec import FORMATS, LEVELS, LOSSLESS, ONE_STRIP, SMALL_BYTES, SMALL_SIDE, STRIP, Automatic, decode
 from studio_capture import StudioCapture
 
 MAGIC = b"QPLIVE3\0"
@@ -128,8 +129,12 @@ def start_preview_server(shared: SharedPreview, port: int) -> http.server.Thread
     return server
 
 
+def config_path():
+    return Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json'
+
+
 def studio_config():
-    return json.loads((Path(os.environ['APPDATA'])/'VRCFaceTracking/QproAutoStart.json').read_text(encoding='utf-8-sig'))
+    return json.loads(config_path().read_text(encoding='utf-8-sig'))
 
 
 def face_log_path(config, kind):
@@ -244,30 +249,64 @@ def main() -> int:
                 preview=now-shared.pupil_requested_at < 1., calibrating=studio.pupil is not None))
             if studio.pupil is not None and now-studio.last_ui > 3:
                 studio.pupil_state(now)
+    automatic = Automatic(usb=os.environ.get("QFT_STREAM_HOST", "127.0.0.1") == "127.0.0.1")
+    setting, setting_stamp, setting_checked, sent_level, strip_asked, busy = "auto", None, -1., None, -1., 0.
+    def choose_level(now):
+        """Tell the relay what to send: full strips while Studio records, calibrates or shows cameras (or the model
+        can't take 128 px cameras), otherwise the Transmission quality setting, plus one strip per 125 ms for pupils."""
+        nonlocal setting, setting_stamp, setting_checked, sent_level, strip_asked
+        if now - setting_checked >= 1.:
+            setting_checked = now
+            try:
+                if (stamp := config_path().stat().st_mtime_ns) != setting_stamp:
+                    setting, setting_stamp = studio_config().get('transmissionQuality', 'auto'), stamp
+            except (OSError, ValueError):
+                pass
+        full = (face is None or face.small is None or now - shared.requested_at < 1.
+                or any(s is not None for s in (studio.writer, studio.pupil, studio.guided)))
+        level = STRIP if full else automatic.level if setting == 'auto' else LEVELS.get(setting, LOSSLESS)
+        if level != sent_level:
+            connection.sendall(bytes([level]))
+            print(f"STREAM_LEVEL {level}", flush=True)
+            sent_level = level
+        if level != STRIP and pupils is not None and pupils.enabled and now - strip_asked >= .125:
+            connection.sendall(bytes([ONE_STRIP]))
+            strip_asked = now
     try:
         connection = connect(should_stop)
         if connection is None:
             return 0
         print("CONNECTED", flush=True)
         window_start, frames, waited = time.perf_counter(), 0, 0.
+        received = 0
         while True:
             tick()
             if not headset and (elapsed := time.perf_counter() - window_start) >= 5.:
-                print(f"STREAM_RATE {frames / elapsed:.1f} {1 - waited / elapsed:.2f}", flush=True)
-                window_start, frames, waited = time.perf_counter(), 0, 0.
+                busy = 1 - waited / elapsed
+                print(f"STREAM_RATE {frames / elapsed:.1f} {busy:.2f}", flush=True)
+                print(f"STREAM_BYTES {received / max(frames, 1) / 1e3:.1f} kB/frame", flush=True)
+                window_start, frames, waited, received = time.perf_counter(), 0, 0., 0
+            if not headset:
+                choose_level(time.monotonic())
             started = time.perf_counter()
             raw_header = receive_exact(connection, HEADER.size, should_stop, tick)
-            (magic, version, header_size, _sequence, _timestamp_ns, width, height,
+            (magic, version, header_size, _sequence, timestamp_ns, width, height,
              stride, pixel_format, payload_size, camera_mask, _reserved) = HEADER.unpack(raw_header)
             if magic != MAGIC or version != 3 or header_size != HEADER.size:
                 raise ValueError("Unexpected live-stream header")
             is_result = headset and (width, height, stride, pixel_format, payload_size) == (66, 1, 66, 3, 264)
-            if camera_mask != 0x1F or not (is_result or (width, height, stride, pixel_format, payload_size) == (2000, 400, 2000, 1, 800_000)):
+            is_small = (not headset and pixel_format in FORMATS and (width, height, stride) == (5 * SMALL_SIDE, SMALL_SIDE, 5 * SMALL_SIDE)
+                        and payload_size <= 2 * SMALL_BYTES)
+            if camera_mask != 0x1F or not (is_result or is_small or (width, height, stride, pixel_format, payload_size) == (2000, 400, 2000, 1, 800_000)):
                 raise ValueError(f"Unsupported frame layout {width}x{height}, cameras 0x{camera_mask:x}, format {pixel_format}")
             payload = receive_exact(connection, payload_size, should_stop, tick)
-            frames, waited = frames + 1, waited + time.perf_counter() - started
+            frames, waited, received = frames + 1, waited + time.perf_counter() - started, received + payload_size
             now_ns = time.monotonic_ns()
-            strip = None if is_result else np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
+            thumbs = None
+            if is_small:
+                cameras, thumbs = decode(pixel_format, payload)
+                automatic.update(now_ns / 1e9, (now_ns - timestamp_ns) / 1e9, busy)
+            strip = None if is_result or is_small else np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
             if strip is not None:
                 shared.update(strip, pupils.detected_pupils if pupils else (None, None))
             try:
@@ -290,7 +329,7 @@ def main() -> int:
                     if measurements is not None:
                         studio.update_pupils(measurements, now_ns)
                 elif not headset:
-                    face.update(strip, labels.latest, labels.schema_names, now_ns)
+                    face.update(cameras if is_small else strip, labels.latest, labels.schema_names, now_ns, thumbs=thumbs)
     except ReceiverStopped:
         pass
     finally:

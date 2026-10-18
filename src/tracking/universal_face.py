@@ -178,6 +178,8 @@ class UniversalFace:
             with GPU_LOCK:
                 self.model = cpu
         print("INFERENCE_BACKEND " + self.model.get_providers()[0] + " " + str(graph_path), flush=True)
+        self.small = self.small_graph = None
+        self.load_small(path.with_suffix(".small.onnx"))
         self.anchors, self.present, sides, self.brow_neutral, brow_rest = self.encode_enrollment(enrollment, history, benchmarks)
         if not self.present.any() and meta["allowsNoEnrollment"] is not True:
             raise ValueError("Run the one-minute face setup first: this model needs it.")
@@ -210,17 +212,37 @@ class UniversalFace:
         self.enabled, self.tongue = enabled, tongue
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def run(self, strip):
-        """400x2000 uint8 strip -> mouth embedding (512,), tongue head (7,), brow embedding (480,)"""
+    def load_small(self, small_path):
+        """MODEL.small.onnx (private/dev/universal/make_small_graph.py: this graph after its resize, fed the relay's 128 px
+        cameras) when it gives this graph's outputs on a test strip; without it the receiver asks for full strips."""
+        if not small_path.is_file():
+            return
+        from stream_codec import area_resize
+        strip = np.random.default_rng(0).integers(0, 256, (400, 2000), dtype=np.uint8)
+        self.small_graph = small_path.read_bytes()
+        self.small = session(self.small_graph, cpu=self.model.get_providers()[0] == "CPUExecutionProvider")
+        if not all(np.allclose(a, b, atol=1e-3) for a, b in zip(self.run(strip), self.run(area_resize(strip)))):
+            print("SMALL_GRAPH_MISMATCH " + str(small_path), flush=True)
+            self.small = None
+
+    def run(self, frame):
+        """400x2000 uint8 strip, or (5, 128, 128) cameras from area_resize -> mouth embedding (512,), tongue head (7,),
+        brow embedding (480,)"""
+        strip = frame.shape == (400, 2000)
         with GPU_LOCK:
+            model = self.model if strip else self.small
             try:
-                q, t, w = self.model.run(None, {"cameras": np.ascontiguousarray(strip)})
+                q, t, w = model.run(None, {"cameras": np.ascontiguousarray(frame)})
             except Exception as error:
-                if self.model.get_providers()[0] == "CPUExecutionProvider":
+                if model.get_providers()[0] == "CPUExecutionProvider":
                     raise
                 print("INFERENCE_FALLBACK cpu: " + str(error), flush=True)
-                self.model = session(self.graph, cpu=True)
-                q, t, w = self.model.run(None, {"cameras": np.ascontiguousarray(strip)})
+                model = session(self.graph if strip else self.small_graph, cpu=True)
+                if strip:
+                    self.model = model
+                else:
+                    self.small = model
+                q, t, w = model.run(None, {"cameras": np.ascontiguousarray(frame)})
         return q[0], t[0], w[0]
 
     def encode_enrollment(self, enrollment, history=(), benchmarks=()):
@@ -343,7 +365,8 @@ class UniversalFace:
             self.puff_reference += np.float32(.03 * dt) * np.sign(thumbs - self.puff_reference)
         return values
 
-    def update(self, strip, native=None, native_names=(), now_ns=0):
+    def update(self, strip, native=None, native_names=(), now_ns=0, thumbs=None):
+        """strip: as run takes it; thumbs: thumbnails(strip) when strip holds 128 px cameras (stream_codec.decode)."""
         q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
@@ -353,7 +376,7 @@ class UniversalFace:
         native_puff = [nv.get(n, 0.) for n in NATIVE_PUFF]
         if self.puff_camera is not None:
             p["CheekPuffLeft"], p["CheekPuffRight"] = self.puff_sides(
-                thumbnails(strip), max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff), now_ns)
+                thumbnails(strip) if thumbs is None else thumbs, max(p["CheekPuffLeft"], p["CheekPuffRight"], *native_puff), now_ns)
         else:
             p["CheekPuffLeft"], p["CheekPuffRight"] = max(p["CheekPuffLeft"], native_puff[0]), max(p["CheekPuffRight"], native_puff[1])
         dt = 0. if self.share_ns is None else max(0., (now_ns - self.share_ns) / 1e9)
@@ -379,7 +402,7 @@ class UniversalFace:
 
     def close(self):
         with GPU_LOCK:
-            self.model = None
+            self.model = self.small = None
         self.events.close()
         if self.tongue is not None:
             self.tongue.close()
