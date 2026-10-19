@@ -64,14 +64,20 @@ static void requested_features(int *face, int *eye) {
 }
 static char g_owned[512];
 #define FACE_LEVEL 3
-static void keep_features(void) {
+static void keep_features(int retry) {
     int face, eye; requested_features(&face, &eye);
-    if (face < 0 || eye < 0 || (face >= FACE_LEVEL && eye >= 3)) return;
+    // A request made during a Meta service restart can remain recorded without producing tracking data.
+    if (face < 0 || eye < 0 || (!retry && face >= FACE_LEVEL && eye >= 3)) return;
     int want_face = face < FACE_LEVEL ? FACE_LEVEL : face, want_eye = eye < 3 ? 3 : eye;
     if (request_features(want_face, want_eye)) {
         int before[2] = {face, eye};
         FILE *marker = fopen(g_owned, "re");
-        if (marker) { if (fscanf(marker, "%d %d", &before[0], &before[1]) != 2) before[0] = before[1] = 0; fclose(marker); }
+        if (marker) {
+            int ours[2], now[2] = {face, eye};
+            if (fscanf(marker, "%d %d %d %d", &before[0], &before[1], &ours[0], &ours[1]) != 4) before[0] = before[1] = 0;
+            else for (int i = 0; i < 2; i++) if (now[i] != ours[i]) before[i] = now[i];
+            fclose(marker);
+        }
         int fd = open(g_owned, O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
         if (fd >= 0) { dprintf(fd, "%d %d %d %d\n", before[0], before[1], want_face, want_eye); close(fd); }
     }
@@ -98,7 +104,7 @@ static void camera_lease_open(const char *directory) {
     if (!g_max_fps || g_max_fps > 36) { status = allow(g_fidelity, 2, fast, 1); mode = 17; }
     if (status) { status = allow(g_fidelity, 2, standard, 1); mode = 5; }
     printf("CAMERA_LEASE status=%d mode=%d\n", status, mode);
-    keep_features();
+    keep_features(0);
 }
 static void camera_lease_close(void) { release_features(); fidelity_close(); }
 static int release_owned_features(const char *directory) {
@@ -577,7 +583,13 @@ static void *watch_features(void *argument) {
         usleep(100000);
         pthread_mutex_lock(&r->lock); int stop = r->stop; pthread_mutex_unlock(&r->lock);
         if (stop) return NULL;
-        if (tick % 50 == 0) keep_features();
+        if (tick % 50 == 0) {
+            NativeSample fresh;
+            pthread_mutex_lock(&r->lock);
+            native_tracking_read(g_native, monotonic_nanoseconds(), &fresh);
+            pthread_mutex_unlock(&r->lock);
+            keep_features((fresh.flags & 7) != 7);
+        }
     }
 }
 #define REFRESH_LOCK() pthread_mutex_lock(&refresh.lock)
