@@ -68,6 +68,7 @@ public sealed class TrackingModule : ExtTrackingModule
     private readonly HeadsetState _headset = new();
     private bool _needsEye;
     private bool _needsExpression;
+    private NativeFaceOsc? _nativeFace;
     private long _lastGazeTick;
     private readonly float[] _gaze = new float[4];
     private readonly long[] _heldTick = new long[2], _lidTicks = new long[2];
@@ -128,6 +129,7 @@ public sealed class TrackingModule : ExtTrackingModule
     {
         _needsEye = eyeAvailable;
         _needsExpression = expressionAvailable;
+        if (_needsEye || _needsExpression) _nativeFace = new NativeFaceOsc();
         ModuleInformation = new ModuleMetadata
         {
             Name = "QFT+"
@@ -196,7 +198,8 @@ public sealed class TrackingModule : ExtTrackingModule
             long now = Environment.TickCount64;
             Receive(_runtimeSocket, 64, now);
             if (_headset.Poll(now)) AcceptHeadset(now);
-            if (!TryReadState(now)) Array.Clear(_second);
+            bool tracking = TryReadState(now);
+            if (!tracking) Array.Clear(_second);
 
             var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));
             for (int i = 0; i < expressions.Length; i++) expressions[i] = float.IsFinite(expressions[i]) ? Math.Clamp(expressions[i], 0, 1) : 0;
@@ -226,8 +229,9 @@ public sealed class TrackingModule : ExtTrackingModule
             }
             AdjustOutput(now);
             if (_headset.AdjustRequest is { } request) AdjustFromHeadset(request, now);
-            if (_headsetDirect && !_headset.Fresh(now)) return;
+            if (_headsetDirect && !_headset.Fresh(now)) { _nativeFace?.Send(null); return; }
             Publish(_output, _eyeOutput);
+            _nativeFace?.Send(tracking && !_headsetDirect ? UnifiedTracking.Data : null);
         }
     }
 
@@ -236,6 +240,7 @@ public sealed class TrackingModule : ExtTrackingModule
         lock (_gate)
         {
             _closed = true;
+            _nativeFace?.Dispose();
             _runtimeSocket?.Dispose();
             _steamLinkSocket?.Dispose();
             _labelSocket?.Dispose();

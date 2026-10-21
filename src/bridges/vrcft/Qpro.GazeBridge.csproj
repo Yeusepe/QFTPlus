@@ -6,6 +6,7 @@
     <Platforms>x64</Platforms>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../app/VRChatOsc.cs" Link="VRChatOsc.cs" />
     <Reference Include="VRCFaceTracking.Core">
       <HintPath>$(VrcftInstallDir)\VRCFaceTracking.Core.dll</HintPath>
       <Private>false</Private>
