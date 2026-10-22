@@ -86,6 +86,9 @@ final class FaceExpressions {
         put("TongueX", tongue && (status & 4) != 0 ? Math.max(-1, Math.min(1, p.getFloat(88))) : 0);
         put("TongueY", tongue && (status & 4) != 0 ? Math.max(-1, Math.min(1, p.getFloat(92))) : 0);
         put("TongueArchY", n[69] - n[64]);
+        put("TongueBendDown", n[69]); put("TongueCurlUp", n[64]);
+        put("PupilLeft", (status & 8) != 0 ? unit(p.getFloat(96)) : .5f);
+        put("PupilRight", (status & 8) != 0 ? unit(p.getFloat(100)) : .5f);
         put("PupilDilation", (status & 8) != 0 ? (unit(p.getFloat(96)) + unit(p.getFloat(100))) * .5f : .5f);
         for (String name : ("EyeOpen EyeClosed EyeLid BrowDown BrowUp BrowInnerUp BrowOuterUp BrowExpression " +
                 "CheekPuffSuck CheekSuck CheekSquint NoseSneer MouthUpperUp MouthLowerDown MouthSmile MouthSad SmileFrown SmileSad " +

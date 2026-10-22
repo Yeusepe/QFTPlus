@@ -22,6 +22,7 @@ final class OscOutput implements AutoCloseable {
     private final boolean vrchat;
     private final FaceExpressions expressions = new FaceExpressions(false), headset = new FaceExpressions(true);
     private final OutputAdjustments adjustments;
+    private final NativeFaceOsc nativeFace = new NativeFaceOsc();
     private long refresh;
     private static final String[] PREFIXES = {"FT/v2/", "v2/"};
     private static final int[] BITS = {1, 2, 4, 8, 16, 32, 64, 128};
@@ -141,6 +142,11 @@ final class OscOutput implements AutoCloseable {
     private void active(boolean face, boolean eyes) throws IOException {
         for (int i = 0; i < 3; i++) write(ACTIVE[i], (i == 2 ? eyes : face) ? TRUE : FALSE, false, 0);
     }
+    private void face(java.util.Map<String, Float> values) throws IOException {
+        byte[] packet = nativeFace.encode(values);
+        if (bytes.size() + packet.length + 4 > 1200) { flush(); begin(); }
+        out.writeInt(packet.length); out.write(packet); messages++;
+    }
     void send(byte[] payload, long sequence, double ageMs) throws IOException {
         if (payload.length != 608) throw new IOException(context.getString(R.string.unsupported_headset_packet));
         ByteBuffer p = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -153,6 +159,8 @@ final class OscOutput implements AutoCloseable {
             long t1 = System.nanoTime();
             adjustments.apply(values, adjustments.passthrough() ? headset.read(payload, now) : null, now);
             readNs += t1 - t0; applyNs += System.nanoTime() - t1;
+            long faceAt = System.nanoTime();
+            begin(); face(values); flush(); sendNs += System.nanoTime() - faceAt;
             if (avatar != null && avatar.heard && !probedHeard && probeAt == 0 && probeLowAt == 0 && probeDoneAt != 0 && now >= probeDoneAt) probedAvatar = reportedAvatar = -1;
             if (avatar != null && avatar.avatar != probedAvatar) { probedAvatar = avatar.avatar; probeAt = now + 1_500_000_000L; probeLowAt = probeDoneAt = 0; }
             if (probeAt != 0 && now >= probeAt) { probedHeard = avatar.heard; avatar.learning = true; probe(values.keySet(), true); probeAt = 0; probeLowAt = now + 350_000_000L; }
@@ -199,7 +207,7 @@ final class OscOutput implements AutoCloseable {
     }
     void idle() throws IOException {
         begin();
-        if (vrchat) { active(false, false); targets.clear(); }
+        if (vrchat) { active(false, false); face(null); targets.clear(); }
         else { value("/qft/status/tracking", 0); value("/qft/status/native_face", 0); value("/qft/status/pupils", 0); }
         flush();
     }
