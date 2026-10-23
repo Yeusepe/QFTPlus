@@ -2,8 +2,8 @@
   "ModuleId": "c2541113-e1d1-4f5d-9c8e-c2c6fda90cf0",
   "ModuleName": "QFT+",
   "AuthorName": "Yeusepe",
-  "Version": "0.4.0-rc.28",
+  "Version": "0.4.0-rc.29",
   "DllFileName": "Qpro.GazeBridge.dll",
   "ModulePageUrl": "https://github.com/Yeusepe/QFTPlus#standalone-vrcfacetracking-module",
-  "DownloadUrl": "https://github.com/Yeusepe/QFTPlus/releases/download/v0.4.0-rc.28/QFT-Plus-VRCFT-0.4.0-rc.28.zip"
+  "DownloadUrl": "https://github.com/Yeusepe/QFTPlus/releases/download/v0.4.0-rc.29/QFT-Plus-VRCFT-0.4.0-rc.29.zip"
 }
