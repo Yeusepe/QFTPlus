@@ -13,5 +13,6 @@
     <Compile Include="../bridges/vrcft/ExtraFaceState.cs" Link="ExtraFaceState.cs" />
   </ItemGroup>
   <ItemGroup><Resource Include="headset-render/*.png;headset-render/*.webp" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="microphone-repair.sh" LogicalName="QFTPlus.microphone-repair.sh" /></ItemGroup>
   <ItemGroup><PackageReference Include="NAudio.Wasapi" Version="2.2.1" /><PackageReference Include="Velopack" Version="1.2.161" /><PackageReference Include="Vortice.DXGI" Version="3.8.3" /><PackageReference Include="WPF-UI" Version="4.3.0" /></ItemGroup>
 </Project>

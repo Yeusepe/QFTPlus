@@ -129,6 +129,7 @@ public partial class StudioWindow
             yield return new(Loc.Get("StartWithVRCFaceTracking"), Loc.Get("Startup"), "Settings", Loc.Get("VrcftLaunchAutomatic"));
         }
         yield return new(Loc.Get("OpenVRAppsOnStart"), Loc.Get("Startup"), "Settings", Loc.Get("SteamvrVirtualDesktopLaunch"));
+        yield return new(Loc.Get("MicrophoneRepairOption"), Loc.Get("MicrophoneRepairHeading"), "Settings", Loc.Get("MicrophoneRepairSearch"));
         if (face)
         {
             yield return new(Loc.Get("TrackOnTheHeadsetExperimental"), null, "Settings", Loc.Get("StandaloneQftHeadsetAppOnDevice"));

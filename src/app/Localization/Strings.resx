@@ -4087,4 +4087,21 @@
   <data name="EverythingIsInstalled" xml:space="preserve">
     <value>Everything QFT+ needs is installed on this PC.</value>
   </data>
+  <data name="MicrophoneRepairHeading" xml:space="preserve"><value>Headset microphone</value></data>
+  <data name="MicrophoneRepairOption" xml:space="preserve"><value>Prevent the microphone getting stuck muted</value></data>
+  <data name="MicrophoneRepairAbout" xml:space="preserve"><value>Repairs a headset system bug that can delay microphone changes after sleep. Normal mute controls still work. Requires Magisk and a supported headset version. Changes take effect after restarting the headset.</value></data>
+  <data name="MicrophoneRepairModuleName" xml:space="preserve"><value>QFT+ microphone repair</value></data>
+  <data name="MicrophoneRepairCheck" xml:space="preserve"><value>Check headset</value></data>
+  <data name="MicrophoneRepairConnect" xml:space="preserve"><value>Connect your headset, then check its repair status.</value></data>
+  <data name="MicrophoneRepairApplying" xml:space="preserve"><value>Updating the microphone repair…</value></data>
+  <data name="MicrophoneRepairActive" xml:space="preserve"><value>On. The repair is active on this headset.</value></data>
+  <data name="MicrophoneRepairRestartOn" xml:space="preserve"><value>On. Restart the headset to activate the repair.</value></data>
+  <data name="MicrophoneRepairRestartOff" xml:space="preserve"><value>Off. Restart the headset to finish turning off the repair.</value></data>
+  <data name="MicrophoneRepairOff" xml:space="preserve"><value>Off. The repair is not enabled on this headset.</value></data>
+  <data name="MicrophoneRepairUnsupported" xml:space="preserve"><value>This headset version is not supported by the repair. Its system files have not been changed.</value></data>
+  <data name="MicrophoneRepairDamaged" xml:space="preserve"><value>The installed repair needs replacing. Turn it off, then on again.</value></data>
+  <data name="MicrophoneRepairRootRequired" xml:space="preserve"><value>This repair needs Magisk. In Magisk → Superuser, allow Shell access, then check again.</value></data>
+  <data name="MicrophoneRepairConflict" xml:space="preserve"><value>A different module is using the repair folder. Resolve it in Magisk before trying again.</value></data>
+  <data name="MicrophoneRepairFailed" xml:space="preserve"><value>The headset did not confirm the repair change. Keep it connected and awake, allow Shell access in Magisk, then check again.</value></data>
+  <data name="MicrophoneRepairSearch" xml:space="preserve"><value>microphone mic mute unmute sleep wake audio Virtual Desktop repair fix</value></data>
 </root>
