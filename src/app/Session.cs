@@ -160,13 +160,13 @@ internal sealed class Session
             if (HeadsetModelExperiment.AppChanged(this)) await HeadsetModelExperiment.ConfigureAsync(this, true, token);
             Save("headsetReceiverEnabled", true);
             headsetSession = true;
-            if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: true);
             appVersion++;
             Notify("Connecting", Loc.Get("TurningOnTrackingInQFTHeadset"));
             appWanted = true;
             try { (App, AppProblem) = (await SendApp(token), ""); }
             catch (IOException error) { AppProblem = error.Message; }
             catch (OperationCanceledException) { (headsetSession, appWanted) = (false, null); Save("headsetReceiverEnabled", false); throw; }
+            if (!fromModule && (Config["openVrApps"]?.GetValue<bool>() ?? true)) OpenVrApps(face: AppProblem.Length == 0 && HeadsetApp.UsesVrcft(App));
             try
             {
                 StartThumbrest();
@@ -350,7 +350,7 @@ internal sealed class Session
         {
             headsetSession = true;
             Save("headsetReceiverEnabled", true);
-            if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: true);
+            if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: HeadsetApp.UsesVrcft(App));
         }
         if (headsetSession) NotifyApp();
         if (!headsetSession || App?["calibration"]?.ToJsonString() != calibration) Changed?.Invoke(State);

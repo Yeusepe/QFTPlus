@@ -49,6 +49,8 @@ internal static partial class HeadsetApp
 
     internal static bool Flag(JsonObject? state, string group, string key) => state?[group]?[key]?.GetValue<bool>() == true;
 
+    internal static bool UsesVrcft(JsonObject? state) => state?["settings"]?["output"]?.GetValue<string>() == "pc";
+
     internal static string Destination(JsonObject? state)
     {
         if (state?["settings"] is not JsonObject settings || settings["output"]?.GetValue<string>() is not ("vrchat" or "raw")) return "";
