@@ -65,7 +65,8 @@ internal sealed class NativeFaceOsc : IDisposable
         }
     }
 
-    static byte Quantize(float value) => float.IsFinite(value) ? (byte)MathF.Floor(Math.Clamp(value, 0, 1) * 255 + .5f) : (byte)0;
+    // VRCFT's sandbox uses this finite sentinel for expressions the module does not provide.
+    static byte Quantize(float value) => float.IsFinite(value) && value != (float)0xFFFFFFFF ? (byte)MathF.Floor(Math.Clamp(value, 0, 1) * 255 + .5f) : (byte)0;
 
     internal void Send(UnifiedTrackingData? data)
     {
