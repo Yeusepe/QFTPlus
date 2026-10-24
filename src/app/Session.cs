@@ -428,7 +428,7 @@ internal sealed class Session
         Hybrid = Launch(Python, [Path.Combine(Root,"hybrid/hybrid.py"), "--target", target], "hybrid.log", line =>
         {
             if (line == "QROOT_READY") hybridReady = true;
-            else if (line.StartsWith("QROOT_INCOMPATIBLE ")) hybridIncompatible = line["QROOT_INCOMPATIBLE ".Length..];
+            else if (line.StartsWith("QROOT_INCOMPATIBLE ")) hybridIncompatible = Loc.Get(line["QROOT_INCOMPATIBLE ".Length..]);
         });
     }
     async Task TryStartHybrid()

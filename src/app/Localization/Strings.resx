@@ -2622,6 +2622,12 @@
   <data name="TrackingEndedUnexpectedly" xml:space="preserve">
     <value>Tracking ended unexpectedly.</value>
   </data>
+  <data name="HybridDriverUnsupported" xml:space="preserve">
+    <value>Hybrid hands could not verify the loaded Virtual Desktop driver. Restart SteamVR and try again. If this continues, check for QFT+ and Virtual Desktop updates and share the hybrid log from Settings.</value>
+  </data>
+  <data name="HybridHeadsetUnsupported" xml:space="preserve">
+    <value>Hybrid hands could not verify this headset's Virtual Desktop hand tracking methods or data layout. Check for QFT+ and Virtual Desktop updates and share the hybrid log from Settings.</value>
+  </data>
   <data name="ThisHeadsetSControllerRuntimeIsNotSupportedByHybrid" xml:space="preserve">
     <value>This headset's controller runtime is not supported by hybrid tracking. See the Hybrid log for details.</value>
   </data>
