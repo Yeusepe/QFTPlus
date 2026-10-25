@@ -6,7 +6,6 @@ if this controller stops responding. No installed APK or DLL is patched.
 import argparse
 import ctypes as C
 import faulthandler
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,8 +15,6 @@ import threading
 import time
 
 HERE = Path(__file__).resolve().parent
-DRIVER = Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Virtual Desktop Streamer/OpenVRDriver/bin/win64/driver_VirtualDesktop.dll'
-DRIVER_HASH = 'ad3c99c7f7346613d4c7106fb94476be5859ca17a637a11cfc156184d466f36f'
 FRIDA_VERSION = '17.18.0'
 SERVER = 'quest-hybrid-frida'
 LEASE_WAIT = 35
@@ -119,6 +116,16 @@ def attach_steamvr(keep_alive):
             time.sleep(1)
 
 
+def start_pc_hook(pc, seconds):
+    try:
+        return pc.exports_sync.start(seconds)
+    except Exception as error:
+        if 'QFT_PC_LAYOUT_UNSUPPORTED:' not in str(error):
+            raise
+        print(str(error), flush=True)
+        raise HookCompatibilityError('HybridDriverUnsupported') from error
+
+
 def wait_for_virtual_desktop(adb, keep_alive):
     """With hand tracking only, QFT+ starts before the headset is in Virtual Desktop."""
     waiting = False
@@ -176,9 +183,6 @@ def main():
     os.environ['ANDROID_SERIAL'] = args.target
     if frida is None or frida.__version__ != FRIDA_VERSION:
         raise HookCompatibilityError('Hybrid components are missing or outdated. Run setup again.')
-    if not DRIVER.is_file() or hashlib.sha256(DRIVER.read_bytes()).hexdigest() != DRIVER_HASH:
-        raise HookCompatibilityError("This PC's Virtual Desktop Streamer driver is missing or a version hybrid hands "
-                                     "doesn't support yet. No hook was applied.")
     kernel = C.WinDLL('kernel32', use_last_error=True)
     kernel.CreateMutexW.argtypes = [C.c_void_p, C.c_bool, C.c_wchar_p]
     kernel.CreateMutexW.restype = C.c_void_p
@@ -225,7 +229,7 @@ def main():
                 print('ERROR:', errors[-1], flush=True)
                 return
             payload = event.get('payload', {})
-            if payload.get('event') in ('applied', 'apply-failed', 'restore-failed', 'stopped', 'resolved', 'route', 'restored', 'controller-changed', 'controller-runtime'):
+            if payload.get('event') in ('applied', 'apply-failed', 'restore-failed', 'stopped', 'resolved', 'route', 'restored', 'controller-changed', 'controller-runtime', 'driver-runtime', 'driver-layout'):
                 print(time.strftime('%H:%M:%S.') + '%03d' % (time.time() * 1000 % 1000), source, json.dumps(payload), flush=True)
         return receive
 
@@ -262,7 +266,7 @@ def main():
         waiting = False
         while True:
             keep_alive()
-            if pc.exports_sync.start(30):
+            if start_pc_hook(pc, 30):
                 break
             if not waiting:
                 print('Waiting for the Virtual Desktop SteamVR driver.', flush=True)

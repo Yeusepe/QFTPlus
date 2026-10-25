@@ -1,4 +1,96 @@
 let driver=null,driverGone=false,stopped=false,reason=null,cleanupError=null;
+let layout=null;
+function resolveLayout(module) {
+    function unsupported(detail) { throw Error('QFT_PC_LAYOUT_UNSUPPORTED: '+detail); }
+    send({event:'driver-runtime',path:module.path,size:module.size,architecture:Process.arch});
+    if(Process.arch!=='x64' || Process.pointerSize!==8)unsupported('architecture');
+    const code=module.enumerateRanges('r-x'), data=module.enumerateRanges('rw-');
+    function contains(ranges,address,size) {
+        return ranges.some(r=>address.compare(r.base)>=0 && address.add(size).compare(r.base.add(r.size))<=0);
+    }
+    function one(name,pattern,ranges=code) {
+        const matches=ranges.flatMap(r=>Memory.scanSync(r.base,r.size,pattern));
+        if(matches.length!==1)unsupported(name+': expected 1 match, found '+matches.length);
+        return matches[0].address;
+    }
+    function slot(address,size=8) {
+        if(!contains(data,address,size) || !address.and(7).isNull())unsupported('global outside writable driver data');
+        return address;
+    }
+    function relative(address,displacement,length) { return address.add(length+address.add(displacement).readS32()); }
+    const nt=module.base.add(module.base.add(0x3c).readU32());
+    if(module.base.readU16()!==0x5a4d || nt.readU32()!==0x4550 || nt.add(0x18).readU16()!==0x20b)
+        unsupported('PE headers');
+    const unwind=module.base.add(nt.add(0xa0).readU32()), unwindSize=nt.add(0xa4).readU32();
+    if(unwindSize===0 || unwindSize%12!==0 || unwindSize>module.size ||
+        unwind.compare(module.base)<0 || unwind.add(unwindSize).compare(module.base.add(module.size))>0)
+        unsupported('unwind table');
+    function containing(address) {
+        const rva=address.sub(module.base).toUInt32();
+        for(let at=0;at<unwindSize;at+=12) {
+            const entry=unwind.add(at),start=entry.readU32(),end=entry.add(4).readU32();
+            if(rva>=start && rva<end && contains(code,module.base.add(start),end-start))
+                return {base:module.base.add(start),size:end-start};
+        }
+        unsupported('function boundary');
+    }
+    // Match the routing operations, then read their operands; RVAs and member offsets may move.
+    const routing=one('native skeleton routing','8b c3 48 8b 8c c2 ?? ?? ?? ?? 48 85 c9 0f 84 ?? ?? ?? ?? 4c 3b b4 c2 ?? ?? ?? ?? 0f 85 ?? ?? ?? ?? e8 ?? ?? ?? ?? 84 c0 0f 85 ?? ?? ?? ??');
+    const nativeFunction=containing(routing);
+    const imageBase=one('routing image base','48 8d 15 ?? ?? ?? ?? 4c 8d 25 ?? ?? ?? ??',
+        [{base:nativeFunction.base,size:routing.sub(nativeFunction.base).toUInt32()}]);
+    if(!relative(imageBase,3,7).equals(module.base))unsupported('routing array base');
+    const controllers=slot(module.base.add(routing.add(6).readU32()),16);
+    const captured=slot(module.base.add(routing.add(23).readU32()),16);
+    const skip=relative(routing.add(13),2,6);
+    if(!relative(routing.add(27),2,6).equals(skip))unsupported('skeleton loop branches');
+    const loop=one('two-controller loop','ff c3 83 fb 02 0f 82 ?? ?? ?? ??',[nativeFunction]);
+    if(!skip.equals(loop) || !relative(loop.add(5),2,6).equals(routing))unsupported('skeleton loop bounds');
+    const predicateAddress=relative(routing.add(33),1,5),predicate=containing(predicateAddress);
+    if(!predicateAddress.equals(predicate.base))unsupported('selection function entry');
+    const selection=one('optical selection','48 8d 54 24 ?? 48 8b 49 ?? e8 ?? ?? ?? ?? 83 7b ?? 01 0f b6 94 24 ?? ?? ?? ?? 0f b6 84 24 ?? ?? ?? ?? 0f 44 d0 84 d2 75 ?? 38 53 ??', [predicate]);
+    const role=selection.add(16).readU8(),multi=selection.add(43).readU8(),dataOffset=selection.add(8).readU8();
+    const optical=selection.add(30).readU32()-selection.add(4).readU8();
+    if(selection.add(22).readU32()!==optical+selection.add(4).readU8()+1)unsupported('optical side selection');
+    const snapshot=containing(relative(selection.add(9),1,5));
+    const copy=one('input snapshot','48 8d 96 ?? ?? ?? ?? 41 b8 ?? ?? ?? ?? 48 8b cf e8 ?? ?? ?? ??',[snapshot]);
+    const snapshotOffset=copy.add(3).readU32();
+    if(optical<0 || optical+2>copy.add(9).readU32())unsupported('optical snapshot bounds');
+    const trackedCode=one('physical tracking state','48 63 c2 48 6b d0 ?? 48 8b 01 0f b6 8c 02 ?? ?? ?? ?? 80 e1 03 80 f9 01 0f 94 c0 c3');
+    const stride=trackedCode.add(6).readU8(),tracked=trackedCode.add(14).readU32();
+    const tracking=one('controller tracking selection','80 7b ?? 00 74 ?? 48 8b 4b ?? 33 d2 83 7b ?? 01 0f 95 c2 e8 ?? ?? ?? ??');
+    if(tracking.add(2).readU8()!==multi || tracking.add(9).readU8()!==dataOffset || tracking.add(14).readU8()!==role ||
+        !relative(tracking.add(19),1,5).equals(trackedCode))unsupported('physical tracking layout disagreement');
+    const handCode=one('virtual hand creation','44 8b 4b ?? 4c 8b 43 ?? 33 d2 48 8b c8 e8 ?? ?? ?? ?? 90 48 89 43 ?? 48 8b 05 ?? ?? ?? ?? 48 85 c0 75 1f 48 8b 0d ?? ?? ?? ?? 48 8b 01 4c 8d 44 24 ?? 48 8b 15 ?? ?? ?? ?? ff 10 48 89 05 ?? ?? ?? ??');
+    if(handCode.add(3).readU8()!==role || handCode.add(7).readU8()!==dataOffset)unsupported('controller layout disagreement');
+    const hand=handCode.add(22).readU8(),host=slot(relative(handCode.add(23),3,7));
+    const context=slot(relative(handCode.add(35),3,7));
+    if(!relative(handCode.add(59),3,7).equals(host))unsupported('host initialization');
+    const poseFunction=containing(handCode);
+    const deviceCode=one('controller device index','44 39 63 ?? 0f 85 ?? ?? ?? ?? 88 83 ?? ?? ?? ?? 80 7b ?? 00',[poseFunction]);
+    const device=deviceCode.add(3).readU8();
+    const skeletonCode=one('optical skeleton submission','c7 44 24 20 1f 00 00 00 4c 8d 8d ?? ?? ?? ?? 45 33 c0 48 8b 97 ?? ?? ?? ?? 48 8b 0d ?? ?? ?? ?? ff 15 ?? ?? ?? ?? c7 44 24 20 1f 00 00 00');
+    const skeleton=skeletonCode.add(21).readU32(),opticalInput=slot(relative(skeletonCode.add(25),3,7));
+    const original=slot(relative(skeletonCode.add(32),2,6));
+    const second=one('second skeleton motion range','4c 8d 8d ?? ?? ?? ?? 41 b8 01 00 00 00 48 8b 97 ?? ?? ?? ?? 48 8b 0d ?? ?? ?? ?? ff 15 ?? ?? ?? ??',
+        [{base:skeletonCode.add(46),size:33}]);
+    if(second.add(3).readU32()!==skeletonCode.add(11).readU32() || second.add(16).readU32()!==skeleton ||
+        !relative(second.add(20),3,7).equals(opticalInput) || !relative(second.add(27),2,6).equals(original))
+        unsupported('skeleton motion ranges');
+    const tail=one('native skeleton forwarding','4c 8b 15 ?? ?? ?? ?? 8b 85 ?? ?? ?? ?? 89 44 24 20 4d 8b cf 44 8b 44 24 ?? 49 8b d6 49 8b cd 41 ff d2',[nativeFunction]);
+    if(!relative(tail,3,7).equals(original))unsupported('skeleton trampoline disagreement');
+    const args=one('native skeleton arguments','4d 8b f9 44 89 44 24 ?? 4c 8b f2 4c 8b e9',[nativeFunction]);
+    if(args.add(7).readU8()!==tail.add(24).readU8())unsupported('skeleton range argument');
+    const offsets={role,multi,data:dataOffset,hand,device,skeleton,snapshot:snapshotOffset,optical,tracked,stride};
+    if(Object.values(offsets).some(v=>v<=0 || v>0x10000) ||
+        [role,multi,dataOffset,hand,device,stride,selection.add(4).readU8()].some(v=>v>=0x80) || multi===role ||
+        new Set([dataOffset,hand,device,skeleton]).size!==4 || [dataOffset,hand,skeleton].some(v=>v%8!==0))
+        unsupported('member offsets');
+    const globals={controllers,captured,host,context,opticalInput,original};
+    if(new Set(Object.values(globals).map(p=>p.toString())).size!==6)unsupported('aliased globals');
+    send({event:'driver-layout',path:module.path,globals:Object.fromEntries(Object.entries(globals).map(([k,p])=>[k,p.sub(module.base).toString()])),offsets});
+    return {...globals,...offsets,nativeUpdate:nativeFunction.base};
+}
 const observations=[0,1].map(side=>({side,state:'waiting-driver',samples:0,
     trackedCounts:[0,0,0,0],routes:0,posesSuppressed:0}));
 let ticks=0,poses=0;
@@ -42,8 +134,8 @@ function anchorFingers(h,range,bones) {
     return output;
 }
 function physicalSkeleton(controller,side,updated=null) {
-    const captured=driver.base.add(0x9a7a8+side*8).readU64();
-    const native=controller.add(0xf0).readU64();
+    const captured=layout.captured.add(side*8).readU64();
+    const native=controller.add(layout.skeleton).readU64();
     let skeleton=captured.equals(0) ? native : captured;
     if(skeleton.equals(0) && updated!==null)skeleton=updated;
     Object.assign(observations[side],{physicalSkeleton:skeleton,capturedSkeleton:captured,controllerSkeleton:native});
@@ -51,49 +143,49 @@ function physicalSkeleton(controller,side,updated=null) {
 }
 function resolve(side) {
     const observed=observations[side];
-    const controller=driver.base.add(0x9a740+side*8).readPointer();
+    const controller=layout.controllers.add(side*8).readPointer();
     Object.assign(observed,{state:'waiting-controller',controller:controller.toString(),
         hand:null,physicalSkeleton:null,capturedSkeleton:null,controllerSkeleton:null,
         handSkeleton:null,device:null,data:null,frame:null,
         trackedRaw:null,tracked:null,optical:null});
     if(controller.isNull())return null;
-    const hand=controller.add(0x48).readPointer();
+    const hand=controller.add(layout.hand).readPointer();
     observed.hand=hand.toString();
     observed.state='waiting-hand';
     if(hand.isNull())return null;
-    if(controller.add(0x1c).readU32()!==side+1 || hand.add(0x1c).readU32()!==side+1)
+    if(controller.add(layout.role).readU32()!==side+1 || hand.add(layout.role).readU32()!==side+1)
         throw new Error('Controller role mismatch');
     const skeleton=physicalSkeleton(controller,side);
-    const original={controllerMulti:controller.add(0x1a).readU8(),
-        handMulti:hand.add(0x1a).readU8(),skeleton:hand.add(0xf0).readU64()};
+    const original={controllerMulti:controller.add(layout.multi).readU8(),
+        handMulti:hand.add(layout.multi).readU8(),skeleton:hand.add(layout.skeleton).readU64()};
     send({event:'resolved',side,controller:controller.toString(),hand:hand.toString(),
         physicalSkeleton:skeleton.toString(),handSkeleton:original.skeleton.toString()});
     Object.assign(observed,{state:'resolved',handSkeleton:original.skeleton.toString(),
-        device:hand.add(0x40).readU32()});
-    return {side,controller,hand,skeleton,original,device:hand.add(0x40).readU32(),
+        device:hand.add(layout.device).readU32()});
+    return {side,controller,hand,skeleton,original,device:hand.add(layout.device).readU32(),
         updatedSkeleton:null,anchors:[null,null],active:false,physical:false,priority:false};
 }
 function current(h) {
     if(driverGone)return false;
-    const controller=driver.base.add(0x9a740+h.side*8).readPointer();
-    return controller.equals(h.controller) && controller.add(0x48).readPointer().equals(h.hand);
+    const controller=layout.controllers.add(h.side*8).readPointer();
+    return controller.equals(h.controller) && controller.add(layout.hand).readPointer().equals(h.hand);
 }
 const hands=[null,null];
 function route(h) {
     const observed=observations[h.side];
-    if(h.updatedSkeleton!==null && h.updatedSkeleton.shr(32).toNumber()!==h.controller.add(0x40).readU32())
+    if(h.updatedSkeleton!==null && h.updatedSkeleton.shr(32).toNumber()!==h.controller.add(layout.device).readU32())
         h.updatedSkeleton=null;
     const skeleton=physicalSkeleton(h.controller,h.side,h.updatedSkeleton);
-    const data=h.controller.add(0x10).readPointer();
+    const data=h.controller.add(layout.data).readPointer();
     Object.assign(observed,{state:'waiting-data',device:h.device,data,
         frame:null,trackedRaw:null,tracked:null,optical:null});
     if(data.isNull())return;
     const frame=data.readPointer();
     Object.assign(observed,{state:'waiting-frame',frame});
     if(frame.isNull())return;
-    const trackedRaw=frame.add(0x8c+h.side*0x44).readU8();
+    const trackedRaw=frame.add(layout.tracked+h.side*layout.stride).readU8();
     const tracked=trackedRaw&3;
-    const optical=data.add(0xc8+0x168+h.side).readU8();
+    const optical=data.add(layout.snapshot+layout.optical+h.side).readU8();
     Object.assign(observed,{state:'sampling',trackedRaw,tracked,optical});
     observed.samples++;
     observed.trackedCounts[tracked]++;
@@ -102,9 +194,9 @@ function route(h) {
     // Switching finger sources must keep the physical root and wrist.
     const active=priority && !skeleton.equals(0) && anchored(h,skeleton);
     if(active!==h.active || physical!==h.physical || priority!==h.priority || (active && !skeleton.equals(h.skeleton))) {
-        h.hand.add(0xf0).writeU64(active ? skeleton : h.original.skeleton);
-        h.hand.add(0x1a).writeU8(physical ? 1 : h.original.handMulti);
-        h.controller.add(0x1a).writeU8(priority ? 1 : h.original.controllerMulti);
+        h.hand.add(layout.skeleton).writeU64(active ? skeleton : h.original.skeleton);
+        h.hand.add(layout.multi).writeU8(physical ? 1 : h.original.handMulti);
+        h.controller.add(layout.multi).writeU8(priority ? 1 : h.original.controllerMulti);
         h.active=active;
         h.physical=physical;
         h.priority=priority;
@@ -115,11 +207,11 @@ function route(h) {
     h.skeleton=skeleton;
 }
 function hookInput() {
-    const opticalInput=driver.base.add(0x9a730).readPointer();
-    const original=driver.base.add(0x9a7e0).readPointer();
+    const opticalInput=layout.opticalInput.readPointer();
+    const original=layout.original.readPointer();
     if(opticalInput.isNull() || original.isNull())return false;
     // VD suppresses native 004 writes before its trampoline, so capture the wrist here.
-    skeletonListeners.push(Interceptor.attach(driver.base.add(0xf320), {
+    skeletonListeners.push(Interceptor.attach(layout.nativeUpdate, {
         onEnter(args) {
             if(stopped || args[4].toUInt32()!==31 || args[0].equals(opticalInput))return;
             try {
@@ -148,7 +240,7 @@ function hookInput() {
         },
         onLeave() { this.bones=null; }
     }));
-    const context = driver.base.add(0x9a6b8).readPointer();
+    const context = layout.context.readPointer();
     if (context.isNull()) return true;
     const input = new NativeFunction(context.readPointer().readPointer(),
         'pointer', ['pointer', 'pointer', 'pointer'])(
@@ -162,7 +254,7 @@ function hookInput() {
         try {
             if (!stopped && count === 31 && !self.equals(input)) {
                 hand = hands.find(h => h !== null && current(h) &&
-                    h.controller.add(0x40).readU32() === handle.shr(32).toNumber());
+                    h.controller.add(layout.device).readU32() === handle.shr(32).toNumber());
                 if(hand!==undefined)anchor=nativeAnchor(bones);
                 if (hand?.active && hand.skeleton.equals(handle)) {
                     rememberAnchor(hand,handle,range,anchor);
@@ -193,9 +285,9 @@ const modules=Process.attachModuleObserver({
 });
 function restore(h) {
     if(h===null || !current(h))return;
-    h.hand.add(0xf0).writeU64(h.original.skeleton);
-    h.hand.add(0x1a).writeU8(h.original.handMulti);
-    h.controller.add(0x1a).writeU8(h.original.controllerMulti);
+    h.hand.add(layout.skeleton).writeU64(h.original.skeleton);
+    h.hand.add(layout.multi).writeU8(h.original.handMulti);
+    h.controller.add(layout.multi).writeU8(h.original.controllerMulti);
     h.active=false;
     h.physical=false;
     h.priority=false;
@@ -249,7 +341,14 @@ rpc.exports={
         if(stopped || timer!==null || seconds<1 || seconds>90)throw new Error('Invalid start request');
         driver=Process.findModuleByName('driver_VirtualDesktop.dll');
         if(driver===null)return false;
-        const host=driver.base.add(0x9a6e0).readPointer();
+        if(layout===null) {
+            try { layout=resolveLayout(driver); }
+            catch(error) {
+                if(String(error).includes('QFT_PC_LAYOUT_UNSUPPORTED:'))throw error;
+                throw Error('QFT_PC_LAYOUT_UNSUPPORTED: '+error);
+            }
+        }
+        const host=layout.host.readPointer();
         if(host.isNull())return false;
         hands[0]=resolve(0);hands[1]=resolve(1);
         if(!hookInput())return false;
@@ -260,7 +359,7 @@ rpc.exports={
                 try {
                     poses++;
                     const device=args[1].toUInt32();
-                    const controller=hands.find(h=>h!==null && current(h) && h.controller.add(0x40).readU32()===device);
+                    const controller=hands.find(h=>h!==null && current(h) && h.controller.add(layout.device).readU32()===device);
                     // VD can receive the first optical frame before our polling timer.
                     if(controller!==undefined)route(controller);
                     const h=hands.find(h=>h!==null && h.device===device);
@@ -283,7 +382,7 @@ rpc.exports={
                         h=hands[side]=resolve(side);
                         if(h===null)continue;
                     }
-                    h.device=h.hand.add(0x40).readU32();
+                    h.device=h.hand.add(layout.device).readU32();
                     route(h);
                 }
             } catch(error) { halt('PC routing failed: '+error); }
