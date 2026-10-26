@@ -79,6 +79,10 @@ def load_hand_hook(session, receive, filename='vd_hand_hook.js'):
             script.unload()
         except Exception:
             pass
+        detail=errors[-1] if errors else str(exc)
+        if 'QFT_HEADSET_LAYOUT_UNSUPPORTED:' in detail:
+            print(detail, flush=True)
+            raise HookCompatibilityError('HybridHeadsetUnsupported') from exc
         if errors and 'Unsupported controller routing code' in errors[-1]:
             raise HookCompatibilityError(errors[-1]) from exc
         raise RuntimeError(errors[-1] if errors else 'Headset hook did not initialize') from exc
@@ -237,8 +241,8 @@ def main():
         if adb('get-state') != 'device':
             raise RuntimeError('Headset is not connected through ADB')
         package = adb('shell', 'dumpsys', 'package', 'VirtualDesktop.Android')
-        if not re.search(r'versionName=1\.34\.22\.0\s', package):
-            raise RuntimeError('This hook was verified with Virtual Desktop Android 1.34.22.0 only')
+        version=re.search(r'\bversionName=(\S+)',package)
+        print('Virtual Desktop Android version: '+(version[1] if version else 'unknown'),flush=True)
         root = RootShell()
         print('Headset build ' + root.run('getprop ro.build.version.incremental'), flush=True)
         wait_for_virtual_desktop(adb, keep_alive)

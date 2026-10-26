@@ -1,6 +1,9 @@
 const mono = Process.getModuleByName('libmonosgen-2.0.so');
+function unsupported(detail) { throw Error('QFT_HEADSET_LAYOUT_UNSUPPORTED: '+detail); }
 function api(name, ret, args) {
-    return new NativeFunction(mono.getExportByName(name), ret, args);
+    const address=mono.findExportByName(name);
+    if(address===null)unsupported('Missing Mono API '+name);
+    return new NativeFunction(address, ret, args);
 }
 const domain = api('mono_get_root_domain', 'pointer', [])();
 const threadAttach = api('mono_thread_attach', 'pointer', ['pointer']);
@@ -25,51 +28,97 @@ function loadedClass(assemblyName, namespace, name) {
     nameFree(an);
     if (assembly.isNull()) throw new Error(assemblyName + ' is not loaded');
     const klass = getClass(getImage(assembly), utf8(namespace), utf8(name));
-    if (klass.isNull()) throw new Error('Missing class ' + name);
+    if (klass.isNull()) unsupported('Missing class ' + name);
     return klass;
 }
-const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert} = managed(() => {
+const {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert, handLayout} = managed(() => {
     const klass = loadedClass('Xenko.VR', 'Xenko.VR', 'OpenXRHMD');
-    if (klass.isNull()) throw new Error('OpenXRHMD metadata missing');
-    function method(name, argc) {
-        const metadata = getMethod(klass, utf8(name), argc);
-        if (metadata.isNull()) throw new Error('Missing method ' + name);
-        const address = compile(metadata);
-        if (address.isNull()) throw new Error('No code for ' + name);
-        return address;
+    const signature=api('mono_method_signature','pointer',['pointer']);
+    const parameter=api('mono_signature_get_params','pointer',['pointer','pointer']);
+    const result=api('mono_signature_get_return_type','pointer',['pointer']);
+    const instance=api('mono_signature_is_instance','int',['pointer']);
+    const typeCode=api('mono_type_get_type','int',['pointer']);
+    const byref=api('mono_type_is_byref','int',['pointer']);
+    const typeClass=api('mono_class_from_mono_type','pointer',['pointer']);
+    const fieldType=api('mono_field_get_type','pointer',['pointer']);
+    const fieldFlags=api('mono_field_get_flags','uint',['pointer']);
+    const classSize=api('mono_class_instance_size','int',['pointer']);
+    const valueSize=api('mono_class_value_size','int',['pointer','pointer']);
+    const header=classSize(api('mono_get_object_class','pointer',[])());
+    function method(owner,name,returns,types) {
+        const metadata=getMethod(owner,utf8(name),types.length);
+        if(metadata.isNull())unsupported('Missing method '+name);
+        const sig=signature(metadata),iter=Memory.alloc(Process.pointerSize);
+        iter.writePointer(ptr(0));
+        if(sig.isNull() || !instance(sig) || typeCode(result(sig))!==returns || byref(result(sig)))
+            unsupported('Method signature '+name);
+        const params=types.map(([code,ref])=>{
+            const type=parameter(sig,iter);
+            if(type.isNull() || (code!==null && typeCode(type)!==code) || Boolean(byref(type))!==ref)
+                unsupported('Method parameter '+name);
+            return type;
+        });
+        return {metadata,params};
     }
-    const addresses = {
-        update: method('Update', 1),
-        getHandState: method('GetHandState', 1),
-        convertFingerState: method('ConvertFingerState', 2),
-        setMultiModal: method('set_UseMultiModalInput', 1),
-    };
-    const multiField = getField(klass, utf8('_useMultiModalInput'));
-    if (multiField.isNull()) throw new Error('Multimodal field missing');
-    const multiOffset = fieldOffset(multiField);
+    const methods={update:method(klass,'Update',1,[[null,false]]),
+        getHandState:method(klass,'GetHandState',1,[[0x11,true]]),
+        convertFingerState:method(klass,'ConvertFingerState',2,[[8,false],[0x11,true]]),
+        setMultiModal:method(klass,'set_UseMultiModalInput',1,[[2,false]])};
+    function field(owner,name,code) {
+        const member=getField(owner,utf8(name));
+        if(member.isNull())unsupported('Missing field '+name);
+        const type=fieldType(member);
+        if(fieldFlags(member)&0x50 || typeCode(type)!==code || byref(type))unsupported('Field type '+name);
+        return {offset:fieldOffset(member),type};
+    }
+    function booleanOffset(owner,name) {
+        const offset=field(owner,name,2).offset;
+        if(offset<header || offset>=classSize(owner))unsupported('Boolean field bounds '+name);
+        return offset;
+    }
+    const multiOffset=booleanOffset(klass,'_useMultiModalInput');
+    const hands=typeClass(methods.getHandState.params[0]),joints=typeClass(methods.convertFingerState.params[1]);
+    const size=valueSize(hands,ptr(0)),jointSize=valueSize(joints,ptr(0));
+    if(header<Process.pointerSize || size<1 || size>0x10000 || jointSize<1 || jointSize>size)
+        unsupported('Hand state size');
+    const regions=[];
+    function handField(name,code,length,expectedClass=null) {
+        const member=field(hands,name,code),offset=member.offset-header;
+        if(offset<0 || offset+length>size || (expectedClass!==null && !typeClass(member.type).equals(expectedClass)) ||
+            regions.some(([start,end])=>offset<end && offset+length>start))unsupported('Hand field layout '+name);
+        regions.push([offset,offset+length]);
+        return offset;
+    }
+    const handLayout={leftActive:handField('_leftHandActive',5,1),rightActive:handField('_rightHandActive',5,1),
+        leftJoints:handField('LeftHandJointStates',0x11,jointSize,joints),
+        rightJoints:handField('RightHandJointStates',0x11,jointSize,joints)};
     const sharedClass = loadedClass('VirtualDesktop.Mobile.Shared', 'VirtualDesktop.Mobile', 'SharedUserSettings');
     const parent = api('mono_class_get_parent', 'pointer', ['pointer']);
     const className = api('mono_class_get_name', 'pointer', ['pointer']);
     let baseClass = sharedClass;
     while (!baseClass.isNull() && className(baseClass).readUtf8String() !== 'SettingsBase`1') baseClass=parent(baseClass);
-    if (baseClass.isNull()) throw new Error('SettingsBase not found');
+    if (baseClass.isNull()) unsupported('SettingsBase not found');
     const defaultField = getField(baseClass, utf8('<Default>k__BackingField'));
-    if (defaultField.isNull()) throw new Error('Settings singleton field missing');
+    if (defaultField.isNull()) unsupported('Settings singleton field missing');
     const vtable = api('mono_class_vtable', 'pointer', ['pointer','pointer'])(domain, baseClass);
     if (vtable.isNull()) throw new Error('Settings vtable null');
     const out = Memory.alloc(Process.pointerSize);
     api('mono_field_static_get_value', 'void', ['pointer','pointer','pointer'])(vtable,defaultField,out);
     const shared = out.readPointer();
     if (shared.isNull()) throw new Error('Settings singleton is null');
-    const sharedMulti = getField(sharedClass, utf8('_useMultiModal'));
-    if (sharedMulti.isNull()) throw new Error('Shared multimodal field missing');
-    const sharedMultiOffset = fieldOffset(sharedMulti);
-    send({event: 'resolved', multiOffset, addresses: Object.fromEntries(
+    const sharedMultiOffset=booleanOffset(sharedClass,'_useMultiModal');
+    method(sharedClass,'set_UseMultiModal',1,[[2,false]]);
+    const addresses=Object.fromEntries(Object.entries(methods).map(([name,value])=>{
+        const address=compile(value.metadata);
+        if(address.isNull())unsupported('No code for '+name);
+        return [name,address];
+    }));
+    send({event: 'resolved', multiOffset, sharedMultiOffset, handLayout, addresses: Object.fromEntries(
         Object.entries(addresses).map(([k,v]) => [k, {address:v.toString(),
             module:Process.findModuleByAddress(v)?.name, code:hexdump(v,{length:24,header:false,ansi:false})}]))});
 
     const convert = new NativeFunction(addresses.convertFingerState, 'int', ['pointer','int','pointer']);
-    return {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert};
+    return {klass, addresses, multiOffset, sharedClass, shared, sharedMultiOffset, convert, handLayout};
 });
 const gcPin = api('mono_gchandle_new', 'uint', ['pointer','int']);
 const gcFree = api('mono_gchandle_free', 'void', ['uint']);
@@ -151,9 +200,10 @@ rpc.exports = {
                 onEnter(args) { this.self=args[0]; this.output=args[1]; },
                 onLeave() {
                     if (state !== 'running') return;
-                    const active=[convert(this.self,0,this.output.add(4)),convert(this.self,1,this.output.add(1460))];
-                    this.output.writeU8(active[0] ? 1 : 0);
-                    this.output.add(1).writeU8(active[1] ? 1 : 0);
+                    const active=[convert(this.self,0,this.output.add(handLayout.leftJoints)),
+                        convert(this.self,1,this.output.add(handLayout.rightJoints))];
+                    this.output.add(handLayout.leftActive).writeU8(active[0] ? 1 : 0);
+                    this.output.add(handLayout.rightActive).writeU8(active[1] ? 1 : 0);
                     frames++;
                 }
             });
