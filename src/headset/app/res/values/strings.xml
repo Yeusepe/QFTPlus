@@ -527,4 +527,5 @@
     <string name="headset_ready">Your headset is ready</string>
     <string name="headset_ready_about">QFT+ has everything it needs.</string>
     <string name="try_again">Try again</string>
+    <string name="ocui_api_unavailable">This headset\'s Settings UI does not expose the controls QFT+ needs.</string>
 </resources>
