@@ -783,6 +783,8 @@ public partial class StudioWindow : Ui.FluentWindow
         var selfInstall = Loc.Get("TurnOffOnlyIfYouInstallTheModuleYourself");
         var installModule = Check("installModule", Loc.Get("InstallTheVRCFaceTrackingModule"), true);
         AutomationProperties.SetHelpText(installModule, selfInstall);
+        var nativeFace = Check("nativeFaceTracking", Loc.Get("NativeVRChatFaceTracking"), true);
+        AutomationProperties.SetHelpText(nativeFace, Loc.Get("NativeVRChatFaceTrackingAbout"));
         UpdateOptions();
         foreach (var element in new[]
         {
@@ -790,6 +792,7 @@ public partial class StudioWindow : Ui.FluentWindow
             Card(Heading(Loc.Get("SetupGuide")), Muted(Loc.Get("SetupGuideAbout")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
+            Face(Card(Heading(Loc.Get("VRChat")), nativeFace, Muted(Loc.Get("NativeVRChatFaceTrackingAbout")))),
             MicrophoneRepairOptions(), Face(HeadsetModelOptions()), Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
             Card(Heading(Loc.Get("Language")), Muted(Loc.Get("TranslationsFollowYourWindowsDisplayLanguageHelpBringQFT")),
                 Button(Loc.Get("HelpTranslateQFT"), () => Open("https://crowdin.com/project/qftplus")))

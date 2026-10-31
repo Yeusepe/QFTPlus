@@ -69,6 +69,7 @@ public sealed class TrackingModule : ExtTrackingModule
     private bool _needsEye;
     private bool _needsExpression;
     private NativeFaceOsc? _nativeFace;
+    private bool _nativeFaceEnabled = true;
     private long _lastGazeTick;
     private readonly float[] _gaze = new float[4];
     private readonly long[] _heldTick = new long[2], _lidTicks = new long[2];
@@ -231,7 +232,7 @@ public sealed class TrackingModule : ExtTrackingModule
             if (_headset.AdjustRequest is { } request) AdjustFromHeadset(request, now);
             if (_headsetDirect && !_headset.Fresh(now)) { _nativeFace?.Send(null); return; }
             Publish(_output, _eyeOutput);
-            _nativeFace?.Send(tracking && !_headsetDirect ? UnifiedTracking.Data : null);
+            _nativeFace?.Send(tracking && !_headsetDirect && _nativeFaceEnabled ? UnifiedTracking.Data : null);
         }
     }
 
@@ -304,6 +305,7 @@ public sealed class TrackingModule : ExtTrackingModule
         if (config?["root"] is JsonValue folder && folder.TryGetValue(out string? root) && root.Length > 0) _settingsRoot = Path.GetFullPath(root);
         if (config is not null)
         {
+            _nativeFaceEnabled = config["nativeFaceTracking"]?.GetValue<bool>() != false;
             _headset.Configure(config["headsetStandalone"]?.GetValue<bool>() == true && config["headsetReceiverEnabled"]?.GetValue<bool>() != false ? config["headsetPairKey"]?.GetValue<string>() ?? "" : "");
             _headsetDirect = config["headsetStandalone"]?.GetValue<bool>() == true && config["headsetDirect"]?.GetValue<bool>() == true;
         }

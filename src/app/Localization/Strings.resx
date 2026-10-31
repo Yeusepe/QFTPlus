@@ -4110,4 +4110,6 @@
   <data name="MicrophoneRepairConflict" xml:space="preserve"><value>A different module is using the repair folder. Resolve it in Magisk before trying again.</value></data>
   <data name="MicrophoneRepairFailed" xml:space="preserve"><value>The headset did not confirm the repair change. Keep it connected and awake, allow Shell access in Magisk, then check again.</value></data>
   <data name="MicrophoneRepairSearch" xml:space="preserve"><value>microphone mic mute unmute sleep wake audio Virtual Desktop repair fix</value></data>
+  <data name="NativeVRChatFaceTracking" xml:space="preserve"><value>Native VRChat face tracking</value></data>
+  <data name="NativeVRChatFaceTrackingAbout" xml:space="preserve"><value>Send tracking to VRChat’s new face tracking system. Turn off to use only the existing VRCFaceTracking output.</value></data>
 </root>
