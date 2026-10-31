@@ -346,7 +346,7 @@ public partial class StudioWindow : Ui.FluentWindow
         var panel = new WrapPanel();
         foreach (var button in buttons)
         {
-            button.Margin = new(0, 0, 8, 8);
+            button.SetResourceReference(MarginProperty, "ActionButtonSpacing");
             panel.Children.Add(button);
         }
         return panel;
@@ -406,6 +406,7 @@ public partial class StudioWindow : Ui.FluentWindow
         lipSyncMeters?.Stop(); lipSyncMeters = null;
         StopManual();
         setupRefresh = trackingRefresh = adjustmentRefresh = updateRefresh = null;
+        Page.ClearValue(StyleProperty);
         Page.Children.Clear();
         Actions.Children.Clear();
         cameras.Clear();
@@ -795,16 +796,22 @@ public partial class StudioWindow : Ui.FluentWindow
         AutomationProperties.SetHelpText(installModule, selfInstall);
         var nativeFace = Check("nativeFaceTracking", Loc.Get("NativeVRChatFaceTracking"), true);
         AutomationProperties.SetHelpText(nativeFace, Loc.Get("NativeVRChatFaceTrackingAbout"));
+        Page.Style = (Style)FindResource("SettingsLayout");
         UpdateOptions();
+        var secretSettings = new StackPanel { Style = (Style)FindResource("ExpandedSettingsLayout") };
+        secretSettings.Children.Add(ControllerRepairOptions());
+        secretSettings.Children.Add(MicrophoneRepairOptions());
+        secretSettings.Children.Add(Face(HeadsetModelOptions()));
         foreach (var element in new[]
         {
             Heading(Loc.Get("Tracking"), 23), useCard, Face(eyes), Face(Card(OutputOptions())), Card(HeadsetHero.Controllers(96), new ThumbrestSettings(session)),
-            Card(Heading(Loc.Get("SetupGuide")), Muted(Loc.Get("SetupGuideAbout")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
+            Card(Heading(Loc.Get("SetupGuide")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
-            nativeFaceOptions = Face(Card(Heading(Loc.Get("VRChat")), nativeFace, Muted(Loc.Get("NativeVRChatFaceTrackingAbout")))),
-            MicrophoneRepairOptions(), Face(HeadsetModelOptions()), Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
-            Card(Heading(Loc.Get("Language")), Muted(Loc.Get("TranslationsFollowYourWindowsDisplayLanguageHelpBringQFT")),
+            nativeFaceOptions = Face(Card(Heading(Loc.Get("VRChat")), nativeFace)),
+            new Ui.CardExpander { Header = Loc.Get("SuperSecretSettings"), Content = secretSettings, IsExpanded = false },
+            Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
+            Card(Heading(Loc.Get("Language")),
                 Button(Loc.Get("HelpTranslateQFT"), () => Open("https://crowdin.com/project/qftplus")))
         })
             Page.Children.Add(element);
@@ -818,8 +825,7 @@ public partial class StudioWindow : Ui.FluentWindow
     UIElement HeadsetModelOptions()
     {
         var option = new CheckBox { Content = Loc.Get("TrackOnTheHeadsetExperimental"), IsChecked = HeadsetModelExperiment.Enabled(session) };
-        AutomationProperties.SetHelpText(option, Loc.Get("TracksYourFacePupilsAndCalibrationInQFTHeadset"));
-        var about = Muted(Loc.Get("TurningItOnInstallsQFTHeadsetAndPairsIt"));
+        option.ToolTip = Loc.Get("TurningItOnInstallsQFTHeadsetAndPairsIt");
         var status = Muted("", live: true);
         status.Margin = new(0);
         status.VerticalAlignment = VerticalAlignment.Center;
@@ -857,14 +863,13 @@ public partial class StudioWindow : Ui.FluentWindow
             update.Visibility = Visible(HeadsetModelExperiment.Standalone(session) && session.AppProblem == HeadsetApp.Outdated && !changing);
             cancel.Visibility = Visible(changing);
             ShowAppProgress(working, changing);
-            about.Visibility = Visible(!changing);
             status.Text = changing ? Loc.Format("StatusDetail", session.StateTitle, session.Detail) : HeadsetModelExperiment.Pending(session) ? Loc.Get("OffButQFTHeadsetIsStillOnTheHeadset")
                 : update.Visibility == Visibility.Visible ? HeadsetApp.Outdated
                 : HeadsetModelExperiment.Enabled(session) ? Loc.Get("OnQFTHeadsetIsPairedWithThisPCStart") : Loc.Get("OffTrackingRunsOnThisPC");
         }
         trackingRefresh += Refresh;
         Refresh();
-        return Card(option, about, new DockPanel { Margin = new(0, 0, 0, 8), Children = { cancel, status } }, working, Buttons(retry, update));
+        return Card(option, new DockPanel { Margin = new(0, 0, 0, 8), Children = { cancel, status } }, working, Buttons(retry, update));
     }
 
     void ShowAppProgress(ProgressBar bar, bool working)
@@ -899,7 +904,7 @@ public partial class StudioWindow : Ui.FluentWindow
                 };
                 continue;
             }
-            var groups = CalibrationSettings.FaceGroups.Select(g => new CheckBox { Content = Loc.Get(g.Title), Tag = g.Kind, IsChecked = session.FaceOn(g.Kind), Margin = new(28, 0, 0, 0) }).ToList();
+            var groups = CalibrationSettings.FaceGroups.Select(g => new CheckBox { Content = Loc.Get(g.Title), Tag = g.Kind, IsChecked = session.FaceOn(g.Kind), Margin = new(28, 4, 0, 4) }).ToList();
             void Mixed() => option.IsChecked = groups.All(g => g.IsChecked == true) ? true : groups.Any(g => g.IsChecked == true) ? null : false;
             void Save(IEnumerable<CheckBox> changed)
             {
@@ -941,7 +946,6 @@ public partial class StudioWindow : Ui.FluentWindow
         Action refresh = () => { };
         var status = Muted("", live: true);
         var rows = new StackPanel();
-        rows.Children.Add(Muted(Loc.Get("SavedInQFTHeadsetChangesHereAndInThe")));
         async Task Apply(string key, object value)
         {
             sending++;

@@ -13,7 +13,7 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
   </resheader>
   <data name="ARegularSteamVRTrackpadGamesAndYourSteamVRBindings" xml:space="preserve">
-    <value>A regular SteamVR trackpad. Games and your SteamVR bindings decide what it does.</value>
+    <value>Uses your SteamVR trackpad bindings.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="About18Minutes" xml:space="preserve">
@@ -117,7 +117,7 @@
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis" xml:space="preserve">
-    <value>Benchmark is removed from Calibration. Recordings already on this PC stay there.</value>
+    <value>Removes the test option. Keeps recordings on this PC.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: AutomationProperties.HelpText</comment>
   </data>
   <data name="BenchmarkRecorded" xml:space="preserve">
@@ -303,10 +303,6 @@
   <data name="CheeksTongueAndBrows" xml:space="preserve">
     <value>Cheeks, tongue and brows</value>
     <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml.cs</comment>
-  </data>
-  <data name="CheeksTongueAndBrowsWorkWithoutCalibrationCalibratingYour" xml:space="preserve">
-    <value>Cheeks, tongue and brows work without calibration. Calibrating your face makes them more accurate.</value>
-    <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="ClearSearch" xml:space="preserve">
     <value>Clear search</value>
@@ -502,7 +498,7 @@
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="DragFromWhereYourThumbLandsToPushA" xml:space="preserve">
-    <value>Drag from where your thumb lands to push a stick. Lift to recenter.</value>
+    <value>Drag to move the stick. Lift your thumb to center it.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="EnterAValueFromTo" xml:space="preserve">
@@ -1019,12 +1015,8 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="HowOftenYourFaceIsMeasuredAndSentFaster" xml:space="preserve">
-    <value>How often your face is measured and sent. Faster rates follow your face more closely; slower rates use less battery and keep the headset cooler. Changing it restarts tracking.</value>
+    <value>Changing the update rate restarts tracking.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
-  </data>
-  <data name="HowTheQuestProControllersThumbrestsActInSteamVR" xml:space="preserve">
-    <value>Show Quest Pro controller battery levels in SteamVR and choose how the thumbrests act. The trigger also reports where your finger slides along it, as its own input you can bind in SteamVR.</value>
-    <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
   </data>
   <data name="HybridHands" xml:space="preserve">
     <value>Hybrid hands</value>
@@ -1043,7 +1035,7 @@
     <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
   </data>
   <data name="HybridHandsPauseVirtualDesktopBodyTrackingWhileThey" xml:space="preserve">
-    <value>Hybrid hands pause Virtual Desktop body tracking while they’re on.</value>
+    <value>Hand tracking pauses Virtual Desktop body tracking.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="HybridHandsStoppedTheHybridHandsLogInSettings" xml:space="preserve">
@@ -1292,7 +1284,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="MovesTheWindowsCursorLikeALaptopTouchpadPress" xml:space="preserve">
-    <value>Moves the Windows cursor like a laptop touchpad. Press firmly to click.</value>
+    <value>Moves the Windows pointer. Press firmly to click.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="NeedsSetup" xml:space="preserve">
@@ -1304,7 +1296,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="NoAudioNoColorCameraAndNoNameOr" xml:space="preserve">
-    <value>• No audio, no color camera, and no name or account. Each recording carries a random tester ID instead.</value>
+    <value>• No audio, color images, name or account. Each recording has a random tester ID.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="NoHeadsetsFoundPlugInAUSBDataCable" xml:space="preserve">
@@ -1348,7 +1340,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="NothingIsSentAutomaticallyYouSendRecordingsYourselfDirectly" xml:space="preserve">
-    <value>• Nothing is sent automatically. You send recordings yourself, directly to the developer.</value>
+    <value>• You choose which files to send to the developer.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="NothingLoggedYet" xml:space="preserve">
@@ -1368,11 +1360,11 @@
     <comment>QFT+ Windows app. StudioControls.cs | StudioWindow.xaml.cs</comment>
   </data>
   <data name="OffButQFTHeadsetIsStillOnTheHeadset" xml:space="preserve">
-    <value>Off, but QFT+ Headset is still on the headset. Connect the headset, then choose Retry to remove it.</value>
+    <value>Removal incomplete. Connect the headset. Select Retry.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="OffTrackingRunsOnThisPC" xml:space="preserve">
-    <value>Off. Tracking runs on this PC.</value>
+    <value>Tracking runs on this PC.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="Offset" xml:space="preserve">
@@ -1388,7 +1380,7 @@
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
   </data>
   <data name="OnQFTHeadsetIsPairedWithThisPCStart" xml:space="preserve">
-    <value>On. QFT+ Headset is paired with this PC; Start and Stop here control it.</value>
+    <value>On. Use Start and Stop on this PC.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="OneTimeInstallOfTheTrackingRuntimeOnThis" xml:space="preserve">
@@ -1624,15 +1616,15 @@
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
   </data>
   <data name="RecordABenchmarkThenSendTheFileItMakes" xml:space="preserve">
-    <value>Record a benchmark, then send the file it makes to the QFT+ developer directly. Use your tester ID to ask for your recordings to be deleted.</value>
+    <value>Record a test. Send the file to the QFT+ developer.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="RecordAShortSessionAndSendItToThe" xml:space="preserve">
-    <value>Record a short session and send it to the QFT+ developer. Recordings from many different faces make tracking better for everyone.</value>
+    <value>Send a short recording to help improve tracking.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="RecordingsAreUsedOnlyToTestAndImproveQFT" xml:space="preserve">
-    <value>• Recordings are used only to test and improve QFT+ face tracking.</value>
+    <value>• We use recordings only to improve QFT+ face tracking.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="RecordingsStayOnThisPC" xml:space="preserve">
@@ -1648,7 +1640,7 @@
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
   </data>
   <data name="RemovesQFTItsSteamVRDriverAndItsVRCFaceTrackingModule" xml:space="preserve">
-    <value>Removes QFT+, its SteamVR driver, and its VRCFaceTracking module. Your calibrations, recordings, and settings stay unless you choose to delete them too.</value>
+    <value>Removes QFT+, its driver and its VRCFaceTracking module. Keeps your files unless you choose to delete them.</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="RemovesTheAppItsSteamVRDriverItsVRCFaceTrackingModule" xml:space="preserve">
@@ -1660,7 +1652,7 @@
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="RequiresVirtualDesktopSteamLinkUsesItsOwnHand" xml:space="preserve">
-    <value>Requires Virtual Desktop. Steam Link uses its own hand tracking.</value>
+    <value>Requires Virtual Desktop. Steam Link handles its own hand tracking.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="Reset" xml:space="preserve">
@@ -1708,7 +1700,7 @@
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
   </data>
   <data name="ReverseTriggerSlideNormallySlidingTowardTheTipIs" xml:space="preserve">
-    <value>Reverse trigger slide (normally, sliding toward the tip is up)</value>
+    <value>Reverse trigger slide</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: Content</comment>
   </data>
   <data name="ReviewVideo" xml:space="preserve">
@@ -1748,12 +1740,8 @@
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
   </data>
   <data name="SaveFaceTrackingLogsOnThisPCNumbersOnly" xml:space="preserve">
-    <value>Save face-tracking logs on this PC (numbers only, no images)</value>
+    <value>Save tracking logs (no images)</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
-  </data>
-  <data name="SavedInQFTHeadsetChangesHereAndInThe" xml:space="preserve">
-    <value>Saved in QFT+ Headset. Changes here and in the headset stay in step. Eye gaze uses Meta’s standard calibration in this experiment.</value>
-    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="SavedInQFTHeadsetChangingItRestartsTrackingFor" xml:space="preserve">
     <value>Saved in QFT+ Headset. Changing it restarts tracking for a moment.</value>
@@ -1912,7 +1900,7 @@
     <comment>QFT+ Windows app. StudioSearch.cs</comment>
   </data>
   <data name="SmallInfraredImagesOfYourEyesBrowsAndMouth" xml:space="preserve">
-    <value>• Small infrared images of your eyes, brows and mouth from the headset’s face cameras, and the expression values the headset reports.</value>
+    <value>• Infrared images of your eyes, brows and mouth, plus face tracking values.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="Smoothing" xml:space="preserve">
@@ -2088,7 +2076,7 @@
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="SwipeSpeedPushesTheStickAndGlidesOutLike" xml:space="preserve">
-    <value>Swipe speed pushes the stick and glides out, like scrolling on a phone.</value>
+    <value>Swipe to move the stick. Movement slows after the swipe.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
   <data name="SwitchesTheHeadsetToWiFiSoYouCan" xml:space="preserve">
@@ -2096,7 +2084,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="TakesEffectTheNextTimeTrackingStartsToLeave" xml:space="preserve">
-    <value>Takes effect the next time tracking starts. To leave more performance for VR, choose Graphics card, then a different card from the one running your game.</value>
+    <value>Applies when tracking restarts. A second graphics card can leave more power for your game.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="TestMovements" xml:space="preserve">
@@ -2136,7 +2124,7 @@
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="TheQFTDriverAddsTheThumbrestTrackpadAndTrigger" xml:space="preserve">
-    <value>The QFT+ driver adds controller battery levels, the thumbrest trackpad and trigger slide. Uninstall it to use plain Touch controllers.</value>
+    <value>Adds battery levels, thumbrest controls and trigger slides. Remove it to use standard Touch controllers.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: AutomationProperties.HelpText</comment>
   </data>
   <data name="TheRequestIsHiddenForNowYourPreferenceCouldn" xml:space="preserve">
@@ -2160,7 +2148,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="ThisCopyWasnTInstalledByQFTSetupSo" xml:space="preserve">
-    <value>This copy wasn’t installed by QFT+ Setup, so it doesn’t update itself.</value>
+    <value>Install with QFT+ Setup to enable updates.</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="ThisPCIsKeepingUpWithOnlyAboutCamera" xml:space="preserve">
@@ -2252,23 +2240,23 @@
     <comment>QFT+ Windows app. StudioControls.cs. Transmission quality option.</comment>
   </data>
   <data name="PicksTheBestOptionForYourConnectionAndSwitches" xml:space="preserve">
-    <value>Picks the best option for your connection and switches as it changes: Latency first over USB, Quality over Wi-Fi, Data saver when frames start to queue.</value>
+    <value>USB: low delay. Wi-Fi: quality. Slow connection: less data.</value>
     <comment>QFT+ Windows app. StudioControls.cs. Describes the Automatic transmission quality.</comment>
   </data>
   <data name="SendsUncompressedFramesAtTrackingResolutionAbout16Mbps" xml:space="preserve">
-    <value>Sends uncompressed frames at tracking resolution, about 16 Mbps, with no compression delay.</value>
+    <value>No compression delay. Uses about 16 Mbps.</value>
     <comment>QFT+ Windows app. StudioControls.cs. Describes Latency first.</comment>
   </data>
   <data name="CompressesWithoutLossAbout7MbpsTrackingIsIdentical" xml:space="preserve">
-    <value>Compresses without loss, about 7 Mbps. Tracking is identical.</value>
+    <value>Same tracking quality. Uses about 7 Mbps.</value>
     <comment>QFT+ Windows app. StudioControls.cs. Describes Quality.</comment>
   </data>
   <data name="SmallestStreamAbout4MbpsTrackingCanDifferSlightly" xml:space="preserve">
-    <value>Smallest stream, about 4 Mbps. Tracking can differ slightly.</value>
+    <value>Uses about 4 Mbps. Tracking may lose detail.</value>
     <comment>QFT+ Windows app. StudioControls.cs. Describes Data saver.</comment>
   </data>
   <data name="AppliesRightAwayRecordingsCalibrationTheCamerasPage" xml:space="preserve">
-    <value>Applies right away. Recordings, calibration, the Cameras page and pupil dilation also send full camera frames.</value>
+    <value>Applies now. Recordings, calibration, camera previews and pupil tracking also send full images.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="BandwidthDataWiFiCompressionLatencyMbps" xml:space="preserve">
@@ -2287,18 +2275,6 @@
     <value>Trackpad</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml.cs</comment>
   </data>
-  <data name="TracksTheDirectionOfEachEyeSeparately" xml:space="preserve">
-    <value>Tracks the direction of each eye separately.</value>
-    <comment>QFT+ Windows app. StudioControls.cs</comment>
-  </data>
-  <data name="TracksYourFacePupilsAndCalibrationInQFTHeadset" xml:space="preserve">
-    <value>Tracks your face, pupils and calibration in QFT+ Headset on the headset instead of on this PC. This PC starts, stops and sets it up, and VRCFaceTracking receives its expressions.</value>
-    <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
-  </data>
-  <data name="TranslationsFollowYourWindowsDisplayLanguageHelpBringQFT" xml:space="preserve">
-    <value>Translations follow your Windows display language. Help bring QFT+ to more people.</value>
-    <comment>QFT+ Windows app. Windows app navigation, status, or settings</comment>
-  </data>
   <data name="TryAgain" xml:space="preserve">
     <value>Try again</value>
     <comment>QFT+ Windows app. StudioCalibration.cs | StudioControls.cs</comment>
@@ -2312,7 +2288,7 @@
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="TurnOffOnlyIfYouInstallTheModuleYourself" xml:space="preserve">
-    <value>Turn off only if you install the module yourself.</value>
+    <value>Turn off for manual installation.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="TurnOnDeveloperModeForYourHeadsetInThe" xml:space="preserve">
@@ -2332,11 +2308,11 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="TurnUntilAStraightUpAndDownSwipeReads" xml:space="preserve">
-    <value>Turn until a straight up-and-down swipe reads as straight, like Steam Input’s trackpad rotation.</value>
+    <value>Adjust the angle until an upward swipe moves straight up.</value>
     <comment>QFT+ Windows app. ThumbrestSettings.xaml: Text</comment>
   </data>
   <data name="TurningItOnInstallsQFTHeadsetAndPairsIt" xml:space="preserve">
-    <value>Installs QFT+ Headset and pairs it with this PC. Allow root access on first use. Turning it off backs up settings and calibration to this PC before removal; reinstalling restores them.</value>
+    <value>Installs QFT+ Headset. Turning it off saves a backup before removal. Reinstalling restores the backup.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="TurnsTrackingBackOnIfItWasOnWhen" xml:space="preserve">
@@ -2396,7 +2372,7 @@
     <comment>QFT+ Windows app. StudioSearch.cs | StudioUpdates.cs</comment>
   </data>
   <data name="UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd" xml:space="preserve">
-    <value>Updates install here and keep your settings, calibrations, and recordings.</value>
+    <value>Keeps your settings, calibration and recordings.</value>
     <comment>QFT+ Windows app. StudioUpdates.cs</comment>
   </data>
   <data name="UpdatesLiveLastChangedAt" xml:space="preserve">
@@ -2520,7 +2496,7 @@
     <comment>QFT+ Windows app. StudioControls.cs</comment>
   </data>
   <data name="YouCanAskForYourRecordingsToBeDeleted" xml:space="preserve">
-    <value>• You can ask for your recordings to be deleted at any time with your tester ID.</value>
+    <value>• Use your tester ID to request deletion.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>
   </data>
   <data name="YouReUpToDate" xml:space="preserve">
@@ -3922,7 +3898,7 @@
     <value>QFT+ {0} is available. Installing takes a few minutes and stops tracking until it’s done. Your settings, calibrations, and recordings stay.</value>
   </data>
   <data name="AutomaticPrereleaseUpdates" xml:space="preserve">
-    <value>Includes release candidates. Updates install here and keep your settings, calibrations, and recordings.</value>
+    <value>Includes test releases. Keeps your settings, calibration and recordings.</value>
   </data>
   <data name="ConnectedWithHybridHands" xml:space="preserve">
     <value>Connected over {0}. Expressions are going to VRCFaceTracking. Hybrid hands are on.</value>
@@ -4057,9 +4033,6 @@
   <data name="RunSetupGuide" xml:space="preserve">
     <value>Run setup guide</value>
   </data>
-  <data name="SetupGuideAbout" xml:space="preserve">
-    <value>Walks you through connecting your Quest Pro, turning on tracking in the headset and finishing setup.</value>
-  </data>
   <data name="UseFaceShort" xml:space="preserve">
     <value>Face and eyes</value>
   </data>
@@ -4093,23 +4066,61 @@
   <data name="EverythingIsInstalled" xml:space="preserve">
     <value>Everything QFT+ needs is installed on this PC.</value>
   </data>
-  <data name="MicrophoneRepairHeading" xml:space="preserve"><value>Headset microphone</value></data>
-  <data name="MicrophoneRepairOption" xml:space="preserve"><value>Prevent the microphone getting stuck muted</value></data>
-  <data name="MicrophoneRepairAbout" xml:space="preserve"><value>Repairs a headset system bug that can delay microphone changes after sleep. Normal mute controls still work. Requires Magisk and a supported headset version. Changes take effect after restarting the headset.</value></data>
+  <data name="MicrophoneRepairHeading" xml:space="preserve"><value>Microphone repair</value></data>
+  <data name="MicrophoneRepairOption" xml:space="preserve"><value>Fix mute after sleep</value></data>
+  <data name="MicrophoneRepairAbout" xml:space="preserve"><value>Restart the headset after changes.</value></data>
   <data name="MicrophoneRepairModuleName" xml:space="preserve"><value>QFT+ microphone repair</value></data>
   <data name="MicrophoneRepairCheck" xml:space="preserve"><value>Check headset</value></data>
-  <data name="MicrophoneRepairConnect" xml:space="preserve"><value>Connect your headset, then check its repair status.</value></data>
-  <data name="MicrophoneRepairApplying" xml:space="preserve"><value>Updating the microphone repair…</value></data>
-  <data name="MicrophoneRepairActive" xml:space="preserve"><value>On. The repair is active on this headset.</value></data>
-  <data name="MicrophoneRepairRestartOn" xml:space="preserve"><value>On. Restart the headset to activate the repair.</value></data>
-  <data name="MicrophoneRepairRestartOff" xml:space="preserve"><value>Off. Restart the headset to finish turning off the repair.</value></data>
-  <data name="MicrophoneRepairOff" xml:space="preserve"><value>Off. The repair is not enabled on this headset.</value></data>
-  <data name="MicrophoneRepairUnsupported" xml:space="preserve"><value>This headset version is not supported by the repair. Its system files have not been changed.</value></data>
-  <data name="MicrophoneRepairDamaged" xml:space="preserve"><value>The installed repair needs replacing. Turn it off, then on again.</value></data>
-  <data name="MicrophoneRepairRootRequired" xml:space="preserve"><value>This repair needs Magisk. In Magisk → Superuser, allow Shell access, then check again.</value></data>
-  <data name="MicrophoneRepairConflict" xml:space="preserve"><value>A different module is using the repair folder. Resolve it in Magisk before trying again.</value></data>
-  <data name="MicrophoneRepairFailed" xml:space="preserve"><value>The headset did not confirm the repair change. Keep it connected and awake, allow Shell access in Magisk, then check again.</value></data>
+  <data name="MicrophoneRepairConnect" xml:space="preserve"><value>Connect the headset.</value></data>
+  <data name="MicrophoneRepairApplying" xml:space="preserve"><value>Changing the repair...</value></data>
+  <data name="MicrophoneRepairActive" xml:space="preserve"><value>Repair active.</value></data>
+  <data name="MicrophoneRepairRestartOn" xml:space="preserve"><value>Restart the headset to turn the repair on.</value></data>
+  <data name="MicrophoneRepairRestartOff" xml:space="preserve"><value>Restart the headset to turn the repair off.</value></data>
+  <data name="MicrophoneRepairOff" xml:space="preserve"><value>Repair off.</value></data>
+  <data name="MicrophoneRepairUnsupported" xml:space="preserve"><value>This headset version does not support the repair.</value></data>
+  <data name="MicrophoneRepairDamaged" xml:space="preserve"><value>The repair is damaged. Turn it off. Turn it on again.</value></data>
+  <data name="MicrophoneRepairRootRequired" xml:space="preserve"><value>Requires Magisk. Allow Shell access in Magisk. Check again.</value></data>
+  <data name="MicrophoneRepairConflict" xml:space="preserve"><value>Another module blocks this repair. Check installed modules in Magisk.</value></data>
+  <data name="MicrophoneRepairFailed" xml:space="preserve"><value>Could not change the repair. Keep the headset awake. Allow Shell access in Magisk. Check again.</value></data>
   <data name="MicrophoneRepairSearch" xml:space="preserve"><value>microphone mic mute unmute sleep wake audio Virtual Desktop repair fix</value></data>
   <data name="NativeVRChatFaceTracking" xml:space="preserve"><value>Native VRChat face tracking</value></data>
-  <data name="NativeVRChatFaceTrackingAbout" xml:space="preserve"><value>Send tracking to VRChat’s new face tracking system. Turn off to use only the existing VRCFaceTracking output.</value></data>
+  <data name="NativeVRChatFaceTrackingAbout" xml:space="preserve"><value>Turn off to use VRCFaceTracking only.</value></data>
+  <data name="SuperSecretSettings" xml:space="preserve"><value>Yeusepes super secret settings</value></data>
+  <data name="MicrophoneSettingsHeading" xml:space="preserve"><value>Microphone</value></data>
+  <data name="MicrophoneSettingsCheck" xml:space="preserve"><value>Read settings</value></data>
+  <data name="MicrophoneNoiseOff" xml:space="preserve"><value>Disable noise cancellation</value></data>
+  <data name="MicrophoneNoiseOffAbout" xml:space="preserve"><value>Keeps the headset microphone from filtering out quiet sounds.</value></data>
+  <data name="MicrophoneSettingsAbout" xml:space="preserve"><value>All apps. Keeps settings after headset restarts.</value></data>
+  <data name="MicrophoneSettingsModuleName" xml:space="preserve"><value>QFT+ microphone settings</value></data>
+  <data name="MicrophoneSettingsActive" xml:space="preserve"><value>Settings active.</value></data>
+  <data name="MicrophoneSettingsWaiting" xml:space="preserve"><value>Settings saved. No app is using the microphone.</value></data>
+  <data name="MicrophoneSettingsOff" xml:space="preserve"><value>Headset settings active.</value></data>
+  <data name="MicrophoneSettingsUnsupported" xml:space="preserve"><value>Requires a Quest Pro.</value></data>
+  <data name="MicrophoneSettingsMissing" xml:space="preserve"><value>A microphone file is missing. Reinstall QFT+.</value></data>
+  <data name="MicrophoneSettingsFailed" xml:space="preserve"><value>Could not save settings. Check the headset connection. Allow Shell access in Magisk. Check again.</value></data>
+  <data name="MicrophoneSettingsSearch" xml:space="preserve"><value>microphone mic audio noise cancellation suppression gate quiet voice all apps Steam Link Virtual Desktop</value></data>
+  <data name="ControllerRecoveryModuleName" xml:space="preserve"><value>QFT+ controller recovery</value></data>
+  <data name="ControllerRecoveryAbout" xml:space="preserve"><value>Restore your controllers after tracking restarts.</value></data>
+  <data name="MicrophoneGateAdjust" xml:space="preserve"><value>Set noise gate</value></data>
+  <data name="MicrophoneGateThreshold" xml:space="preserve"><value>Noise gate</value></data>
+  <data name="MicrophoneGateThresholdAbout" xml:space="preserve"><value>0% turns the gate off. Higher values cut quiet sounds.</value></data>
+  <data name="MicrophoneSettingsApply" xml:space="preserve"><value>Apply</value></data>
+  <data name="MicrophoneGateAdjustAbout" xml:space="preserve"><value>Off lets the headset control the gate.</value></data>
+  <data name="ControllerRepairHeading" xml:space="preserve"><value>Controller repair</value></data>
+  <data name="RepairControllers" xml:space="preserve"><value>Repair controllers</value></data>
+  <data name="ControllerRepairAbout" xml:space="preserve"><value>Wear the headset. Hold both controllers during repair.</value></data>
+  <data name="ControllerRepairWorking" xml:space="preserve"><value>Reconnecting controllers. Keep the headset on.</value></data>
+  <data name="ControllerRepairReady" xml:space="preserve"><value>Controllers reconnected. Test movement and buttons.</value></data>
+  <data name="ControllerRepairBusy" xml:space="preserve"><value>Repair in progress. Wait for it to finish.</value></data>
+  <data name="ControllerRepairConnect" xml:space="preserve"><value>Connect the headset.</value></data>
+  <data name="ControllerRepairMissing" xml:space="preserve"><value>A repair file is missing. Reinstall QFT+.</value></data>
+  <data name="ControllerRepairUnsupported" xml:space="preserve"><value>Requires a Quest Pro.</value></data>
+  <data name="ControllerRepairFailed" xml:space="preserve"><value>Could not reconnect controllers. Keep the headset on. Try again.</value></data>
+  <data name="ControllerRepairSearch" xml:space="preserve"><value>controllers repair reconnect recovery frozen tracking</value></data>
+  <data name="MicrophoneSettingsUnsaved" xml:space="preserve"><value>Changes not saved.</value></data>
+  <data name="TesterId" xml:space="preserve"><value>Tester ID: {0}</value></data>
+  <data name="TracksTheDirectionOfEachEyeSeparately" xml:space="preserve">
+    <value>Tracks the direction of each eye separately.</value>
+    <comment>QFT+ Windows app. StudioControls.cs</comment>
+  </data>
 </root>

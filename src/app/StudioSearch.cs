@@ -131,10 +131,14 @@ public partial class StudioWindow
             yield return new(Loc.Get("StartWithVRCFaceTracking"), Loc.Get("Startup"), "Settings", Loc.Get("VrcftLaunchAutomatic"));
         }
         yield return new(Loc.Get("OpenVRAppsOnStart"), Loc.Get("Startup"), "Settings", Loc.Get("SteamvrVirtualDesktopLaunch"));
-        yield return new(Loc.Get("MicrophoneRepairOption"), Loc.Get("MicrophoneRepairHeading"), "Settings", Loc.Get("MicrophoneRepairSearch"));
+        yield return new(Loc.Get("SuperSecretSettings"), null, "Settings");
+        yield return new(Loc.Get("RepairControllers"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("ControllerRepairSearch"));
+        yield return new(Loc.Get("MicrophoneRepairOption"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("MicrophoneRepairSearch"));
+        foreach (var key in new[] { "MicrophoneNoiseOff", "MicrophoneGateAdjust", "MicrophoneGateThreshold" })
+            yield return new(Loc.Get(key), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("MicrophoneSettingsSearch"));
         if (face)
         {
-            yield return new(Loc.Get("TrackOnTheHeadsetExperimental"), null, "Settings", Loc.Get("StandaloneQftHeadsetAppOnDevice"));
+            yield return new(Loc.Get("TrackOnTheHeadsetExperimental"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("StandaloneQftHeadsetAppOnDevice"));
             yield return new(Loc.Get("TrackingProcessor"), Loc.Get("Processing"), "Settings", Loc.Get("GpuCpuDirectmlGraphicsCardPerformance"));
             yield return new(Loc.Get("TransmissionQuality"), Loc.Get("Processing"), "Settings", Loc.Get("BandwidthDataWiFiCompressionLatencyMbps"));
             yield return new(Loc.Get("SaveFaceTrackingLogs"), Loc.Get("FaceCalibration"), "Settings", Loc.Get("LogsDiagnostics"));

@@ -508,7 +508,7 @@ public partial class StudioWindow
     Expander ProcessingOptions()
     {
         string[] devices = ["auto", "directml", "cpu"];
-        var compute = new ComboBox { ItemsSource = new[] { Loc.Get("Automatic"), Loc.Get("GraphicsCardDirectML"), Loc.Get("ProcessorCPU") }, Margin = new(0, 0, 0, 20),
+        var compute = new ComboBox { ItemsSource = new[] { Loc.Get("Automatic"), Loc.Get("GraphicsCardDirectML"), Loc.Get("ProcessorCPU") }, Margin = new(0, 0, 0, 16),
             SelectedIndex = Math.Max(0, Array.IndexOf(devices, session.Config["inferenceDevice"]?.GetValue<string>() ?? "auto")) };
         var graphics = new StackPanel { Visibility = Visible(compute.SelectedIndex != 2) };
         compute.SelectionChanged += (_, _) =>
@@ -516,7 +516,7 @@ public partial class StudioWindow
             graphics.Visibility = Visible(compute.SelectedIndex != 2);
             session.Save("inferenceDevice", devices[compute.SelectedIndex]);
         };
-        var hardware = new StackPanel { Margin = new(0, 16, 0, 0) };
+        var hardware = new StackPanel();
         Field(hardware, Loc.Get("TrackingProcessor"), compute);
         if (GraphicsAdapters.List() is { Count: > 1 } adapters)
         {
@@ -528,7 +528,7 @@ public partial class StudioWindow
         hardware.Children.Add(graphics);
         hardware.Children.Add(Muted(Loc.Get("TakesEffectTheNextTimeTrackingStartsToLeave")));
         hardware.Children.Add(TransmissionOptions());
-        return new Ui.CardExpander { Header = Loc.Get("Processing"), Content = hardware, Margin = new(0, 0, 0, 16) };
+        return new Ui.CardExpander { Header = Loc.Get("Processing"), Content = hardware };
     }
 
     StackPanel TransmissionOptions()
@@ -546,7 +546,7 @@ public partial class StudioWindow
             AutomationProperties.SetHelpText(picker, detail.Text);
             session.Save("transmissionQuality", levels[picker.SelectedIndex]);
         };
-        var stream = new StackPanel { Margin = new(0, 12, 0, 0), Visibility = Visible(!HeadsetModelExperiment.Enabled(session)) };
+        var stream = new StackPanel { Margin = new(0, 8, 0, 0), Visibility = Visible(!HeadsetModelExperiment.Enabled(session)) };
         Field(stream, Loc.Get("TransmissionQuality"), picker);
         stream.Children.Add(detail);
         stream.Children.Add(Muted(Loc.Get("AppliesRightAwayRecordingsCalibrationTheCamerasPage")));

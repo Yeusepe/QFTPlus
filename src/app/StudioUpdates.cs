@@ -100,12 +100,11 @@ public partial class StudioWindow
     {
         if (WorkingCopy.Installed() is null) return;
         var panel = new StackPanel();
-        var heading = Text(Loc.Get("Uninstall"), 16); heading.FontWeight = FontWeights.SemiBold;
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2); panel.Children.Add(heading);
+        var heading = Heading(Loc.Get("Uninstall"));
         panel.Children.Add(Text(Loc.Get("RemovesQFTItsSteamVRDriverAndItsVRCFaceTrackingModule"), 13, true));
-        var button = AsyncButton(Loc.Get("UninstallQFT_71877bb4"), UninstallApp); button.HorizontalAlignment = HorizontalAlignment.Left; button.Margin = new(0, 8, 0, 0);
+        var button = AsyncButton(Loc.Get("UninstallQFT_71877bb4"), UninstallApp); button.HorizontalAlignment = HorizontalAlignment.Left;
         panel.Children.Add(button);
-        Page.Children.Add(Card(panel));
+        Page.Children.Add(Card(heading, panel));
     }
 
     async Task UninstallApp()
@@ -171,8 +170,7 @@ public partial class StudioWindow
     void UpdateOptions()
     {
         var panel = new StackPanel();
-        var heading = Text(Loc.Get("Updates"), 16); heading.FontWeight = FontWeights.SemiBold;
-        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2); panel.Children.Add(heading);
+        var heading = Heading(Loc.Get("Updates"));
         panel.Children.Add(Text(installedVersion is null ? Loc.Get("TheInstalledVersionCouldnTBeRead") : Loc.Format("InstalledVersion", installedVersion), 14, true));
         var status = Text(""); AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite); panel.Children.Add(status);
         var downloading = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Margin = new(0, 0, 0, 12) }; downloading.SetResourceReference(ProgressBar.ForegroundProperty, "Accent");
@@ -181,13 +179,13 @@ public partial class StudioWindow
         var check = AsyncButton(Loc.Get("CheckForUpdates"), CheckUpdates);
         var install = AsyncButton(Loc.Get("InstallUpdate"), InstallUpdate);
         var view = Button(Loc.Get("ViewReleases"), OpenUpdate);
-        foreach (var button in new[] { install, check, view }) { button.Margin = new(0, 0, 8, 8); actions.Children.Add(button); }
+        foreach (var button in new[] { install, check, view }) { button.SetResourceReference(MarginProperty, "ActionButtonSpacing"); actions.Children.Add(button); }
         var automatic = new CheckBox { Content = Loc.Get("CheckForUpdatesAutomatically"), IsChecked = session.Config["checkForUpdates"]?.GetValue<bool>() != false };
         automatic.Click += (_, _) => session.Save("checkForUpdates", automatic.IsChecked == true);
         System.Windows.Automation.AutomationProperties.SetHelpText(automatic, updater is null ? Loc.Get("ThisCopyWasnTInstalledByQFTSetupSo")
             : Loc.Get(installedVersion?.IsPrerelease == true ? "AutomaticPrereleaseUpdates" : "UpdatesInstallHereAndKeepYourSettingsCalibrationsAnd"));
         panel.Children.Add(automatic);
-        Page.Children.Add(Card(panel));
+        Page.Children.Add(Card(heading, panel));
         updateRefresh = () =>
         {
             check.IsEnabled = !checkingUpdates && updater is not null;

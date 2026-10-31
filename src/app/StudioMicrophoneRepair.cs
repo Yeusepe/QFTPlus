@@ -58,6 +58,6 @@ public partial class StudioWindow
         trackingRefresh += Refresh;
         var card = Card(Heading(Loc.Get("MicrophoneRepairHeading")), option, status, check);
         if (!preview) _ = Run();
-        return card;
+        return Stack(card, MicrophoneNoiseOptions());
     }
 }

@@ -51,7 +51,29 @@
    <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="AutomationProperties.HeadingLevel" Value="Level2"/>
   </Style>
   <Style TargetType="ui:Card" BasedOn="{StaticResource {x:Type ui:Card}}"><Setter Property="Padding" Value="24,16"/><Setter Property="Margin" Value="0,0,0,24"/><Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Border.CornerRadius" Value="16"/></Style>
-  <Style TargetType="ui:CardExpander" BasedOn="{StaticResource {x:Type ui:CardExpander}}"><Setter Property="CornerRadius" Value="16"/><Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="BorderThickness" Value="0"/></Style>
+  <Style TargetType="ui:CardExpander" BasedOn="{StaticResource {x:Type ui:CardExpander}}"><Setter Property="Padding" Value="24,16"/><Setter Property="ContentPadding" Value="24,16"/><Setter Property="CornerRadius" Value="16"/><Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="BorderThickness" Value="0"/></Style>
+  <Thickness x:Key="NumericSettingSpacing">0,0,0,16</Thickness>
+  <Thickness x:Key="ActionButtonSpacing">0,0,8,8</Thickness>
+  <Style x:Key="SettingsLayout" TargetType="StackPanel">
+   <Style.Resources>
+    <Thickness x:Key="NumericSettingSpacing">0,8,0,8</Thickness>
+    <Thickness x:Key="ActionButtonSpacing">0,4,8,4</Thickness>
+    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Margin" Value="0,4"/></Style>
+    <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}"><Setter Property="Margin" Value="0,4"/></Style>
+    <Style TargetType="ui:CardExpander" BasedOn="{StaticResource {x:Type ui:CardExpander}}"><Setter Property="Margin" Value="0,0,0,24"/></Style>
+    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+     <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
+    </Style>
+   </Style.Resources>
+  </Style>
+  <Style x:Key="ExpandedSettingsLayout" TargetType="StackPanel">
+   <Style.Resources>
+    <Style TargetType="ui:Card" BasedOn="{StaticResource {x:Type ui:Card}}">
+     <Setter Property="Padding" Value="0"/>
+     <Setter Property="Background" Value="Transparent"/>
+    </Style>
+   </Style.Resources>
+  </Style>
   <Style x:Key="Choice" TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
    <Setter Property="Margin" Value="0,4"/><Setter Property="VerticalContentAlignment" Value="Top"/>
    <Setter Property="AutomationProperties.Name" Value="{Binding Content.Title, RelativeSource={RelativeSource Self}}"/>
@@ -299,24 +321,23 @@
       </WrapPanel>
      </StackPanel>
      <CheckBox x:Name="slowMode" Content="{local:Loc MoreTimeForEachPose}" Click="SlowModeClick" Margin="0,12,0,0"/>
-     <ui:Card x:Name="FaceCalibrationOptions">
-      <StackPanel>
-       <TextBlock Text="{local:Loc FaceCalibration}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
-       <TextBlock Text="{local:Loc CheeksTongueAndBrowsWorkWithoutCalibrationCalibratingYour}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
-       <CheckBox x:Name="FaceLogCheck" Content="{local:Loc SaveFaceTrackingLogsOnThisPCNumbersOnly}" Click="FaceLogClick" Margin="0,8,0,0"/>
-      </StackPanel>
-     </ui:Card>
-     <ui:Card x:Name="testerCard">
-      <StackPanel>
-       <TextBlock Text="{local:Loc HelpImproveTracking}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font16}" Margin="0,0,0,8"/>
+     <StackPanel x:Name="FaceCalibrationOptions">
+       <TextBlock Text="{local:Loc FaceCalibration}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font18}" Margin="0,8,0,12"/>
+      <ui:Card><StackPanel>
+       <CheckBox x:Name="FaceLogCheck" Content="{local:Loc SaveFaceTrackingLogsOnThisPCNumbersOnly}" Click="FaceLogClick"/>
+      </StackPanel></ui:Card>
+     </StackPanel>
+     <StackPanel x:Name="testerCard">
+       <TextBlock Text="{local:Loc HelpImproveTracking}" Style="{StaticResource SectionHeading}" FontSize="{DynamicResource Font18}" Margin="0,8,0,12"/>
+      <ui:Card><StackPanel>
        <StackPanel>
         <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-        <TextBlock Text="{Binding Id, StringFormat=You’re a tester. Your tester ID is {0}.}" AutomationProperties.Name="{Binding Id, StringFormat=Tester ID {0}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <TextBlock Text="{Binding Id, StringFormat={local:Loc TesterId}}" AutomationProperties.Name="{Binding Id, StringFormat={local:Loc TesterId}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <TextBlock Text="{local:Loc RecordABenchmarkThenSendTheFileItMakes}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <WrapPanel Margin="0,8,0,0">
-         <ui:Button Content="{local:Loc RecordABenchmark}" Click="RecordBenchmark" Appearance="Primary" Margin="0,0,8,8"/>
-         <Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="0,0,8,8"/>
-         <Button Content="{local:Loc StopBeingATester}" Click="LeaveTesting" AutomationProperties.HelpText="{local:Loc BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis}" Margin="0,0,8,8"/>
+         <ui:Button Content="{local:Loc RecordABenchmark}" Click="RecordBenchmark" Appearance="Primary" Margin="{DynamicResource ActionButtonSpacing}"/>
+         <Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="{DynamicResource ActionButtonSpacing}"/>
+         <Button Content="{local:Loc StopBeingATester}" Click="LeaveTesting" AutomationProperties.HelpText="{local:Loc BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis}" Margin="{DynamicResource ActionButtonSpacing}"/>
         </WrapPanel>
        </StackPanel>
        <StackPanel>
@@ -332,11 +353,11 @@
           <TextBlock Text="{local:Loc YouCanAskForYourRecordingsToBeDeleted}"/>
          </StackPanel>
         </Expander>
-        <CheckBox x:Name="TesterConsent" Style="{StaticResource Agreement}" Content="{local:Loc IAgreeToShareTheRecordingsISend}" Margin="0,8,0,0"/>
-        <ui:Button Content="{local:Loc BecomeATester}" Click="JoinTesting" IsEnabled="{Binding IsChecked, ElementName=TesterConsent}" Appearance="Primary" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+        <CheckBox x:Name="TesterConsent" Style="{StaticResource Agreement}" Content="{local:Loc IAgreeToShareTheRecordingsISend}" Margin="0,4"/>
+        <ui:Button Content="{local:Loc BecomeATester}" Click="JoinTesting" IsEnabled="{Binding IsChecked, ElementName=TesterConsent}" Appearance="Primary" HorizontalAlignment="Left"/>
        </StackPanel>
-      </StackPanel>
-     </ui:Card>
+      </StackPanel></ui:Card>
+     </StackPanel>
      </StackPanel>
     </StackPanel>
    </ScrollViewer>

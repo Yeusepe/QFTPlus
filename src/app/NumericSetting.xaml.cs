@@ -10,12 +10,15 @@ namespace QFTPlus;
 public partial class NumericSetting : UserControl
 {
     public NumericSetting() => InitializeComponent();
-    internal static Slider AddTo(Panel parent, string title, double min, double max, double value, Action<double> changed, string unit = "%", double scale = 1, int decimals = 2)
+    internal static Slider AddTo(Panel parent, string title, double min, double max, double value, Action<double> changed, string unit = "%", double scale = 1, int decimals = 2, double? step = null)
     {
         var view = new NumericSetting();
         var (slider, number) = (view.Track, view.Number);
-        (slider.Minimum, slider.Maximum, slider.Value, slider.SmallChange, slider.LargeChange) = (min, max, Math.Clamp(value, min, max), (max - min) / 100, (max - min) / 10);
-        (number.Minimum, number.Maximum, number.SmallChange, number.LargeChange, number.MaxDecimalPlaces) = (min * scale, max * scale, (max - min) * scale / 100, (max - min) * scale / 10, decimals);
+        var smallChange = step ?? (max - min) / 100;
+        var largeChange = step is { } increment ? increment * 10 : (max - min) / 10;
+        (slider.Minimum, slider.Maximum, slider.Value, slider.SmallChange, slider.LargeChange) = (min, max, Math.Clamp(value, min, max), smallChange, largeChange);
+        (number.Minimum, number.Maximum, number.SmallChange, number.LargeChange, number.MaxDecimalPlaces) = (min * scale, max * scale, smallChange * scale, largeChange * scale, decimals);
+        if (step is { } tick) { slider.TickFrequency = tick; slider.IsSnapToTickEnabled = true; }
         (view.Title.Text, view.Unit.Text) = (title, unit);
         number.ToolTip = Loc.Format("EnterAValueFromTo", Math.Round(min * scale, decimals), Math.Round(max * scale, decimals), unit);
         AutomationProperties.SetName(number, Loc.Format("SettingValue", title));
