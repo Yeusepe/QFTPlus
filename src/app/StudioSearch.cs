@@ -105,7 +105,8 @@ public partial class StudioWindow
         if (face)
         {
             yield return new(Loc.Get("IndependentEyeGaze"), null, "Settings", Loc.Get("EyesSeparatelyDepthConvergence"));
-            yield return new(Loc.Get("NativeVRChatFaceTracking"), Loc.Get("VRChat"), "Settings", Loc.Get("NativeVRChatFaceTrackingAbout"));
+            if (CanControlNativeFace)
+                yield return new(Loc.Get("NativeVRChatFaceTracking"), Loc.Get("VRChat"), "Settings", Loc.Get("NativeVRChatFaceTrackingAbout"));
             if (onHeadset)
             {
                 yield return new(Loc.Get("SendTrackingTo"), null, "Settings", Loc.Get("OutputDestinationOscVrchatReceiver"));

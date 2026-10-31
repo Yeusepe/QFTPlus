@@ -759,9 +759,19 @@ public partial class StudioWindow : Ui.FluentWindow
 
     static Visibility Visible(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
 
+    bool CanControlNativeFace
+    {
+        get
+        {
+            var config = session.Config;
+            return config["headsetStandalone"]?.GetValue<bool>() != true || config["headsetDirect"]?.GetValue<bool>() != true;
+        }
+    }
+
     void Settings()
     {
         var faceOnly = new List<UIElement>();
+        UIElement? nativeFaceOptions = null;
         UIElement Face(UIElement element)
         {
             faceOnly.Add(element);
@@ -769,7 +779,7 @@ public partial class StudioWindow : Ui.FluentWindow
         }
         void ShowFace(string use)
         {
-            foreach (var element in faceOnly) element.Visibility = Visible(use != "hands");
+            foreach (var element in faceOnly) element.Visibility = Visible(use != "hands" && (element != nativeFaceOptions || CanControlNativeFace));
             UseChanged(use);
         }
         session.DisableUncalibratedOutputs();
@@ -792,13 +802,14 @@ public partial class StudioWindow : Ui.FluentWindow
             Card(Heading(Loc.Get("SetupGuide")), Muted(Loc.Get("SetupGuideAbout")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
-            Face(Card(Heading(Loc.Get("VRChat")), nativeFace, Muted(Loc.Get("NativeVRChatFaceTrackingAbout")))),
+            nativeFaceOptions = Face(Card(Heading(Loc.Get("VRChat")), nativeFace, Muted(Loc.Get("NativeVRChatFaceTrackingAbout")))),
             MicrophoneRepairOptions(), Face(HeadsetModelOptions()), Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
             Card(Heading(Loc.Get("Language")), Muted(Loc.Get("TranslationsFollowYourWindowsDisplayLanguageHelpBringQFT")),
                 Button(Loc.Get("HelpTranslateQFT"), () => Open("https://crowdin.com/project/qftplus")))
         })
             Page.Children.Add(element);
         UninstallOptions();
+        trackingRefresh += () => nativeFaceOptions!.Visibility = Visible(session.Use != "hands" && CanControlNativeFace);
         ShowFace(session.Use);
         if (revealLog is not null) Dispatcher.BeginInvoke(() => PageScroll.ScrollToVerticalOffset(LogView.TranslatePoint(new Point(), Page).Y), DispatcherPriority.Loaded);
         revealLog = null;
