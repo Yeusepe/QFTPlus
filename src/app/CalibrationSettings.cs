@@ -48,7 +48,7 @@ internal static class CalibrationSettings
         }
         else if (kind == "pupils")
         {
-            if (JsonNode.Parse(File.ReadAllText(result))?["format"]?.GetValue<string>() != "qpro-relative-pupil-v1") throw new IOException(Loc.Get("ThePupilCalibrationIsInvalid"));
+            if (JsonNode.Parse(File.ReadAllText(result))?["format"]?.GetValue<string>() is not ("qpro-relative-pupil-v1" or "qpro-relative-pupil-v2")) throw new IOException(Loc.Get("ThePupilCalibrationIsInvalid"));
             previousPupil = File.Exists(pupilPath) ? File.ReadAllBytes(pupilPath) : null;
             config["pupilDilation"] = true;
         }

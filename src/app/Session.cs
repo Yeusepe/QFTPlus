@@ -85,7 +85,7 @@ internal sealed class Session
     }
     internal bool Calibrated(string option)
     {
-        try { return option != "pupilDilation" || Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() == "qpro-relative-pupil-v1"; }
+        try { return option != "pupilDilation" || Read(Path.Combine(Root,"calibration/qpro-pupil-dilation.json"))["format"]?.GetValue<string>() is "qpro-relative-pupil-v1" or "qpro-relative-pupil-v2"; }
         catch (InvalidDataException) { return false; }
     }
     internal bool FaceOn(string kind) => (Config["extraFaceOutput"]?.GetValue<bool>() ?? true) && Config[CalibrationSettings.FaceOutputKey(kind)]?.GetValue<bool>() != false;
@@ -522,8 +522,14 @@ internal sealed class Session
     }
     internal async Task<string> Enroll(string prefix)
     {
-        var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix],allowFailure:true);
-        if(anchors.Code!=0) throw new IOException(Loc.Get(anchors.Output.Trim()));
+        var anchors=await Run(Python,[Path.Combine(Root,"guided_session.py"),"check",prefix,
+            Config["universalModelPath"]?.GetValue<string>() ?? Path.Combine(Root,"models/universal-face-v2.npz")],allowFailure:true);
+        if(anchors.Code!=0)
+        {
+            var key=anchors.Output.Split('\n',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries)
+                .LastOrDefault(line=>line.StartsWith("Guide",StringComparison.Ordinal));
+            throw new IOException(Loc.Get(key??"CouldnTFinishThisStepTheComponentsLogInSettings"));
+        }
         return prefix+".anchors.npz";
     }
     internal const int ConsentVersion=1;

@@ -76,7 +76,7 @@ def thumbnails(strip):
     return (s.transpose(1, 0, 2).reshape(2, 256) / 159375.).astype(np.float32)
 
 
-def puff_camera(holds):
+def puff_camera(holds, validation=None):
     """{slot: thumbnails (k, 2, 256)} of the face setup -> (rest (2, 256), per-side direction (2, 256), camera (2,),
     on-level (2,)), or None without the rest and one-cheek holds. Per side: the camera that moves most for its own hold, the
     direction from rest to its own and the both-cheek holds (1 at the hold), and an on-level above what every hold without
@@ -92,6 +92,18 @@ def puff_camera(holds):
         d = d / max(float(d @ d), 1e-9)
         off = np.concatenate([np.clip((holds[s][:, c] - rest[c]) @ d, 0., 1.) for s in holds if s not in ("puff", own)])
         camera.append(c); direction.append(d); level.append(float(np.clip(np.percentile(off, 99) + .1, .15, .5)))
+    if validation is not None:
+        if not {"neutral", *SIDES} <= validation.keys():
+            return None
+        for side, own in enumerate(SIDES):
+            c, d, threshold = camera[side], direction[side], level[side]
+            for slot, frames in validation.items():
+                values = np.clip((frames[:, c]-rest[c]) @ d, 0., 1.)
+                if slot == own:
+                    if np.median(values) < .65:
+                        return None
+                elif slot != "puff" and np.percentile(values, 95) >= threshold:
+                    return None
     return rest, np.stack(direction).astype(np.float32), np.array(camera, np.float32), np.array(level, np.float32)
 
 
@@ -104,7 +116,7 @@ TONGUE_TARGET = {"Out": (0., 0.), "Left": (-1., 0.), "Right": (1., 0.), "Up": (0
 TONGUE_BENCHMARKS, BENCHMARK_FRAMES, TRIM = 4, 300, 3
 
 
-def tongue_map(holds, extra=None):
+def tongue_map(holds, extra=None, validation=None):
     """{slot: mouth embeddings (k, 512)} of the held tongue poses, optional extra (embeddings (n, 512), directions (n, 2))
     from benchmarks -> (mean, scale, weights (512, 2), gains (left, right, down, up)), or None unless all five poses are
     there. The holds weigh as much as the extra frames together; the gains come from the holds."""
@@ -121,7 +133,18 @@ def tongue_map(holds, extra=None):
     held = {s: np.median(((holds[s] - mean) / scale) @ weights, 0) for s in TONGUE_DIRECTION}
     gain = lambda reach: min(1. / reach, TONGUE_GAIN) if reach >= TONGUE_REACH else 1.
     gains = (gain(-held["tongue_left"][0]), gain(held["tongue_right"][0]), gain(-held["tongue_down"][1]), gain(held["tongue_up"][1]))
-    return mean.astype(np.float32), scale.astype(np.float32), weights.astype(np.float32), gains
+    mapping = mean.astype(np.float32), scale.astype(np.float32), weights.astype(np.float32), gains
+    if validation is not None:
+        if not set(TONGUE_DIRECTION) <= validation.keys():
+            return None
+        for slot, target in TONGUE_DIRECTION.items():
+            predicted = np.asarray([tongue_direction(q, mapping) for q in validation[slot]])
+            tolerance = np.where(np.asarray(target) == 0, .35, .5)
+            if (len(predicted) < 3 or not np.isfinite(predicted).all()
+                    or np.any(np.abs(np.median(predicted, axis=0)-target) > tolerance)
+                    or np.any(np.percentile(predicted, 95, axis=0)-np.percentile(predicted, 5, axis=0) > .5)):
+                return None
+    return mapping
 
 
 def tongue_direction(q, mapping):
@@ -196,7 +219,7 @@ class UniversalFace:
                            for q in sides.values())
                 if full - cheek_rest[CHEEKS[0]] >= .2:
                     reach.update(dict.fromkeys(CHEEKS[:2], full))
-        self.puff_camera = puff_camera(self.puff_holds)
+        self.puff_camera = puff_camera(self.puff_holds, self.puff_validation)
         if self.puff_camera is not None:
             self.puff_amount = (cheek_rest[CHEEKS[0]], reach.get(CHEEKS[0], 1.))
             cheek_rest.update(dict.fromkeys(CHEEKS[:2], 0.)); reach.update(dict.fromkeys(CHEEKS[:2], 1.))
@@ -252,14 +275,28 @@ class UniversalFace:
         double: its session decides the offset, the earlier ones add how this person varies) and with recent benchmarks'
         tongue prompts. Runs once, at load."""
         self.tongue_map, self.puff_holds, holds = None, {}, {}
+        self.puff_validation = None
+        self.tongue_available = True
+        validation = None
         anchors, present = np.zeros((6, 512), np.float32), np.zeros(6, np.float32)
         sides, brow_neutral, brow_present, rest = {}, np.zeros(480, np.float32), 0., {}
         if not enrollment or not Path(enrollment).is_file():
             return anchors, present, sides, (brow_neutral, brow_present), rest
         with np.load(enrollment, allow_pickle=False) as z:
-            if json.loads(str(z["meta"]))["schema"] != "face-enrollment-v1":
+            meta = json.loads(str(z["meta"]))
+            if meta["schema"] not in ("face-enrollment-v1", "face-enrollment-v2"):
                 return anchors, present, sides, (brow_neutral, brow_present), rest
+            verified = meta["schema"] == "face-enrollment-v2"
+            if verified and (meta.get("validation") != "repeat-hold" or "neutral" not in meta.get("validatedSlots", [])
+                             or "slot_neutral" not in z or "check_neutral" not in z or len(z["check_neutral"]) < 8):
+                raise ValueError("GuideInvalidFaceCalibration")
+            if meta.get("validation") == "repeat-hold":
+                validation = {s: np.stack([self.run(f)[0] for f in z["check_"+s]]) for s in TONGUE_DIRECTION if "check_"+s in z}
+                self.puff_validation = {s: np.stack([thumbnails(f) for f in z["check_"+s]]) for s in SLOTS+SIDES+TONGUE_HOLDS if "check_"+s in z}
+                self.tongue_available = False
             for slot in SLOTS + SIDES + TONGUE_HOLDS:
+                if verified and (slot not in meta.get("validatedSlots", []) or "check_"+slot not in z or len(z["check_"+slot]) < 8):
+                    continue
                 if f"slot_{slot}" in z:
                     q, t, w = (np.stack(x) for x in zip(*(self.run(f) for f in z[f"slot_{slot}"])))
                     self.puff_holds[slot] = np.stack([thumbnails(f) for f in z[f"slot_{slot}"]])
@@ -275,17 +312,21 @@ class UniversalFace:
                         brow_neutral, brow_present = w.mean(0), 1.
                         rest = dict(zip(BROWS, np.median([brow_forward(self.brow_head, r, brow_neutral, 1.) for r in w], 0).tolist()))
         if set(TONGUE_DIRECTION) <= set(holds):
-            earlier = [h for h in map(self.tongue_holds, list(history)[:TONGUE_HISTORY]) if set(TONGUE_DIRECTION) <= set(h)]
+            # A validated setup must keep the exact fit checked by its independent holds.
+            earlier = [] if validation is not None else [h for h in map(self.tongue_holds, list(history)[:TONGUE_HISTORY]) if set(TONGUE_DIRECTION) <= set(h)]
             holds = {s: np.concatenate([holds[s], holds[s], *(h[s] for h in earlier)]) for s in TONGUE_DIRECTION}
-        extra = [e for e in map(self.benchmark_tongue, list(benchmarks)[:TONGUE_BENCHMARKS]) if len(e[0])]
-        self.tongue_map = tongue_map(holds, (np.concatenate([e[0] for e in extra]), np.concatenate([e[1] for e in extra])) if extra else None)
+        extra = [] if validation is not None else [e for e in map(self.benchmark_tongue, list(benchmarks)[:TONGUE_BENCHMARKS]) if len(e[0])]
+        self.tongue_map = tongue_map(holds, (np.concatenate([e[0] for e in extra]), np.concatenate([e[1] for e in extra])) if extra else None,
+                                     validation=validation)
+        if self.tongue_map is not None:
+            self.tongue_available = True
         return anchors, present, sides, (brow_neutral, brow_present), rest
 
     def tongue_holds(self, enrollment):
         """An earlier face setup file -> {tongue hold: mouth embeddings (k, 512)}; {} if it is gone or not a setup."""
         try:
             with np.load(enrollment, allow_pickle=False) as z:
-                if json.loads(str(z["meta"]))["schema"] != "face-enrollment-v1":
+                if json.loads(str(z["meta"]))["schema"] not in ("face-enrollment-v1", "face-enrollment-v2"):
                     return {}
                 return {s: np.stack([self.run(f)[0] for f in z[f"slot_{s}"]]) for s in TONGUE_DIRECTION
                         if f"slot_{s}" in z and z[f"slot_{s}"].shape[1:] == (400, 2000)}
@@ -370,7 +411,7 @@ class UniversalFace:
         q, t, w = self.run(strip)
         p = dict(zip(self.names, head_forward(self.head, q, self.anchors, self.present)))
         p.update(zip(BROWS, brow_forward(self.brow_head, w, *self.brow_neutral)))
-        horizontal, vertical = tongue_direction(q, self.tongue_map) if self.tongue_map else np.tanh(t[1:3])
+        horizontal, vertical = tongue_direction(q, self.tongue_map) if self.tongue_map else np.tanh(t[1:3]) if self.tongue_available else (0., 0.)
         fresh = fresh_values(native, native_names, now_ns)
         nv = fresh or {}
         native_puff = [nv.get(n, 0.) for n in NATIVE_PUFF]

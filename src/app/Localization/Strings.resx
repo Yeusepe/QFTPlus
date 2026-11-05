@@ -165,7 +165,7 @@
     <comment>QFT+ Windows app. Calibration heading and button accessibility label. {0} is the translated area name, such as Face or Pupils. Preserve its casing; the placeholder may move.</comment>
   </data>
   <data name="CalibrateAfterChangingHowTheHeadsetFitsYourSaved" xml:space="preserve">
-    <value>Calibrate after changing how the headset fits. Your saved calibration changes only when a new one passes.</value>
+    <value>If you change the headset fit, run calibration again. QFT+ keeps your saved calibration if the new attempt fails.</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="CalibrateAgain" xml:space="preserve">
@@ -221,7 +221,7 @@
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="CalibrationStartedInTheHeadsetPutItOnAnd" xml:space="preserve">
-    <value>Calibration started in the headset. Put it on and copy the avatar. When it finishes, the headset goes back to the app you were in.</value>
+    <value>Put on your headset. Follow the instructions there.</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="CalibrationStoppedBecauseTrackingStoppedOrTheCameraFeed" xml:space="preserve">
@@ -381,7 +381,7 @@
     <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
   </data>
   <data name="Copy12ExpressionsFromAMetaAvatarAbout75" xml:space="preserve">
-    <value>Copy 12 expressions from a Meta avatar · about 75 seconds</value>
+    <value>Copy the face movements on the avatar. Repeat each movement when asked. About 3 minutes.</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="CopyLog" xml:space="preserve">
@@ -911,7 +911,7 @@
     <value>{0} parameters on your avatar</value>
   </data>
   <data name="FollowADotAsTheSpaceDarkensAndBrightens" xml:space="preserve">
-    <value>Follow a dot as the space darkens and brightens · about 80 seconds</value>
+    <value>Look at the circle as the screen gets darker and brighter. About 80 seconds.</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="FollowTheStrongerSide" xml:space="preserve">
@@ -1268,7 +1268,7 @@
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
   </data>
   <data name="MoreTimeForEachPose" xml:space="preserve">
-    <value>More time for each pose</value>
+    <value>More time for each step</value>
     <comment>QFT+ Windows app. StudioSearch.cs | StudioWindow.xaml: Content</comment>
   </data>
   <data name="Mouse" xml:space="preserve">
@@ -1732,7 +1732,7 @@
     <comment>QFT+ Windows app. StudioWindow.xaml.cs</comment>
   </data>
   <data name="RunsInQFTHeadsetWhereAnAvatarShowsEach" xml:space="preserve">
-    <value>Runs in QFT+ Headset, where an avatar shows each expression to copy.</value>
+    <value>Put on your headset to run calibration.</value>
     <comment>QFT+ Windows app. StudioCalibration.cs</comment>
   </data>
   <data name="SaveFaceTrackingLogs" xml:space="preserve">
@@ -1880,7 +1880,7 @@
     <comment>QFT+ Windows app. LogViewer.xaml.cs</comment>
   </data>
   <data name="SkipPose" xml:space="preserve">
-    <value>Skip pose</value>
+    <value>Skip this step</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
   </data>
   <data name="Skipped" xml:space="preserve">
@@ -3595,7 +3595,7 @@
     <value>This isn't a face setup recording.</value>
   </data>
   <data name="GuideTheRelaxedFacePartDidnTRecordCleanlyRunThe" xml:space="preserve">
-    <value>The relaxed-face part didn't record cleanly. Run the face setup again.</value>
+    <value>QFT+ could not record your relaxed face. Start face calibration again.</value>
   </data>
   <data name="GuideFlareYourNostrils" xml:space="preserve">
     <value>Flare your nostrils</value>
@@ -3628,10 +3628,10 @@
     <value>Read this out loud</value>
   </data>
   <data name="GuideTheHeadsetCamerasDidnTSendImages" xml:space="preserve">
-    <value>The headset cameras didn't send images.</value>
+    <value>QFT+ did not receive camera images. Check the headset connection.</value>
   </data>
   <data name="GuideTheCameraImageFroze" xml:space="preserve">
-    <value>The camera image froze.</value>
+    <value>The camera image stopped updating. Check the headset connection.</value>
   </data>
   <data name="GuideTheMouthCamerasAreTooDarkOrTooBright" xml:space="preserve">
     <value>The mouth cameras are too dark or too bright.</value>
@@ -3655,10 +3655,10 @@
     <value>Keep it out. Your right, as you feel it.</value>
   </data>
   <data name="GuideYourFaceLookedTheSameAsWhenRelaxed" xml:space="preserve">
-    <value>Your face looked the same as when relaxed.</value>
+    <value>QFT+ could not see the movement. Try again, or skip this step.</value>
   </data>
   <data name="GuideTryToHoldStill" xml:space="preserve">
-    <value>Try to hold still.</value>
+    <value>Keep your face still.</value>
   </data>
   <data name="GuideFillWithAirAndKeepYourLipsSealed" xml:space="preserve">
     <value>Fill with air and keep your lips sealed.</value>
@@ -3685,7 +3685,7 @@
     <value>Keep it out. Your left, as you feel it.</value>
   </data>
   <data name="GuideFaceTrackingDidnTSeeItClearly" xml:space="preserve">
-    <value>Face tracking didn't see it clearly.</value>
+    <value>QFT+ could not see this movement. Try again, or skip this step.</value>
   </data>
   <data name="GuidePointYourTongueDown" xml:space="preserve">
     <value>Point your tongue down</value>
@@ -3742,37 +3742,37 @@
     <value>Look at the circle</value>
   </data>
   <data name="GuideLookAtTheCircleKeepYourHeadStillAndBlink" xml:space="preserve">
-    <value>Look at the circle. Keep your head still and blink normally.</value>
+    <value>Look at the circle. Keep your head still. Blink normally.</value>
   </data>
   <data name="GuideYourPupilsWereHiddenTooOftenAdjustTheHeadsetSo" xml:space="preserve">
-    <value>Your pupils were hidden too often. Adjust the headset so it sits level, then try again</value>
+    <value>QFT+ could not see your pupil for long enough. Adjust the headset. Then try again.</value>
   </data>
   <data name="GuideInvalidPupilCalibrationSamples" xml:space="preserve">
-    <value>Invalid pupil calibration samples</value>
+    <value>QFT+ could not read the pupil measurements. Try pupil calibration again.</value>
   </data>
   <data name="GuideYourPupilsChangedSizeTooLittleDimTheRoomLights" xml:space="preserve">
-    <value>Your pupils changed size too little. Dim the room lights, then try again</value>
+    <value>Your pupil size did not change enough. Dim the room lights. Then try again.</value>
   </data>
   <data name="GuidePupilSizeDidnTFollowTheScreenBrightnessKeepLooking" xml:space="preserve">
-    <value>Pupil size didn't follow the screen brightness. Keep looking at the circle, then try again</value>
+    <value>QFT+ could not measure how your pupil changed with the light. Look at the circle during the next attempt.</value>
   </data>
   <data name="GuideKeepLookingAtTheCircleTheWholeTimeThenTry" xml:space="preserve">
-    <value>Keep looking at the circle the whole time, then try again</value>
+    <value>Your gaze moved too much during the test. Look at the circle during the next attempt.</value>
   </data>
   <data name="GuideInvalidRelativePupilCalibration" xml:space="preserve">
-    <value>Invalid relative-pupil calibration</value>
+    <value>QFT+ could not read the saved pupil calibration. Run pupil calibration again.</value>
   </data>
   <data name="GuideTheTwoRoundsDidnTMatchKeepYourHeadStill" xml:space="preserve">
-    <value>The two rounds didn't match. Keep your head still and look at the circle, then try again</value>
+    <value>QFT+ got different results from the two light tests. Keep your head still during the next attempt.</value>
   </data>
   <data name="GuideYourPupilsArenTVisibleOpenYourEyesNaturallyAnd" xml:space="preserve">
-    <value>Your pupils aren't visible. Open your eyes naturally and make sure the headset sits level.</value>
+    <value>QFT+ cannot see your pupil. Keep your eye open. Check the headset fit.</value>
   </data>
   <data name="GuideRelaxAndLookAtTheCircleTheScreenStaysDark" xml:space="preserve">
-    <value>Relax and look at the circle. The screen stays dark while your eyes adjust.</value>
+    <value>Look at the circle. The screen will stay dark while your eyes adjust.</value>
   </data>
   <data name="GuideKeepLookingAtTheCircleAsTheScreenFadesBlink" xml:space="preserve">
-    <value>Keep looking at the circle as the screen fades. Blink normally.</value>
+    <value>Keep looking at the circle as the screen changes. Blink normally.</value>
   </data>
   <data name="GuideCalibrationPassedAndSaved" xml:space="preserve">
     <value>Calibration passed and saved.</value>
@@ -3944,10 +3944,12 @@
     <value>Send this file to the QFT+ developer directly: {0} ({1:0} MB). If it’s too big to attach to a message, send a OneDrive or Google Drive link to it instead.</value>
   </data>
   <data name="FaceCalibrationInstructions" xml:space="preserve">
-    <value>Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range. To see this window in the headset, open the desktop in the Steam overlay.</value>
+    <value>Copy each face movement when the countdown ends. Repeat the movement when asked. Each step starts automatically. You can pause or skip a step.
+To see this window in the headset, open the desktop in the Steam overlay.</value>
   </data>
   <data name="FaceCalibrationInstructionsNeedsSetup" xml:space="preserve">
-    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. Hold a few expressions for a few seconds each, so tracking learns your relaxed face and your full range. To see this window in the headset, open the desktop in the Steam overlay.</value>
+    <value>Complete face calibration before the test. Copy each face movement when the countdown ends. You can skip movements that you cannot do.
+To see this window in the headset, open the desktop in the Steam overlay.</value>
   </data>
   <data name="QuickBenchmarkCalibrationInstructions" xml:space="preserve">
     <value>For testers. Short prompts and a little reading that check how well tracking works. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
@@ -3962,10 +3964,12 @@
     <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. For testers. Prompts, reading and talking that check how often tracking reacts when it shouldn't. Your settings don't change. To see this window in the headset, open the desktop in the Steam overlay.</value>
   </data>
   <data name="PupilCalibrationInstructions" xml:space="preserve">
-    <value>Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start. To see this window in the headset, open the desktop in the Steam overlay.</value>
+    <value>Dim the room lights before you start. Look at the circle during the test. The screen will get darker and brighter.
+To see this window in the headset, open the desktop in the Steam overlay.</value>
   </data>
   <data name="PupilCalibrationInstructionsNeedsSetup" xml:space="preserve">
-    <value>Set up your face first, so the benchmark checks tracking that's tuned to you. It takes about a minute. Lets your avatar's pupils follow yours. Dim the room lights (or attach the light blockers) a few minutes before you start. To see this window in the headset, open the desktop in the Steam overlay.</value>
+    <value>Complete face calibration before the test. Dim the room lights. Look at the circle as the screen gets darker and brighter.
+To see this window in the headset, open the desktop in the Steam overlay.</value>
   </data>
   <data name="UsbConnection" xml:space="preserve">
     <value>USB</value>
@@ -4085,6 +4089,28 @@
   <data name="MicrophoneRepairSearch" xml:space="preserve"><value>microphone mic mute unmute sleep wake audio Virtual Desktop repair fix</value></data>
   <data name="NativeVRChatFaceTracking" xml:space="preserve"><value>Native VRChat face tracking</value></data>
   <data name="NativeVRChatFaceTrackingAbout" xml:space="preserve"><value>Turn off to use VRCFaceTracking only.</value></data>
+  <data name="CalibrationPupilSource" xml:space="preserve"><value>Eyes to use</value></data>
+  <data name="CalibrationBothEyes" xml:space="preserve"><value>Both eyes</value></data>
+  <data name="CalibrationLeftEye" xml:space="preserve"><value>Left eye only</value></data>
+  <data name="CalibrationRightEye" xml:space="preserve"><value>Right eye only</value></data>
+  <data name="CalibrationPupilSourceAbout" xml:space="preserve"><value>Choose one eye if QFT+ cannot track the other eye.
+With one eye, both avatar pupils change size together.</value></data>
+  <data name="CalibrationPupilSourceChooseHelp" xml:space="preserve"><value>Choose one eye if QFT+ cannot track the other eye.</value></data>
+  <data name="CalibrationPupilSourceMirrorHelp" xml:space="preserve"><value>Both avatar pupils will change size together.</value></data>
+  <data name="CalibrationRepeatPose" xml:space="preserve"><value>Repeat this step</value></data>
+  <data name="CalibrationFaceDuration" xml:space="preserve"><value>About 2 minutes</value></data>
+  <data name="CalibrationFaceDurationSlow" xml:space="preserve"><value>About 4 minutes</value></data>
+  <data name="GuideRepeatToCheck" xml:space="preserve"><value>Repeat this movement: {0}</value></data>
+  <data name="GuideCalibrationFirstHoldMissing" xml:space="preserve"><value>QFT+ could not record this movement. You can continue with the other steps.</value></data>
+  <data name="GuideCalibrationRepeatMismatch" xml:space="preserve"><value>QFT+ got different results. Relax your face. Then repeat the movement.</value></data>
+  <data name="GuidePupilPausedRestart" xml:space="preserve"><value>Paused. When you continue, the screen will go dark again. Both light tests will start again.</value></data>
+  <data name="CalibrationPartialResult" xml:space="preserve"><value>Saved. Could not set up: {0}. The other face movements are ready.</value></data>
+  <data name="CalibrationTongueDirection" xml:space="preserve"><value>Tongue direction</value></data>
+  <data name="CalibrationCheekSeparation" xml:space="preserve"><value>Puffing one cheek at a time</value></data>
+  <data name="CalibrationPartiallyCalibrated" xml:space="preserve"><value>Some movements are ready</value></data>
+  <data name="GuideWaitingForCleanSamples" xml:space="preserve"><value>Hold your face still for a little longer. {0}</value></data>
+  <data name="GuideInvalidFaceCalibration" xml:space="preserve"><value>QFT+ could not check this calibration. Start face calibration again. Your saved calibration has not changed.</value></data>
+  <data name="GuideFaceCalibrationRequired" xml:space="preserve"><value>Complete face calibration first. You can skip movements that you cannot do.</value></data>
   <data name="SuperSecretSettings" xml:space="preserve"><value>Yeusepes super secret settings</value></data>
   <data name="MicrophoneSettingsHeading" xml:space="preserve"><value>Microphone</value></data>
   <data name="MicrophoneSettingsCheck" xml:space="preserve"><value>Read settings</value></data>
@@ -4119,6 +4145,8 @@
   <data name="ControllerRepairSearch" xml:space="preserve"><value>controllers repair reconnect recovery frozen tracking</value></data>
   <data name="MicrophoneSettingsUnsaved" xml:space="preserve"><value>Changes not saved.</value></data>
   <data name="TesterId" xml:space="preserve"><value>Tester ID: {0}</value></data>
+  <data name="SmileEyeClosure" xml:space="preserve"><value>Smile eye closure</value></data>
+  <data name="SmileEyeClosureHelp" xml:space="preserve"><value>Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</value></data>
   <data name="TracksTheDirectionOfEachEyeSeparately" xml:space="preserve">
     <value>Tracks the direction of each eye separately.</value>
     <comment>QFT+ Windows app. StudioControls.cs</comment>

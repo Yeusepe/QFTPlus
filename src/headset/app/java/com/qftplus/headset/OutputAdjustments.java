@@ -100,6 +100,10 @@ final class OutputAdjustments {
     }
     private boolean passthrough;
     boolean passthrough() { poll(); return passthrough; }
+    float smileEyeClosure() {
+        poll();
+        return (float)clamp(number(settings.optJSONObject("Eyelids"), "smileEyeClosure", 1), 0, 1);
+    }
     private static double number(JSONObject node, String key, double fallback) {
         double value = node == null ? Double.NaN : node.optDouble(key, Double.NaN);
         return Double.isFinite(value) ? value : fallback;

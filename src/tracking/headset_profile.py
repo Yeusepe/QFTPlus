@@ -5,7 +5,7 @@ import struct
 
 import numpy as np
 
-from pupil_dilation import read_calibration
+from pupil_dilation import read_calibration, source_eyes
 from universal_face import BROWS, CHEEKS, UniversalFace
 
 CHANNELS = CHEEKS + BROWS + ['TongueOut']
@@ -34,8 +34,6 @@ def compile_profile(config, root):
     face = UniversalFace(model, config.get('faceEnrollment'), False,
         history=config.get('faceEnrollmentHistory') or (), benchmarks=recent_benchmarks(root))
     try:
-        if config.get('tongueOutput', True) and face.tongue_map is None:
-            raise ValueError('Complete the five tongue holds in face calibration before enabling the headset experiment.')
         arrays = []
         def add(value, shape):
             value = np.asarray(value, dtype='<f4')
@@ -57,7 +55,7 @@ def compile_profile(config, root):
         add(b['w1'][:, :480] + b['w1'][:, 480:960], (128, 480))
         add(b['b1'] - b['w1'][:, 480:960] @ neutral + b['w1'][:, 960] * present, (128,))
         add(b['w2'], (8, 128)); add(b['b2'], (8,))
-        capabilities = 0
+        capabilities = 4 if face.present[0] else 0
         if face.tongue_map is not None:
             mean, scale, weights, gains = face.tongue_map
             mapping = weights.T / scale
@@ -81,7 +79,8 @@ def compile_profile(config, root):
             capabilities |= 8
         add(profile['small'] if profile else [10., 10.], (2,))
         add(profile['large'] if profile else [60., 60.], (2,))
+        add([sum(1 << i for i in source_eyes(profile)) if profile else 0], (1,))
         data = b''.join(arrays)
-        return struct.pack('<8sII', b'QFTHP002', capabilities, len(data)) + data
+        return struct.pack('<8sII', b'QFTHP003', capabilities, len(data)) + data
     finally:
         face.close()

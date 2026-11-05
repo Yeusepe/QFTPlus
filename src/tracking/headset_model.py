@@ -23,18 +23,12 @@ def calibration(config, manifest):
         raise ValueError('This face model is not supported by the headset experiment. Select the bundled model first.')
     enrollment = config.get('faceEnrollment')
     if not enrollment:
-        raise ValueError('Complete face and tongue calibration before enabling Experimental on Headset Model.')
+        raise ValueError('GuideFaceCalibrationRequired')
     with np.load(enrollment, allow_pickle=False) as archive:
-        if json.loads(str(archive['meta']))['schema'] != 'face-enrollment-v1':
+        if json.loads(str(archive['meta']))['schema'] not in ('face-enrollment-v1', 'face-enrollment-v2'):
             raise ValueError('Face calibration is not compatible with the headset experiment.')
         if 'slot_neutral' not in archive or archive['slot_neutral'].ndim != 3 or archive['slot_neutral'].shape[1:] != (400, 2000) or not len(archive['slot_neutral']):
             raise ValueError('Complete face calibration before enabling the headset experiment.')
-        if not config.get('tongueOutput', True):
-            return
-        for pose in ('tongue_out', 'tongue_up', 'tongue_down', 'tongue_left', 'tongue_right'):
-            key = 'slot_' + pose
-            if key not in archive or archive[key].ndim != 3 or archive[key].shape[1:] != (400, 2000) or not len(archive[key]):
-                raise ValueError('Complete all tongue directions in face calibration before enabling the headset experiment.')
 
 
 def remove(root, directory):

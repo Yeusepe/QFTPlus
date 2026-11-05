@@ -42,23 +42,33 @@ struct Output {
     void write(const std::string &path,uint32_t capabilities) {
         for(float x:data)if(!std::isfinite(x))throw std::runtime_error("Non-finite calibration result");
         std::ofstream out(path,std::ios::binary|std::ios::trunc);uint32_t bytes=static_cast<uint32_t>(data.size()*4);
-        out.write("QFTHP002",8);out.write(reinterpret_cast<char*>(&capabilities),4);out.write(reinterpret_cast<char*>(&bytes),4);
+        out.write("QFTHP003",8);out.write(reinterpret_cast<char*>(&capabilities),4);out.write(reinterpret_cast<char*>(&bytes),4);
         out.write(reinterpret_cast<char*>(data.data()),bytes);out.close();if(!out)throw std::runtime_error("Could not save calibration");
     }
 };
 void compile(const std::string &dir) {
     Input input(dir+"/heads.bin");input.magic("QFTHD001");Head mouth(input,false),brows(input,true);input.end();
-    Input capture(dir+"/calibration.bin");capture.magic("QFCAL002");std::array<uint32_t,12> counts{};capture.read(counts.data(),48);
-    std::array<cv::Mat,12> holds;
-    for(int i=0;i<12;i++){if(counts[i]<8||counts[i]>120)throw std::runtime_error("Invalid hold length");holds[i]=capture.matrix(counts[i],1511);}capture.end();
-    const int slot[6]={0,1,2,3,6,11};cv::Mat anchors(6,512,CV_32F);
-    for(int i=0;i<6;i++)mean(holds[slot[i]].colRange(0,512)).copyTo(anchors.row(i));
+    Input capture(dir+"/calibration.bin");char captureMagic[8];capture.read(captureMagic,8);bool verified=!std::memcmp(captureMagic,"QFCAL003",8);
+    if(!verified&&std::memcmp(captureMagic,"QFCAL002",8))throw std::runtime_error("Unsupported calibration capture");
+    std::array<uint32_t,12> counts{},checkCounts{};capture.read(counts.data(),48);if(verified)capture.read(checkCounts.data(),48);
+    std::array<cv::Mat,12> holds,checks;
+    for(int i=0;i<12;i++){if((counts[i]&&counts[i]<8)||counts[i]>120||(!i&&!counts[i]))throw std::runtime_error("Invalid hold length");if(counts[i])holds[i]=capture.matrix(counts[i],1511);}
+    if(verified)for(int i=0;i<12;i++){
+        if((checkCounts[i]&&checkCounts[i]<8)||checkCounts[i]>120||(counts[i]&&!checkCounts[i]))throw std::runtime_error("Invalid validation hold length");
+        if(checkCounts[i])checks[i]=capture.matrix(checkCounts[i],1511);
+    }
+    capture.end();
+    const int slot[6]={0,1,2,3,6,11};cv::Mat anchors=mouth.missing.clone(),present=cv::Mat::zeros(6,1,CV_32F);
+    for(int i=0;i<6;i++)if(counts[slot[i]]){mean(holds[slot[i]].colRange(0,512)).copyTo(anchors.row(i));present.at<float>(i)=1;}
     cv::Mat neutral=mean(holds[0].colRange(519,999));
     cv::Mat mw=mouth.w1.colRange(0,512)+mouth.w1.colRange(3584,4096);
-    cv::Mat mb=mouth.b1+mouth.w1.colRange(512,3584)*anchors.reshape(1,3072)-mouth.w1.colRange(3584,4096)*anchors.row(0).t()+mouth.w1.colRange(4096,4102)*cv::Mat::ones(6,1,CV_32F);
+    cv::Mat mb=mouth.b1+mouth.w1.colRange(512,3584)*anchors.reshape(1,3072)-mouth.w1.colRange(3584,4096)*anchors.row(0).t()+mouth.w1.colRange(4096,4102)*present;
     cv::Mat bw=brows.w1.colRange(0,480)+brows.w1.colRange(480,960);
     cv::Mat bb=brows.b1-brows.w1.colRange(480,960)*neutral.t()+brows.w1.col(960);
     Output out;out.add(mw);out.add(mb);out.add(mouth.w2);out.add(mouth.b2);out.add(mouth.w3);out.add(mouth.b3);out.add(bw);out.add(bb);out.add(brows.w2);out.add(brows.b2);
+    uint32_t capabilities=4;
+    bool tongue=true;for(int i=6;i<=10;i++)tongue=tongue&&counts[i];
+    if(tongue) {
     int n=0;for(int i=6;i<=10;i++)n+=counts[i]*2;
     cv::Mat x(n,512,CV_64F),y(n,2,CV_64F),mu,variance;
     const double directions[5][2]={{0,0},{0,1},{0,-1},{-1,0},{1,0}};
@@ -83,31 +93,63 @@ void compile(const std::string &dir) {
         }
         float reach=median(values)*(i%2?1:-1);gains.at<float>(i)=reach>=.15f?std::min(1.f/reach,2.f):1;
     }
-    out.add(mapping);out.add(-mapping*mf.t());out.add(gains);
+    bool accurate=true;
+    if(verified)for(int i=6;i<=10;i++){
+        std::array<std::vector<float>,2> predicted;
+        for(int j=0;j<checks[i].rows;j++){
+            cv::Mat q=checks[i].row(j).colRange(0,512).t(),value=mapping*(q-mf.t());
+            for(int axis=0;axis<2;axis++){float v=value.at<float>(axis);predicted[axis].push_back(std::clamp(v*gains.at<float>(axis*2+(v>0)),-1.f,1.f));}
+        }
+        for(int axis=0;axis<2;axis++){
+            double target=directions[i-6][axis];
+            accurate=accurate&&std::abs(median(predicted[axis])-target)<=(target==0?.35:.5)&&percentile(predicted[axis],.95)-percentile(predicted[axis],.05)<=.5;
+        }
+    }
+    if(accurate){out.add(mapping);out.add(-mapping*mf.t());out.add(gains);capabilities|=1;}
+    else {out.zeros(1026);out.add(cv::Mat::ones(4,1,CV_32F));}
+    } else { out.zeros(1026);out.add(cv::Mat::ones(4,1,CV_32F)); }
     cv::Mat rest=cv::Mat::zeros(13,1,CV_32F),reach=cv::Mat::ones(13,1,CV_32F);
     auto cheek=[&](int slotIndex){return layer(mouth.w3,mouth.b3,layer(mouth.w2,mouth.b2,layer(mw,mb,anchors.row(slotIndex).t(),false),false),true);};
     cv::Mat base=cheek(0);
     for(int family=0;family<2;family++){
-        float low=std::max(base.at<float>(2*family),base.at<float>(2*family+1));cv::Mat full=cheek(family?5:3);float high=std::max(full.at<float>(2*family),full.at<float>(2*family+1));
+        float low=std::max(base.at<float>(2*family),base.at<float>(2*family+1));cv::Mat full=cheek(family?5:3);float high=counts[family?11:3]?std::max(full.at<float>(2*family),full.at<float>(2*family+1)):1;
+        if(family==0&&!counts[3]&&(counts[4]||counts[5])){
+            high=0;
+            for(int i=4;i<=5;i++)if(counts[i]){
+                cv::Mat q=mean(holds[i].colRange(0,512)).t();
+                cv::Mat value=layer(mouth.w3,mouth.b3,layer(mouth.w2,mouth.b2,layer(mw,mb,q,false),false),true);
+                high=std::max({high,value.at<float>(0),value.at<float>(1)});
+            }
+        }
         for(int side=0;side<2;side++){rest.at<float>(2*family+side)=low;if(high-low>=.2f)reach.at<float>(2*family+side)=high;}
     }
     auto thumbs=[&](int i){return holds[i].colRange(999,1511);};
     auto part=[](const cv::Mat &m,int c){return m.colRange(c*256,c*256+256);};
+    if(counts[4]&&counts[5]) {
     cv::Mat still=mean(thumbs(0)),direction(2,256,CV_32F);float camera[2],threshold[2],amount[2]={rest.at<float>(0),reach.at<float>(0)};
+    bool puffAccurate=true;
     for(int side=0;side<2;side++){
         cv::Mat own=mean(thumbs(4+side))-still,other=mean(thumbs(5-side))-still,on;
         auto moved=[&](int c){return cv::norm(part(own,c),cv::NORM_L1)-cv::norm(part(other,c),cv::NORM_L1);};
         int c=moved(1)>moved(0);camera[side]=static_cast<float>(c);
-        cv::vconcat(thumbs(4+side),thumbs(3),on);
+        if(counts[3])cv::vconcat(thumbs(4+side),thumbs(3),on);else on=thumbs(4+side);
         cv::Mat d=part(mean(on),c)-part(still,c);cv::Mat(d/std::max(d.dot(d),1e-9)).copyTo(direction.row(side));
         std::vector<float> off;
-        for(int i=0;i<12;i++)if(i!=3&&i!=4+side)for(int j=0;j<holds[i].rows;j++)
+        for(int i=0;i<12;i++)if(counts[i]&&i!=3&&i!=4+side)for(int j=0;j<holds[i].rows;j++)
             off.push_back(std::clamp(static_cast<float>((part(thumbs(i).row(j),c)-part(still,c)).dot(direction.row(side))),0.f,1.f));
         threshold[side]=std::clamp(percentile(off,.99)+.1f,.15f,.5f);
-        rest.at<float>(side)=0;reach.at<float>(side)=1;
+        if(verified)for(int i=0;i<12;i++)if(checkCounts[i]){
+            std::vector<float> values;
+            for(int j=0;j<checks[i].rows;j++)values.push_back(std::clamp(static_cast<float>((part(checks[i].row(j).colRange(999,1511),c)-part(still,c)).dot(direction.row(side))),0.f,1.f));
+            if(i==4+side)puffAccurate=puffAccurate&&median(values)>=.65f;
+            else if(i!=3)puffAccurate=puffAccurate&&percentile(values,.95)<threshold[side];
+        }
     }
-    uint32_t capabilities=3;
+    if(puffAccurate){
+    capabilities|=2;for(int side=0;side<2;side++){rest.at<float>(side)=0;reach.at<float>(side)=1;}
     out.add(still);out.add(direction);out.add(cv::Mat(1,2,CV_32F,camera));out.add(cv::Mat(1,2,CV_32F,threshold));out.add(cv::Mat(1,2,CV_32F,amount));
+    }else {out.zeros(1026);out.add(cv::Mat::ones(1,2,CV_32F)*.5f);float missingAmount[2]={0,1};out.add(cv::Mat(1,2,CV_32F,missingAmount));}
+    } else {out.zeros(1026);out.add(cv::Mat::ones(1,2,CV_32F)*.5f);float missingAmount[2]={0,1};out.add(cv::Mat(1,2,CV_32F,missingAmount));}
     std::array<std::vector<float>,4> browRest;
     for(int j=0;j<holds[0].rows;j++){
         cv::Mat result=layer(brows.w2,brows.b2,layer(bw,bb,holds[0].row(j).colRange(519,999).t(),false),true);
@@ -115,9 +157,13 @@ void compile(const std::string &dir) {
     }
     for(int i=0;i<4;i++)rest.at<float>(8+i)=median(browRest[i]);
     out.add(rest);out.add(reach);out.zeros(1);
-    Input previous(dir+"/profile.bin");previous.magic("QFTHP002");uint32_t previousFlags,bytes;previous.read(&previousFlags,4);previous.read(&bytes,4);
-    if(bytes<16||bytes>4000000)throw std::runtime_error("Invalid previous profile");previous.file.seekg(bytes, std::ios::beg);
+    Input previous(dir+"/profile.bin");char magic[8];previous.read(magic,8);bool selected=!std::memcmp(magic,"QFTHP003",8);
+    if(!selected&&std::memcmp(magic,"QFTHP002",8))throw std::runtime_error("Unsupported previous profile");
+    uint32_t previousFlags,bytes;previous.read(&previousFlags,4);previous.read(&bytes,4);
+    if(bytes<20||bytes>4000000)throw std::runtime_error("Invalid previous profile");previous.file.seekg(bytes-(selected?4:0), std::ios::beg);
     cv::Mat limits=previous.matrix(4,1);out.add(limits);capabilities|=previousFlags&8;
+    if(selected)out.add(previous.matrix(1,1));else out.add(cv::Mat(1,1,CV_32F,cv::Scalar((previousFlags&8)?3:0)));
+    previous.end();
     out.write(dir+"/profile.pending",capabilities);
 }
 }

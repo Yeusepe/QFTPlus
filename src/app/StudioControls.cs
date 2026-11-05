@@ -197,6 +197,14 @@ public partial class StudioWindow
             }
             Page.Children.Add(Card(input));
         }
+        if (area == "Eyelids" && !single)
+        {
+            var smile = new StackPanel();
+            var slider = Number(smile, Loc.Get("SmileEyeClosure"), "smileEyeClosure", 0, 1, 1, false);
+            AutomationProperties.SetHelpText(slider, Loc.Get("SmileEyeClosureHelp"));
+            smile.Children.Add(Muted(Loc.Get("SmileEyeClosureHelp")));
+            Page.Children.Add(Card(smile));
+        }
         var basics = new StackPanel();
         NumericSetting.AddTo(basics, Loc.Get("Strength"), 0, 10, Value("strength", 1), v => Save("strength", v), scale: 100);
         Number(basics, Loc.Get("Offset"), "offset", minimum - maximum, maximum - minimum, 0);

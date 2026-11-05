@@ -32,41 +32,65 @@ def stimulus(t):
     return 0.
 
 
-def fit_calibration(samples):
+def source_eyes(profile):
+    eyes = profile.get("sourceEyes", [0, 1])
+    if not isinstance(eyes, list) or not eyes or any(type(i) is not int for i in eyes) or eyes not in ([0], [1], [0, 1]):
+        raise ValueError("GuideInvalidRelativePupilCalibration")
+    return eyes
+
+
+def fit_calibration(samples, selected=(0, 1)):
     times = np.asarray([s[0] for s in samples], dtype=float)
     eyes = np.asarray([s[1] for s in samples], dtype=float)
+    selected = source_eyes({"sourceEyes": list(selected)})
     cycles = [times < ADAPT+CYCLE, times >= ADAPT+CYCLE]
-    if any(c.sum() < 80 for c in cycles):
+    if not len(times):
         raise ValueError("GuideYourPupilsWereHiddenTooOftenAdjustTheHeadsetSo")
-    if eyes.ndim != 3 or eyes.shape[1:] != (2, 4) or not np.isfinite(eyes).all() or not np.isfinite(times).all():
+    if eyes.ndim != 3 or eyes.shape[1:] != (2, 4) or not np.isfinite(times).all():
         raise ValueError("GuideInvalidPupilCalibrationSamples")
-    diameter = eyes[:, :, 0]
-    small, large = np.percentile(diameter, (5, 95), axis=0)
-    span = large-small
-    if np.any((small < 10) | (large > 60) | (span < np.maximum(3, small*.1))):
-        raise ValueError("GuideYourPupilsChangedSizeTooLittleDimTheRoomLights")
+    small, large = np.full(2, 10.), np.full(2, 60.)
+    centers, ratios = np.full((2, 2), 200.), np.ones(2)
+    response, counts = np.zeros((2, 2)), np.zeros((2, 2), dtype=int)
     levels = np.asarray([stimulus(t-LAG) for t in times])
-    response = []
-    for c in cycles:
-        low, high = np.percentile(diameter[c], (5, 95), axis=0)
-        response.append([np.corrcoef(levels[c], diameter[c, i])[0, 1] for i in range(2)])
-        if np.any(np.abs(low-small) > .35*span) or np.any(np.abs(high-large) > .35*span):
-            raise ValueError("GuideTheTwoRoundsDidnTMatchKeepYourHeadStill")
-    if not np.all(np.asarray(response) < -.5):
-        raise ValueError("GuidePupilSizeDidnTFollowTheScreenBrightnessKeepLooking")
-    centers = np.median(eyes[:, :, 1:3], axis=0)
-    if np.any(np.percentile(np.linalg.norm(eyes[:, :, 1:3]-centers, axis=2), 90, axis=0) > 15):
-        raise ValueError("GuideKeepLookingAtTheCircleTheWholeTimeThenTry")
-    return {"format": "qpro-relative-pupil-v1", "small": small.tolist(), "large": large.tolist(),
-            "centers": centers.tolist(), "ratios": np.median(eyes[:, :, 3], axis=0).tolist(),
-            "response": response, "samplesPerCycle": [int(c.sum()) for c in cycles]}
+    for eye in selected:
+        valid = np.isfinite(eyes[:, eye]).all(axis=1)
+        if np.isinf(eyes[:, eye]).any() or np.any(~valid & ~np.isnan(eyes[:, eye]).all(axis=1)):
+            raise ValueError("GuideInvalidPupilCalibrationSamples")
+        masks = [c & valid for c in cycles]
+        counts[:, eye] = [c.sum() for c in masks]
+        if min(counts[:, eye]) < 80:
+            raise ValueError("GuideYourPupilsWereHiddenTooOftenAdjustTheHeadsetSo")
+        # Fit the first round; the second round checks parameters it did not help fit.
+        small[eye], large[eye] = np.percentile(eyes[masks[0], eye, 0], (5, 95))
+        span = large[eye]-small[eye]
+        if small[eye] < 10 or large[eye] > 60 or span < max(3, small[eye]*.1):
+            raise ValueError("GuideYourPupilsChangedSizeTooLittleDimTheRoomLights")
+        for cycle, c in enumerate(masks):
+            diameter = eyes[c, eye, 0]
+            low, high = np.percentile(diameter, (5, 95))
+            response[cycle, eye] = np.corrcoef(levels[c], diameter)[0, 1]
+            if abs(low-small[eye]) > .35*span or abs(high-large[eye]) > .35*span:
+                raise ValueError("GuideTheTwoRoundsDidnTMatchKeepYourHeadStill")
+            if not response[cycle, eye] < -.5:
+                raise ValueError("GuidePupilSizeDidnTFollowTheScreenBrightnessKeepLooking")
+        centers[eye] = np.median(eyes[valid, eye, 1:3], axis=0)
+        if np.percentile(np.linalg.norm(eyes[valid, eye, 1:3]-centers[eye], axis=1), 90) > 15:
+            raise ValueError("GuideKeepLookingAtTheCircleTheWholeTimeThenTry")
+        ratios[eye] = np.median(eyes[valid, eye, 3])
+    return {"format": "qpro-relative-pupil-v2", "sourceEyes": selected,
+            "small": small.tolist(), "large": large.tolist(), "centers": centers.tolist(), "ratios": ratios.tolist(),
+            "response": response.tolist(), "samplesPerCycle": counts[:, selected].min(axis=1).tolist(),
+            "samplesPerEye": counts.tolist(), "validation": "independent-brightness-round"}
 
 
 def read_calibration(path):
     profile = json.loads(Path(path).read_text())
+    if profile.get("format") == "qpro-relative-pupil-v2" and "sourceEyes" not in profile:
+        raise ValueError("GuideInvalidRelativePupilCalibration")
+    source_eyes(profile)
     small, large = np.asarray(profile["small"]), np.asarray(profile["large"])
     centers, ratios = np.asarray(profile["centers"]), np.asarray(profile["ratios"])
-    if (profile.get("format") != "qpro-relative-pupil-v1" or small.shape != (2,) or large.shape != (2,)
+    if (profile.get("format") not in ("qpro-relative-pupil-v1", "qpro-relative-pupil-v2") or small.shape != (2,) or large.shape != (2,)
             or centers.shape != (2, 2) or ratios.shape != (2,)
             or not all(np.isfinite(v).all() for v in (small, large, centers, ratios))
             or np.any((small < 10) | (large > 60) | (large-small < np.maximum(3, small*.1)))
@@ -80,7 +104,8 @@ def relative_values(pupils, profile):
         return None
     small, large = np.asarray(profile["small"]), np.asarray(profile["large"])
     span = large-small
-    d = np.array([np.nan if p is None else p.diameter_px for p in pupils])
+    d = np.array([np.nan if p is None else p.diameter_px for p in pupils], dtype=float)
+    d[[i for i in range(2) if i not in source_eyes(profile)]] = np.nan
     values = np.where((d >= small - .35 * span) & (d <= large + .35 * span), (d - small) / span, np.nan)
     if np.isnan(values).all():
         return None
@@ -121,11 +146,14 @@ class PupilDilation:
         if self.enabled:
             self.socket.sendto(PACKET.pack(b"QPPD", 1, int(valid), 0, *values), ("127.0.0.1", 27275))
 
-    def calibrate(self):
+    def calibrate(self, selected=(0, 1)):
         if self._pending is not None:
             self._pending.result()
             self._pending = None
         self.phase = 0
+        self.selected = source_eyes({"sourceEyes": list(selected)})
+        self.paused = False
+        self.paused_elapsed = 0.
         self.level = 0.
         self.result = "running"
         self.samples = []
@@ -135,6 +163,22 @@ class PupilDilation:
         self.last_valid = -1
         self.message = "GuideLookAtTheCircleKeepYourHeadStillAndBlink"
         self.send(False)
+
+    def hold(self, paused, now):
+        if self._pending is not None:
+            self._pending.result()
+            self._pending = None
+        if self.phase is None or self.paused == paused:
+            return
+        self.paused = paused
+        if paused:
+            self.paused_elapsed = max(0., now-self.started)
+        self.level = 0.
+        if not paused:
+            self.samples = []
+            self.started = self.last_pair = now
+            self.phase = 0
+            self.last_pupil_time = [-1e9, -1e9]
 
     def update(self, strip, *, preview=False):
         if self._closed:
@@ -187,15 +231,17 @@ class PupilDilation:
                     pupil = None
             pupils.append(pupil)
         self.detected_pupils = pupils
-        both = all(p is not None for p in pupils)
         if self.phase is not None:
+            if self.paused:
+                self.send(False)
+                return
             elapsed = now-self.started
             self.phase = min(2, int(max(0, elapsed-ADAPT)//CYCLE)+(elapsed >= ADAPT))
             self.level = stimulus(elapsed)
-            if both:
+            if any(pupils[i] is not None for i in self.selected):
                 self.last_pair = now
                 if elapsed >= ADAPT-15:
-                    self.samples.append((elapsed, [[p.diameter_px, *p.ellipse[0], min(p.ellipse[1])/max(p.ellipse[1])]
+                    self.samples.append((elapsed, [[p.diameter_px, *p.ellipse[0], min(p.ellipse[1])/max(p.ellipse[1])] if p else [np.nan]*4
                                                    for p in pupils]))
             self.message = ("GuideYourPupilsArenTVisibleOpenYourEyesNaturallyAnd"
                             if now-self.last_pair > 2 else
@@ -205,7 +251,7 @@ class PupilDilation:
                 self.phase = None
                 self.level = 0.
                 try:
-                    profile = fit_calibration(self.samples)
+                    profile = fit_calibration(self.samples, self.selected)
                     self.path.parent.mkdir(parents=True, exist_ok=True)
                     pending = self.path.with_suffix(".tmp")
                     pending.write_text(json.dumps(profile, indent=2))

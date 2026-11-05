@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
     private var focus by mutableStateOf<String?>(null)
     private var openPath = ""
     private lateinit var ocui: Ocui
-    private val parameters by lazy { FaceExpressions(false).read(ByteArray(608), 0).keys.toList() }
+    private val parameters by lazy { FaceExpressions(false).read(ByteArray(608), 0, 1f).keys.toList() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
             Hit(getString(R.string.pupil_dilation), getString(R.string.features), 0, words = getString(R.string.eyes_pupils)),
             Hit(getString(R.string.convergence), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.independent_eye_gaze_depth_startup)),
             Hit(getString(R.string.convergence_strength), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.eyes_depth_gain_vergence)),
+            Hit(getString(R.string.smile_eye_closure), areaTitle("Eyelids"), 1, "Eyelids", words = getString(R.string.smile_eye_closure_help)),
             Hit(getString(R.string.reset_to_100), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.convergence_strength_default)),
             Hit(getString(R.string.tongue_direction), getString(R.string.features), 0),
             Hit(getString(R.string.resume_after_restart), getString(R.string.features), 0, words = getString(R.string.boot_startup_reboot_automatically)),
@@ -223,7 +224,7 @@ class MainActivity : ComponentActivity() {
             for ((state, key) in listOf(pupils to "pupils", tongue to "tongue", boot to "boot")) state.value = settings.getBoolean(key, false)
             delay(500)
         } }
-        Group(null, getString(R.string.turns_on_the_headset_s_face_and_eye),
+        Group(null, null,
             row(getString(R.string.face_and_eye_tracking), if (enabled) status else TrackingService.error?.let { getString(R.string.stopped_reason, it) } ?: getString(R.string.off), trailing = ocui.toggle(enabled, getString(R.string.face_and_eye_tracking)) {
                 if (it) start() else stop(); enabled = settings.getBoolean("enabled", false)
             }))
@@ -616,6 +617,8 @@ class MainActivity : ComponentActivity() {
                     if (paired) row(getString(R.string.match_left_and_right), getString(R.string.averaging_evens_out_one_sided_jitter_following_the),
                         trailing = ocui.select(listOf(getString(R.string.off), getString(R.string.average_both_sides), getString(R.string.follow_the_stronger_side)), value("match", 0f).toInt().coerceIn(0, 2), getString(R.string.match_left_and_right)) { set("match", it.toFloat()) }) else null
                 ).toTypedArray())
+            if (selection == "Eyelids") Group(getString(R.string.smile_eye_closure), getString(R.string.smile_eye_closure_help),
+                numberRow(getString(R.string.smile_eye_closure), value("smileEyeClosure", 1f, false), 0f..1f, { shown(true, it) }) { set("smileEyeClosure", it) })
             Group(getString(R.string.output), getString(R.string.dead_zone_ignores_movement_around_neutral_then_scales),
                 numberRow(getString(R.string.strength), value("strength", 1f), 0f..10f, { String.format(Locale.getDefault(), "%.0f%%", it * 100) }) { set("strength", it) },
                 numberRow(getString(R.string.offset), value("offset", 0f), (minimum - maximum)..(maximum - minimum), ::fmt) { set("offset", it) },

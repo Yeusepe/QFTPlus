@@ -65,6 +65,7 @@ struct Profile {
     std::array<float, 512> puff_rest{}, puff_direction{};
     std::array<float, 13> neutral{}, reach{};
     std::array<float, 1> bias{};
+    std::array<float, 1> pupil_sources{};
     explicit Profile(const char *directory) {
         Reader r(directory);
         char magic[8];
@@ -72,7 +73,8 @@ struct Profile {
         r.read(magic, 8);
         r.read(&capabilities, 4);
         r.read(&bytes, 4);
-        if (std::memcmp(magic, "QFTHP002", 8) || capabilities > 15 || bytes > 4000000)
+        bool selected = !std::memcmp(magic, "QFTHP003", 8);
+        if ((!selected && std::memcmp(magic, "QFTHP002", 8)) || capabilities > 15 || bytes > 4000000)
             throw std::runtime_error("Unsupported headset profile");
         mouth.emplace_back(r, 512, 512);
         mouth.emplace_back(r, 256, 512);
@@ -92,6 +94,11 @@ struct Profile {
         r.floats(bias);
         r.floats(small);
         r.floats(large);
+        if (selected) r.floats(pupil_sources);
+        else pupil_sources[0] = (capabilities & 8) ? 3.f : 0.f;
+        if (pupil_sources[0] < 0 || pupil_sources[0] > 3 || pupil_sources[0] != std::floor(pupil_sources[0]) ||
+            ((capabilities & 8) != 0) != (pupil_sources[0] != 0))
+            throw std::runtime_error("Invalid pupil source selection");
         if (static_cast<uint32_t>(r.file.tellg()) != bytes + 16 || r.file.peek() != EOF)
             throw std::runtime_error("Invalid headset profile length");
         if (std::abs(bias[0]) > .10001)
@@ -352,7 +359,7 @@ struct TrackingModel {
                     pupil_seen[eye] = time;
                     if (time - seen <= .25 &&
                         std::abs(diameter - previous) <= std::max(3., previous * .16) &&
-                        (profile->capabilities & 8) && diameter >= range[0] && diameter <= range[1])
+                        (static_cast<int>(profile->pupil_sources[0]) & (1 << eye)) && diameter >= range[0] && diameter <= range[1])
                         relative[eye] = clip((diameter - small) / span);
                 }
             }

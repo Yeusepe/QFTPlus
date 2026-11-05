@@ -27,6 +27,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         SharedPreferences settings = context.getSharedPreferences("settings", 0);
         int capabilities = capabilities(context);
         String problem = intent.hasExtra("rate") && java.util.Arrays.stream(RATES).noneMatch(r -> r == intent.getIntExtra("rate", -1)) ? context.getString(R.string.choose_an_update_rate_of_0_fastest_30_or_20)
+            : intent.hasExtra("pupilSource") && (intent.getIntExtra("pupilSource", 0)<1 || intent.getIntExtra("pupilSource", 0)>3) ? context.getString(R.string.invalid_pupil_source)
             : intent.hasExtra("vergenceGain") && (!Float.isFinite(intent.getFloatExtra("vergenceGain", Float.NaN)) || intent.getFloatExtra("vergenceGain", -1) < 0 || intent.getFloatExtra("vergenceGain", 4) > 3) ? context.getString(R.string.choose_a_convergence_strength_between_0_and_300)
             : intent.hasExtra("output") && !java.util.Arrays.asList("pc", "vrchat", "raw").contains(intent.getStringExtra("output")) ? context.getString(R.string.choose_qft_on_your_pc_vrchat_or_osc_apps)
             : intent.hasExtra("oscHost") && !String.valueOf(intent.getStringExtra("oscHost")).matches("((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)") ? context.getString(R.string.enter_the_receiver_s_ipv4_address_like_192_168_1)
@@ -50,6 +51,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         for (String key : new String[]{"tongue", "pupils", "boot", "convergence", "setupDone"}) if (intent.hasExtra(key)) edit.putBoolean(key, intent.getBooleanExtra(key, false));
         if (intent.hasExtra("vergenceGain")) edit.putFloat("vergenceGain", intent.getFloatExtra("vergenceGain", 1));
         if (intent.hasExtra("rate")) edit.putInt("rate", intent.getIntExtra("rate", 0));
+        if (intent.hasExtra("pupilSource")) edit.putInt("pupilSource", intent.getIntExtra("pupilSource", 3));
         restart |= intent.hasExtra("output") && !intent.getStringExtra("output").equals(TrackingService.outputMode(settings));
         if (intent.hasExtra("output")) edit.putString("output", intent.getStringExtra("output"));
         if (intent.hasExtra("oscHost") || intent.hasExtra("oscPort")) {
@@ -96,13 +98,13 @@ public final class ControlReceiver extends BroadcastReceiver {
             if (input.read(header) != 12) return 0;
             String magic = new String(header, 0, 8, "US-ASCII");
             int flags = ByteBuffer.wrap(header, 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-            return magic.equals("QFTHP002") ? flags : magic.equals("QFTHP001") ? flags & 8 : 0;
+            return magic.equals("QFTHP003") ? flags : magic.equals("QFTHP002") ? flags | ((flags & 1) != 0 ? 4 : 0) : magic.equals("QFTHP001") ? flags & 8 : 0;
         } catch (IOException missing) { return 0; }
     }
     static boolean currentProfile(File profile) {
         try (FileInputStream input = new FileInputStream(profile)) {
             byte[] magic = new byte[8];
-            return input.read(magic) == 8 && new String(magic, "US-ASCII").equals("QFTHP002");
+            return input.read(magic) == 8 && java.util.Arrays.asList("QFTHP002", "QFTHP003").contains(new String(magic, "US-ASCII"));
         } catch (IOException missing) { return false; }
     }
 
@@ -122,7 +124,9 @@ public final class ControlReceiver extends BroadcastReceiver {
                 .put("tongue", settings.getBoolean("tongue", false)).put("pupils", settings.getBoolean("pupils", false))
                 .put("convergence", settings.getBoolean("convergence", true)).put("vergenceGain", settings.getFloat("vergenceGain", 1))
                 .put("boot", settings.getBoolean("boot", false)).put("setupDone", settings.getBoolean("setupDone", false)).put("rate", settings.getInt("rate", 0)))
-            .put("calibrated", new JSONObject().put("face", (capabilities & 1) != 0).put("pupils", (capabilities & 8) != 0))
+            .put("calibrated", new JSONObject().put("face", (capabilities & 4) != 0).put("pupils", (capabilities & 8) != 0)
+                .put("tongueDirection",(capabilities&1)!=0).put("cheekSeparation",(capabilities&2)!=0)
+                .put("facePartial",(capabilities&4)!=0&&((capabilities&3)!=3||settings.getInt("faceCalibrationPoses",4095)!=4095)))
             .put("calibration", new JSONObject().put("running", TrackingService.calibrating).put("result", TrackingService.lastCalibration))
             .put("adjustments", hash(TrackingService.adjustmentsFile(context)));
     }

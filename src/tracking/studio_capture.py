@@ -45,6 +45,9 @@ class StudioCapture:
         self.last_id = command['id']
         self.last_ui = now
         action = command.get('action')
+        if action in ('skip', 'repeat') and self.guided and 'index' in command:
+            if type(command['index']) is not int or command['index'] != self.guided.index:
+                return
         if action == 'begin':
             if self.writer is not None or self.pupil is not None:
                 raise ValueError("GuideACalibrationIsAlreadyRecording")
@@ -73,14 +76,22 @@ class StudioCapture:
                 self.open_video()
             else:
                 self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False, asynchronous=True)
-                self.pupil.calibrate()
+                self.pupil.calibrate(command.get('sourceEyes', [0, 1]))
         elif action == 'cancel':
             self.finish(False)
         elif action == 'pause':
             self.paused = not self.paused
+            if self.pupil:
+                self.pupil.hold(self.paused, now)
+            elif not self.paused and isinstance(self.guided, EnrollmentSession):
+                self.guided.repeat(int(now*1e9))
         elif action == 'reload':
             self.reload_requested = True
+        elif action == 'repeat' and self.guided:
+            self.guided.repeat(time.monotonic_ns())
         elif action == 'skip' and self.guided:
+            if isinstance(self.guided, EnrollmentSession) and self.guided.current.slot == 'neutral':
+                return
             self.guided.skip(time.monotonic_ns())
             if self.guided.completed:
                 self.finish(True)
@@ -128,9 +139,12 @@ class StudioCapture:
             self.state['error'] = "GuideCalibrationStoppedBecauseTheStudioWindowStoppedRespondingYourPrevious"
             return
         phase = self.pupil.phase
-        elapsed = min(DURATION, max(0, now-self.pupil.started))
+        elapsed = min(DURATION, self.pupil.paused_elapsed if self.paused else max(0, now-self.pupil.started))
         self.state.update(level=self.pupil.level, remaining=round(DURATION-elapsed), progress=elapsed/DURATION,
             index=phase or 0, total=len(STAGES), title=STAGES[phase or 0], instruction=self.pupil.message)
+        self.state['paused'] = self.paused
+        if self.paused:
+            self.state.update(level=0., instruction='GuidePupilPausedRestart')
         if self.pupil.result in ('passed', 'failed'):
             self.state['error'] = '' if self.pupil.result == 'passed' else self.pupil.message
             self.finish(self.pupil.result == 'passed')

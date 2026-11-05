@@ -60,6 +60,7 @@ public sealed class FaceGuide : Control
 
     internal static float[] Pose(JsonObject values, string condition, bool animate)
     {
+        if (condition.StartsWith("validate:", StringComparison.Ordinal)) condition = "anchor:" + condition[9..];
         float V(string name) => float.TryParse(values[name]?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && float.IsFinite(v) ? Math.Clamp(v, -1, 1) : 0;
         var weights = new float[76];
         void Set(int index, params string[] keys) => weights[index] = Math.Clamp(keys.Max(V), 0, 1);

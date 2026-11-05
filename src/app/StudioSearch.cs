@@ -70,6 +70,8 @@ public partial class StudioWindow
             yield return new(Loc.Get("ResetDefaults"), Loc.Get("AllAreas"), "Adjustments", Loc.Get("ResetRestore"), "*");
             foreach (var title in new[] { Loc.Get("InputMinimum"), Loc.Get("InputMaximum"), Loc.Get("InputNeutral"), Loc.Get("OutputMinimum"), Loc.Get("OutputMaximum") })
                 yield return new(title, Loc.Get("InputAndOutputLimits"), "Adjustments", Loc.Get("RangeClampRest"), Reveal: false);
+            if (parameters.Any(p => OutputAdjustments.Area(p) == "Eyelids"))
+                yield return new(Loc.Get("SmileEyeClosure"), Loc.Get("Eyelids"), "Adjustments", Loc.Get("SmileEyeClosureHelp"), "Eyelids");
             if (parameters.Any(p => OutputAdjustments.Area(p) == "Gaze"))
             {
                 yield return new(Loc.Get("Convergence"), Loc.Get("Gaze"), "Adjustments", Loc.Get("IndependentEyeDepthVergence"), "Gaze");

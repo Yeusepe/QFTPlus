@@ -29,6 +29,7 @@ internal sealed class OutputAdjustments
     double expires;
     DateTime settingsTime, leaseTime;
     internal JsonObject Settings => settings;
+    internal float SmileEyeClosure => (float)Math.Clamp(Number(settings["Eyelids"] as JsonObject, "smileEyeClosure", 1), 0, 1);
     internal void Poll(string directory, long tick, double utcSeconds)
     {
         if (directory != root) { root = directory; polled = tick - 100; filtered.Clear(); settingsTime = leaseTime = default; }

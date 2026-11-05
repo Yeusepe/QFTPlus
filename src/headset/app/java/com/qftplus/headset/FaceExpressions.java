@@ -16,7 +16,7 @@ final class FaceExpressions {
     private float get(String name) { return values.getOrDefault(name, 0f); }
     private void average(String name) { put(name, (get(name + "Left") + get(name + "Right")) * .5f); }
 
-    Map<String, Float> read(byte[] payload, long now) {
+    Map<String, Float> read(byte[] payload, long now, float smileEyeClosure) {
         if (payload.length != 608) throw new IllegalArgumentException("Invalid tracking packet");
         ByteBuffer p = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         int options = nativeOnly ? 0 : p.getInt(4), status = nativeOnly ? 0 : p.getInt(12), valid = p.getInt(288);
@@ -52,7 +52,7 @@ final class FaceExpressions {
                 put("BrowInnerUp" + side, unit((n[22] + n[23]) * unit(p.getFloat(68 + eye * 4))));
                 put("BrowOuterUp" + side, unit((n[57] + n[58]) * unit(p.getFloat(76 + eye * 4))));
             }
-            float open = (valid & 1) == 0 ? 1 : 1 - unit(n[12 + eye] + n[4 + eye] * n[28 + eye]);
+            float open = (valid & 1) == 0 ? 1 : 1 - unit(n[12 + eye] + smileEyeClosure * n[4 + eye] * n[28 + eye]);
             put("EyeOpen" + side, open); put("EyeClosed" + side, 1 - open);
             put("EyeLid" + side, open * .75f + n[59 + eye] * .25f);
             if ((valid & (2 << eye)) != 0 && now - blinkAt > 150_000_000L) {
@@ -82,7 +82,7 @@ final class FaceExpressions {
         put("MouthUpperX", n[54] - n[53]); put("MouthLowerX", n[54] - n[53]); put("MouthX", n[54] - n[53]);
         put("MouthRaiserUpper", n[9]); put("MouthRaiserLower", n[8]);
         boolean tongue = (options & 2) != 0;
-        put("TongueOut", tongue ? ((status & 4) != 0 ? unit(p.getFloat(84)) : 0) : n[68]);
+        put("TongueOut", tongue ? ((status & 4) != 0 ? unit(p.getFloat(84)) : 0) : Math.max(n[68], n[63]));
         put("TongueX", tongue && (status & 4) != 0 ? Math.max(-1, Math.min(1, p.getFloat(88))) : 0);
         put("TongueY", tongue && (status & 4) != 0 ? Math.max(-1, Math.min(1, p.getFloat(92))) : 0);
         put("TongueArchY", n[69] - n[64]);

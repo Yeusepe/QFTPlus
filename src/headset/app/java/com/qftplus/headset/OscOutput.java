@@ -155,9 +155,10 @@ final class OscOutput implements AutoCloseable {
             long now = System.nanoTime();
             boolean all = now - refresh >= 1_000_000_000L;
             long t0 = System.nanoTime();
-            java.util.Map<String, Float> values = expressions.read(payload, now);
+            float smileEyeClosure = adjustments.smileEyeClosure();
+            java.util.Map<String, Float> values = expressions.read(payload, now, smileEyeClosure);
             long t1 = System.nanoTime();
-            adjustments.apply(values, adjustments.passthrough() ? headset.read(payload, now) : null, now);
+            adjustments.apply(values, adjustments.passthrough() ? headset.read(payload, now, smileEyeClosure) : null, now);
             readNs += t1 - t0; applyNs += System.nanoTime() - t1;
             long faceAt = System.nanoTime();
             begin(); face(values); flush(); sendNs += System.nanoTime() - faceAt;

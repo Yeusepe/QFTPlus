@@ -27,6 +27,7 @@ class Step:
     native: dict = field(default_factory=dict)
     soft: bool = False
     optional: bool = False
+    validation: bool = False
 
 
 PUFF = {"both": {"CheekPuffLeft": 1., "CheekPuffRight": 1.}, "left": {"CheekPuffLeft": 1.}, "right": {"CheekPuffRight": 1.}}
@@ -161,11 +162,22 @@ class GuidedSession:
         if not self.completed:
             self._advance(now_ns, skipped=True)
 
+    def repeat(self, now_ns):
+        if self.completed:
+            return
+        self.elapsed, self.last_ns = 0., now_ns
+        entry = self.record["steps"][self.index]
+        entry.update(startNs=now_ns, endNs=None, skipped=False, frames=[])
+        entry.pop("gate", None)
+        entry.pop("extensionSeconds", None)
+        self._save()
+
     def _advance(self, now_ns, skipped):
         step = self.record["steps"][self.index]
         step["endNs"], step["skipped"] = now_ns, skipped
         self.index += 1
         self.elapsed = 0.
+        self.last_ns = now_ns
         if self.index >= len(self.steps):
             self.completed = True
         else:
@@ -203,15 +215,13 @@ class GuidedSession:
 
 
 
-ENROLL_CAP_SECONDS = 90.
+ENROLL_CAP_SECONDS = 150.
 SLOW = 2.
 RELAX = Step("GuideRelax", "GuideLetYourFaceGoLoose", 1., "relax")
 
 
 def enrollment_steps(pace=1.):
-    """About 56 s (slow mode: pace=SLOW, about 112 s): neutral, seven ramp-and-hold anchors (1 s in, 2 s hold, 1 s relax),
-    four tongue directions held right after the straight-out one (no relax between: the tongue stays out), a jaw sweep,
-    optional reading. The tongue directions calibrate how this person's tongue reads each way (universal_face)."""
+    """About two minutes: prepare and hold, relax, then repeat each anchor for independent validation."""
     def anchor(slot, title, instruction, targets=None, native=None, soft=False, relax=True):
         return [Step(title, instruction, 3., f"anchor:{slot}", targets or {}, ramp=1., slot=slot, record_hz=4.,
                      native=native or {}, soft=soft)] + ([RELAX] if relax else [])
@@ -237,7 +247,13 @@ def enrollment_steps(pace=1.):
                      native={"CheekSuck": .2}, soft=True)
             + [Step("GuideJawSideToSide", "GuideSlowlyTeethApart", 6., "sweep:jaw", record_hz=2.),
                Step("GuideReadThisOutLoud", READ[0], 9., "speech:read", record_hz=2., optional=True)])
-    return [paced(s, pace) for s in steps]
+    verified = []
+    for step in steps:
+        verified.append(step)
+        if step.slot:
+            verified.extend([RELAX, replace(step, name={"key": "GuideRepeatToCheck", "args": [step.name]},
+                condition="validate:" + step.slot, validation=True)])
+    return [paced(s, pace) for s in verified]
 
 
 def paced(step, pace):
@@ -250,11 +266,13 @@ def mouth_roi(strip):
 
 
 class EnrollmentSession(GuidedSession):
-    """Checks every anchor hold; a failed hold is retried once with the reason, then skipped. Never exceeds the cap."""
+    """Automatically collect and verify each hold, with bounded extensions and one retry before skipping."""
 
     def __init__(self, path, steps, now_ns, pace=1., **meta):
-        super().__init__(path, steps, "face-enrollment-v1", now_ns, capSeconds=ENROLL_CAP_SECONDS * pace, pace=pace, **meta)
+        super().__init__(path, steps, "face-enrollment-v1", now_ns, capSeconds=ENROLL_CAP_SECONDS * pace, pace=pace,
+                         requiresValidation=True, validatedSlots=[], **meta)
         self.observed, self.neutral_roi, self.retried, self.pace = [], None, set(), pace
+        self.templates = {}
 
     def observe(self, strip, native, frozen):
         """native: {name: value} from a fresh native sample, or None."""
@@ -263,6 +281,30 @@ class EnrollmentSession(GuidedSession):
             roi = mouth_roi(strip)
             native = native and {**native, "TongueOut": tongue_out(native)}
             self.observed.append((roi, native, frozen, float(roi.mean(dtype=np.float64))))
+
+    def update(self, now_ns, paused):
+        if not self.completed and not paused and self.current.slot:
+            entry = self.record["steps"][self.index]
+            elapsed = self.elapsed + (now_ns-self.last_ns)/1e9
+            if elapsed >= self.current.seconds and entry.get("extensionSeconds", 0.) < 4*self.pace:
+                gate = self.evaluate(self.current)
+                if gate.get("reason") in ("GuideTheHeadsetCamerasDidnTSendImages", "GuideTheCameraImageFroze",
+                                          "GuideTryToHoldStill", "GuideFaceTrackingDidnTSeeItClearly"):
+                    extra = .5*self.pace
+                    self.steps[self.index] = replace(self.current, seconds=self.current.seconds+extra)
+                    entry["plannedSeconds"] = self.current.seconds
+                    entry["extensionSeconds"] = entry.get("extensionSeconds", 0.)+extra
+        return super().update(now_ns, paused)
+
+    def repeat(self, now_ns):
+        self.observed = []
+        super().repeat(now_ns)
+
+    def ui(self):
+        state = super().ui()
+        if self.record["steps"][min(self.index, len(self.steps)-1)].get("extensionSeconds"):
+            state["instruction"] = {"key": "GuideWaitingForCleanSamples", "args": [self.current.instruction]}
+        return state
 
     def evaluate(self, step):
         obs, result = self.observed, {"frames": len(self.observed)}
@@ -278,7 +320,8 @@ class EnrollmentSession(GuidedSession):
         reference = rois.mean(0) if step.slot == "neutral" else self.neutral_roi
         if reference is not None:
             d = np.abs(rois - reference).mean((1, 2))
-            result["distance"], result["spread"] = float(np.median(d)), float(d.std())
+            result["distance"] = float(np.median(d))
+            result["spread"] = float(np.percentile(np.abs(rois-rois.mean(0)).mean((1, 2)), 90))
             if step.slot != "neutral" and result["distance"] < 3:
                 return {**result, "passed": False, "reason": "GuideYourFaceLookedTheSameAsWhenRelaxed"}
             if result["spread"] > max(2.5, .5 * result["distance"]):
@@ -290,20 +333,42 @@ class EnrollmentSession(GuidedSession):
                 result.setdefault("native", {})[prefix] = float(np.median(values))
                 if np.median(values) < minimum and not step.soft:
                     return {**result, "passed": False, "reason": "GuideFaceTrackingDidnTSeeItClearly"}
+            elif not step.soft:
+                return {**result, "passed": False, "reason": "GuideFaceTrackingDidnTSeeItClearly"}
+        if step.validation:
+            template = self.templates.get(step.slot)
+            if template is None:
+                return {**result, "passed": False, "reason": "GuideCalibrationFirstHoldMissing"}
+            error = float(np.abs(rois.mean(0) - template).mean())
+            if error > max(3., .35 * result.get("distance", 0.)):
+                return {**result, "passed": False, "reason": "GuideCalibrationRepeatMismatch"}
+            result["repeatError"] = error
         return {**result, "passed": True}
 
     def _advance(self, now_ns, skipped):
         step, entry = self.current, self.record["steps"][self.index]
         elapsed_total = ((now_ns - self.record["startedMonotonicNs"]) / 1e9 - sum((b - a) / 1e9 for a, b in self.record["pauses"])) / self.pace
+        if self.paused_since is not None:
+            elapsed_total -= (now_ns-self.paused_since)/1e9/self.pace
         if step.slot:
             gate = {"passed": False, "reason": "skipped"} if skipped else self.evaluate(step)
             entry["gate"] = gate
+            if gate["passed"]:
+                if step.validation:
+                    self.record["validatedSlots"] = sorted(set(self.record["validatedSlots"]) | {step.slot})
+                else:
+                    self.templates[step.slot] = np.stack([o[0] for o in self.observed]).mean(0)
             if gate["passed"] and step.slot == "neutral":
                 self.neutral_roi = np.stack([o[0] for o in self.observed]).mean(0)
-            if not gate["passed"] and not skipped and step.slot not in self.retried and elapsed_total < ENROLL_CAP_SECONDS - 10:
-                self.retried.add(step.slot)
+            attempt = (step.slot, step.validation)
+            if not gate["passed"] and not skipped and attempt not in self.retried and elapsed_total < ENROLL_CAP_SECONDS - 10:
+                self.retried.add(attempt)
                 retry = replace(step, name={"key": "GuideRetryTitle", "args": [step.name]}, instruction={"key": "GuideRetryInstruction", "args": [gate["reason"], step.instruction]})
                 self._insert(self.index + 1, [retry, paced(RELAX, self.pace)])
+            elif not gate["passed"] and not step.validation:
+                for i in range(len(self.steps)-1, self.index, -1):
+                    if self.steps[i].slot == step.slot and self.steps[i].validation:
+                        del self.steps[i]; del self.record["steps"][i]
         self.observed = []
         if elapsed_total > ENROLL_CAP_SECONDS - 15:
             for i in range(len(self.steps) - 1, self.index, -1):
@@ -318,13 +383,16 @@ class EnrollmentSession(GuidedSession):
                                        for s in steps]
 
 
-def check(prefix):
+def check(prefix, model=None):
     """Build PREFIX.anchors.npz from an enrollment capture. Neutral is the only required anchor."""
     from capture_format import scan_frames
     prefix = Path(prefix)
     session = json.loads(prefix.with_suffix(".qpsession.json").read_text(encoding="utf-8"))
     if session.get("sessionType") != "face-enrollment-v1":
         raise ValueError("GuideThisIsnTAFaceSetupRecording")
+    validated = {s["condition"].split(":", 1)[1] for s in session["steps"]
+                 if s["condition"].startswith("validate:") and not s.get("skipped") and s.get("gate", {}).get("passed")
+                 and sum(bool(f[2]) for f in s.get("frames", [])) >= 8}
     entries = scan_frames(prefix.with_suffix(".qpcap"), 0x1F)
     with prefix.with_suffix(".qpcap").open("rb") as capture:
         def frames(indices):
@@ -341,25 +409,44 @@ def check(prefix):
             if slot and "gate" in step:
                 gates.setdefault(slot, []).append(step["gate"])
                 held = [f[0] for f in step.get("frames", []) if f[2]]
-                if step["gate"]["passed"] and held and slot not in slots:
+                if (not step.get("skipped") and step["gate"]["passed"] and held and slot not in slots
+                        and (not session.get("requiresValidation") or len(held) >= 8 and slot in validated)):
                     arrays["slot_" + slot] = frames(held); slots[slot] = len(held)
         for s in session["steps"]:
-            if s["condition"].startswith("sweep:") and s.get("frames"):
+            if s["condition"].startswith("validate:") and not s.get("skipped") and s.get("gate", {}).get("passed"):
+                slot = s["condition"].split(":", 1)[1]
+                held = [f[0] for f in s.get("frames", []) if f[2]]
+                if held and slot in validated:
+                    arrays["check_" + slot] = frames(held)
+            if s["condition"].startswith("sweep:") and not s.get("skipped") and s.get("frames"):
                 arrays["sweep_" + s["condition"].split(":", 1)[1]] = frames([f[0] for f in s["frames"]])
     if "neutral" not in slots:
         raise ValueError("GuideTheRelaxedFacePartDidnTRecordCleanlyRunThe")
-    meta = {"schema": "face-enrollment-v1", "slots": sorted(slots), "missing": sorted(set(gates) - set(slots)), "gates": gates,
+    meta = {"schema": "face-enrollment-v2" if session.get("requiresValidation") else "face-enrollment-v1",
+            "slots": sorted(slots), "missing": sorted(set(gates) - set(slots)), "gates": gates,
+            "validatedSlots": sorted(validated & slots.keys()), "validation": "repeat-hold" if session.get("requiresValidation") else "legacy",
             "seconds": (session.get("finishedMonotonicNs", 0) - session["startedMonotonicNs"]) / 1e9,
             "session": prefix.with_suffix(".qpsession.json").name}
     out = prefix.with_suffix(".anchors.npz")
     np.savez_compressed(out, meta=np.array(json.dumps(meta)), **arrays)
+    if model is not None:
+        import os
+        from universal_face import UniversalFace
+        os.environ["QFT_INFERENCE"] = "cpu"
+        face = UniversalFace(model, out, False)
+        try:
+            meta["features"] = {"tongueDirection": face.tongue_map is not None, "cheekSeparation": face.puff_camera is not None}
+        finally:
+            face.close()
+        np.savez_compressed(out, meta=np.array(json.dumps(meta)), **arrays)
+    prefix.with_suffix(".calibration.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return out, meta
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "check":
+    if len(sys.argv) in (3, 4) and sys.argv[1] == "check":
         try:
-            path, meta = check(sys.argv[2])
+            path, meta = check(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
         except (OSError, ValueError, KeyError) as error:
             print(error)
             sys.exit(1)

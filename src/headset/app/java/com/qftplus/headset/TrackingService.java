@@ -147,17 +147,33 @@ public final class TrackingService extends Service {
         if (!profile.exists() || !ControlReceiver.currentProfile(profile) || newHeads) {
             byte[] old = profile.exists() ? Files.readAllBytes(profile.toPath()) : null, fresh;
             try (InputStream input = getAssets().open("model/profile.bin")) { fresh = input.readAllBytes(); }
-            ByteBuffer header = ByteBuffer.wrap(fresh).order(ByteOrder.LITTLE_ENDIAN);
-            if (old != null && old.length >= 32 && (ByteBuffer.wrap(old).order(ByteOrder.LITTLE_ENDIAN).getInt(8) & 8) != 0) {
-                System.arraycopy(old, old.length - 16, fresh, fresh.length - 16, 16);
-                header.putInt(8, header.getInt(8) | 8);
-            }
+            fresh = retainPupilCalibration(fresh, old);
             OutputAdjustments.write(profile, fresh);
-            if (old != null) settings.edit().putBoolean("tongue", false).apply();
+            if (old != null) settings.edit().putBoolean("tongue", false).remove("faceCalibrationPoses").apply();
         }
         File ort = new File(directory, "libonnxruntime.so");
         Files.deleteIfExists(ort.toPath());
         Os.symlink(getApplicationInfo().nativeLibraryDir + "/libonnxruntime.so", ort.toString());
+    }
+    static byte[] retainPupilCalibration(byte[] fresh, byte[] old) {
+        if(old==null||old.length<32)return fresh;
+        ByteBuffer previous=ByteBuffer.wrap(old).order(ByteOrder.LITTLE_ENDIAN);
+        long magic=previous.getLong(0);
+        boolean selected=magic==0x3330305048544651L;
+        if((!selected&&magic!=0x3230305048544651L&&magic!=0x3130305048544651L)||(previous.getInt(8)&8)==0
+            ||previous.getInt(12)!=old.length-16||selected&&old.length<36)return fresh;
+        int offset=old.length-(selected?20:16);
+        float mask=selected?previous.getFloat(old.length-4):3;
+        if(!Float.isFinite(mask)||mask<1||mask>3||mask!=(int)mask)return fresh;
+        for(int i=0;i<2;i++){
+            float small=previous.getFloat(offset+i*4),large=previous.getFloat(offset+8+i*4);
+            if(!Float.isFinite(small)||!Float.isFinite(large)||small<10||large>60||large-small<Math.max(3,small*.1f))return fresh;
+        }
+        ByteBuffer next=ByteBuffer.wrap(fresh).order(ByteOrder.LITTLE_ENDIAN);
+        if(next.getLong(0)==0x3230305048544651L){fresh=java.util.Arrays.copyOf(fresh,fresh.length+4);next=ByteBuffer.wrap(fresh).order(ByteOrder.LITTLE_ENDIAN);}
+        next.putLong(0,0x3330305048544651L);next.putInt(12,fresh.length-16);next.putInt(8,next.getInt(8)|8);
+        System.arraycopy(old,offset,fresh,fresh.length-20,16);next.putFloat(fresh.length-4,mask);
+        return fresh;
     }
     private String environment() {
         return "LD_LIBRARY_PATH=" + quote(getApplicationInfo().nativeLibraryDir + ":/vendor/lib64") + " ";
@@ -344,8 +360,8 @@ public final class TrackingService extends Service {
                                     if (c.cancelled()) Files.deleteIfExists(new File(directory, "profile.pending").toPath());
                                     else {
                                         Files.move(new File(directory, "profile.pending").toPath(), new File(directory, "profile.bin").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                                        settings.edit().putBoolean("tongue", true).apply();
-                                        c.saved(getString(R.string.face_calibration_passed_and_saved));
+                                        settings.edit().putBoolean("tongue", (ControlReceiver.capabilities(this)&1)!=0).putInt("faceCalibrationPoses",c.completedPoses()).apply();
+                                        c.saved(c.faceResult(ControlReceiver.capabilities(this)));
                                     }
                                 }
                             } else settings.edit().putBoolean("pupils", true).apply();
@@ -388,7 +404,7 @@ public final class TrackingService extends Service {
         synchronized (runtimeLock) {
             File dir = new File(context.getFilesDir(), "model");
             for (String name : new String[]{"profile.bin", "profile.pending", "calibration.bin"}) Files.deleteIfExists(new File(dir, name).toPath());
-            context.getSharedPreferences("settings", 0).edit().putBoolean("tongue", false).putBoolean("pupils", false).commit();
+            context.getSharedPreferences("settings", 0).edit().putBoolean("tongue", false).putBoolean("pupils", false).remove("faceCalibrationPoses").commit();
         }
     }
 }

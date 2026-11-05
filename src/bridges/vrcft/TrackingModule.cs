@@ -577,10 +577,11 @@ public sealed class TrackingModule : ExtTrackingModule
             _heldTick[side] = now;
         }
 
+        float smileEyeClosure = _adjustments.SmileEyeClosure;
         _eyes[6] = 1.0f - Math.Clamp(
-            values[12] + values[4] * values[28], 0.0f, 1.0f);
+            values[12] + smileEyeClosure * values[4] * values[28], 0.0f, 1.0f);
         _eyes[7] = 1.0f - Math.Clamp(
-            values[13] + values[5] * values[29], 0.0f, 1.0f);
+            values[13] + smileEyeClosure * values[5] * values[29], 0.0f, 1.0f);
         ResetPupilDilation();
         if (_pupil.Current(Environment.TickCount64) is { } pupil)
         {

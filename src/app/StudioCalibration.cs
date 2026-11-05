@@ -19,6 +19,41 @@ public partial class StudioWindow
     DateTime heartbeat = DateTime.MinValue;
     (bool Passed, string Message)? calibrationResult;
     WindowState? restoreState;
+    readonly Button repeatPose = new();
+    ComboBox? pupilSourcePicker;
+    int PupilSource => session.Config["pupilCalibrationSource"]?.GetValue<int>() is 1 ? 1 : session.Config["pupilCalibrationSource"]?.GetValue<int>() is 2 ? 2 : 3;
+
+    Ui.CardExpander PupilSourceChoice()
+    {
+        var panel = new StackPanel();
+        var picker = new ComboBox { ItemsSource = new[] { Loc.Get("CalibrationBothEyes"), Loc.Get("CalibrationLeftEye"), Loc.Get("CalibrationRightEye") },
+            SelectedIndex = PupilSource == 1 ? 1 : PupilSource == 2 ? 2 : 0, IsEnabled = !recording && !training,
+            MinWidth = 200, MaxWidth = 320, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0) };
+        pupilSourcePicker = picker;
+        var label = Text(Loc.Get("CalibrationPupilSource"));
+        label.Margin = new(0, 0, 16, 0);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        AutomationProperties.SetLabeledBy(picker, label);
+        AutomationProperties.SetName(picker, Loc.Get("CalibrationPupilSource"));
+        AutomationProperties.SetHelpText(picker, Loc.Get("CalibrationPupilSourceAbout"));
+        picker.ToolTip = Loc.Get("CalibrationPupilSourceAbout");
+        var row = new DockPanel { Margin = new(0, 0, 0, 8) };
+        DockPanel.SetDock(picker, Dock.Right);
+        row.Children.Add(picker);
+        row.Children.Add(label);
+        var about = Muted("");
+        about.Margin = new(0);
+        void Explain() => about.Text = Loc.Get(picker.SelectedIndex == 0 ? "CalibrationPupilSourceChooseHelp" : "CalibrationPupilSourceMirrorHelp");
+        picker.SelectionChanged += (_, _) =>
+        {
+            session.Save("pupilCalibrationSource", picker.SelectedIndex == 1 ? 1 : picker.SelectedIndex == 2 ? 2 : 3);
+            Explain();
+        };
+        Explain();
+        panel.Children.Add(row);
+        panel.Children.Add(about);
+        return new Ui.CardExpander { Header = Loc.Get("Advanced"), Content = panel, Margin = new(0, 0, 0, 16) };
+    }
     long Ack => state["ack"]?.GetValue<long>() ?? 0;
     DateTime lastFresh = DateTime.UtcNow;
     bool FreshState() => state["time"]?.GetValue<double>() is { } time && Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 - time) < 3;
@@ -41,10 +76,12 @@ public partial class StudioWindow
     {
         foreach (ListBoxItem item in Navigation.Items) item.IsEnabled = !recording;
         calibrationModes.IsEnabled = !recording && !training;
+        if (pupilSourcePicker is not null) pupilSourcePicker.IsEnabled = !recording && !training;
         slowMode.Visibility = Visible(kind == "enroll" && !recording && !training);
         begin.Visibility = Visible(!recording && !training);
         setUpFace.Visibility = Visible(SetupFirst && !recording && !training);
-        pause.Visibility = skip.Visibility = Visible(recording && kind != "pupils");
+        pause.Visibility = Visible(recording);
+        skip.Visibility = repeatPose.Visibility = Visible(recording && kind != "pupils");
         cancel.Visibility = Visible(recording);
         progress.Visibility = Visible(recording || training);
         StartButton.IsEnabled = !recording;
@@ -59,6 +96,7 @@ public partial class StudioWindow
             var status = Muted("", live: true);
             var list = new StackPanel();
             var rows = new List<(TextBlock Value, string Kind, string About)>();
+            var pupilOptions = PupilSourceChoice();
             var watching = false;
             foreach (var (kind, title, icon, about, primary) in new[] {
                          ("face", Loc.Get("FaceAndTongue"), "sentiment_satisfied", Loc.Get("Copy12ExpressionsFromAMetaAvatarAbout75"), true),
@@ -68,7 +106,7 @@ public partial class StudioWindow
                 {
                     try
                     {
-                        session.App = await session.SendApp(CancellationToken.None, ("calibrate", kind));
+                        session.App = await session.SendApp(CancellationToken.None, ("calibrate", kind), ("pupilSource", PupilSource));
                         watching = true;
                         status.Text = Loc.Get("CalibrationStartedInTheHeadsetPutItOnAnd");
                     }
@@ -83,8 +121,10 @@ public partial class StudioWindow
             RoundEnds(list);
             trackingRefresh += () =>
             {
+                pupilOptions.IsEnabled = session.App?["calibration"]?["running"]?.GetValue<bool>() != true;
                 foreach (var (value, kind, about) in rows)
-                    value.Text = session.App is not { } app ? about : Loc.Format("CalibrationStatusDetails", Loc.Get(HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated" : "NotCalibrated"), about);
+                    value.Text = session.App is not { } app ? about : Loc.Format("CalibrationStatusDetails",
+                        Loc.Get(kind == "face" && HeadsetApp.Flag(app,"calibrated","facePartial") ? "CalibrationPartiallyCalibrated" : HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated" : "NotCalibrated"), about);
                 if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : Loc.Get("ReadingCalibrationFromTheHeadset");
                 else if (session.App["calibration"] is JsonObject headset)
                 {
@@ -97,7 +137,7 @@ public partial class StudioWindow
             trackingRefresh();
             var note = Muted(Loc.Get("CalibrateAfterChangingHowTheHeadsetFitsYourSaved"));
             note.Margin = new(0, 8, 0, 8);
-            foreach (var element in new UIElement[] { list, note, status }) Page.Children.Add(element);
+            foreach (var element in new UIElement[] { list, note, status, pupilOptions }) Page.Children.Add(element);
             return;
         }
         if (training) kind = trainingKind;
@@ -121,9 +161,14 @@ public partial class StudioWindow
         pause.Content = Loc.Get("Pause");
         cancel.IsEnabled = true;
         review.Visibility = Visibility.Collapsed;
-        foreach (var element in new UIElement[] { CalibrationAreaLabel, calibrationModes, CalibrationCard, slowMode }) Page.Children.Add(element);
+        foreach (var element in new UIElement[] { CalibrationAreaLabel, calibrationModes }) Page.Children.Add(element);
+        foreach (var element in new UIElement[] { CalibrationCard, slowMode }) Page.Children.Add(element);
+        if (kind == "pupils") Page.Children.Add(PupilSourceChoice());
+        repeatPose.Content = Loc.Get("CalibrationRepeatPose"); repeatPose.Tag = "repeat";
+        repeatPose.Click -= GuideCommand; repeatPose.Click += GuideCommand;
         Actions.Children.Clear();
-        foreach (var button in new[] { setUpFace, begin, pause, skip, cancel, review }) Actions.Children.Add(button);
+        repeatPose.Margin = new(8, 0, 0, 0);
+        foreach (var button in new[] { setUpFace, begin, pause, skip, repeatPose, cancel, review }) Actions.Children.Add(button);
         ResizeGuide();
         RefreshCalibrationControls();
         if (training && !trainingKind.StartsWith("benchmark")) ShowWorking();
@@ -152,9 +197,13 @@ public partial class StudioWindow
         CalibrationReset();
     }
 
-    string EnrollLength => slow ? Loc.Get("About2Minutes") : Loc.Get("About1Minute");
+    string EnrollLength => slow ? Loc.Get("CalibrationFaceDurationSlow") : Loc.Get("CalibrationFaceDuration");
     void BeginCalibration(object sender, RoutedEventArgs e) => Begin();
-    void GuideCommand(object sender, RoutedEventArgs e) => Send((string)((Button)sender).Tag);
+    void GuideCommand(object sender, RoutedEventArgs e)
+    {
+        var action = (string)((Button)sender).Tag;
+        Send(action, action is "skip" or "repeat" ? new JsonObject { ["index"] = state["index"]?.DeepClone() } : null);
+    }
     void ReviewCalibration(object sender, RoutedEventArgs e) => Open(prefix + ".avi");
 
     void SlowModeClick(object sender, RoutedEventArgs e)
@@ -185,7 +234,8 @@ public partial class StudioWindow
         {
             ClearNotice();
             (candidate, prefix) = ("", "");
-            if (!Send("begin", new JsonObject { ["kind"] = kind, ["slow"] = slow })) return;
+            if (!Send("begin", new JsonObject { ["kind"] = kind, ["slow"] = slow,
+                    ["sourceEyes"] = PupilSource == 1 ? new JsonArray(0) : PupilSource == 2 ? new JsonArray(1) : new JsonArray(0, 1) })) return;
             (recordingCommand, cancelPending, recording, calibrationResult) = (command, false, true, null);
             CalibrationReset();
             count.Visibility = Visibility.Visible;
@@ -248,16 +298,16 @@ public partial class StudioWindow
     internal void Finished(bool passed, string message)
     {
         calibrationResult = (passed, message);
-        RefreshCalibrationControls();
         if (page != "Calibration" || kind != trainingKind)
         {
+            RefreshCalibrationControls();
             Error(passed ? message : Loc.Format("CalibrationNotSaved", GroupTitle(trainingKind)));
             return;
         }
         CalibrationCard.Content = CalibrationResultPanel;
         var benchmark = passed && trainingKind.StartsWith("benchmark");
         ResultTitle.Text = benchmark ? Loc.Get("BenchmarkRecorded") : passed ? Loc.Get("CalibrationIsOn") : Loc.Get("CalibrationWasnTSaved");
-        ResultDetail.Text = benchmark ? message : passed ? Loc.Get("CheckYourAvatarToSeeTheDifference") : Loc.Get("YourCurrentCalibrationHasnTChanged");
+        ResultDetail.Text = passed ? message : Loc.Get("YourCurrentCalibrationHasnTChanged");
         ResultFiles.Visibility = Visible(benchmark && File.Exists(candidate));
         var lines = passed ? [] : message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         ResultError.Text = lines.FirstOrDefault() ?? Loc.Get("TryRecordingYourPosesAgain");
@@ -268,6 +318,7 @@ public partial class StudioWindow
         if (lines.Length > 1) ResultDetailsHost.Children.Add(ResultFindings);
         begin.Content = passed ? Loc.Get("CalibrateAgain") : Loc.Get("TryAgain");
         begin.Appearance = passed ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
+        RefreshCalibrationControls();
         review.Visibility = Visible(File.Exists(prefix + ".avi"));
         UIElementAutomationPeer.FromElement(ResultTitle)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
@@ -340,6 +391,7 @@ public partial class StudioWindow
         if (kind == "pupils") SetPupilStimulus(state["level"]?.GetValue<double>() ?? 0);
         else DrawFace(state["targets"]?.AsObject() ?? new());
         pause.Content = state["paused"]?.GetValue<bool>() == true ? Loc.Get("Resume") : Loc.Get("Pause");
+        skip.IsEnabled = kind != "enroll" || state["condition"]?.GetValue<string>() is string condition && condition is not ("neutral" or "validate:neutral");
         if (state["phase"]?.GetValue<string>() is not ("complete" or "cancelled")) return;
         recording = false;
         Theme("System");
@@ -369,8 +421,22 @@ public partial class StudioWindow
                 _ = Conclude(async () =>
                 {
                     candidate = await session.Enroll(prefix);
+                    var message = Loc.Get("FaceCalibrationIsOn");
+                    var capture = Session.Read(prefix + ".qpsession.json");
+                    if (capture["requiresValidation"]?.GetValue<bool>() == true && capture["steps"] is JsonArray steps)
+                    {
+                        var report = Session.Read(prefix + ".calibration.json");
+                        var validated = report["validatedSlots"]?.AsArray().Select(n => n?.GetValue<string>()).ToHashSet() ?? [];
+                        var missing = steps.OfType<JsonObject>().Where(s => s["condition"]?.GetValue<string>()?.StartsWith("anchor:") == true)
+                            .GroupBy(s=>s["condition"]!.GetValue<string>()).Select(group=>group.First())
+                            .Where(s => !validated.Contains(s["condition"]!.GetValue<string>()[7..]))
+                            .Select(s => Loc.Text(s["name"])).Distinct().ToList();
+                        if (report["features"]?["tongueDirection"]?.GetValue<bool>() == false) missing.Add(Loc.Get("CalibrationTongueDirection"));
+                        if (report["features"]?["cheekSeparation"]?.GetValue<bool>() == false) missing.Add(Loc.Get("CalibrationCheekSeparation"));
+                        if (missing.Count > 0) message = Loc.Format("CalibrationPartialResult", string.Join(", ", missing));
+                    }
                     Apply("enroll");
-                    return Loc.Get("FaceCalibrationIsOn");
+                    return message;
                 });
         }
         else if (!session.Tester)
