@@ -10,6 +10,7 @@ internal sealed class Session
 {
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, Task> outputDrains = new();
     internal readonly string Root;
+    internal readonly GameProfiles GameVideo;
     internal string ConfigPath;
     internal event Action<string>? Changed;
     internal Process? Hybrid;
@@ -58,7 +59,7 @@ internal sealed class Session
     internal string? HelpTarget;
     internal string HelpCaption = Loc.Get("Help");
     internal string ErrorLog = "tracking.log";
-    internal Session(string root, string? configPath = null) { Root = root; ConfigPath = configPath ?? SetupService.AutoPath; }
+    internal Session(string root, string? configPath = null) { Root = root; ConfigPath = configPath ?? SetupService.AutoPath; GameVideo = new(root); }
     internal static JsonObject Read(string path)
     {
         try { return CalibrationSettings.ReadJson(path); }

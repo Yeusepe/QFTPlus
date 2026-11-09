@@ -4,8 +4,9 @@ using System.Text.Json.Nodes;
 
 namespace QFTPlus;
 
-internal static class SteamVr
+internal static partial class SteamVr
 {
+    static readonly Lock apiLock = new();
     static readonly Lock steamLinkLock = new();
     static (long Until, bool Value) steamLink;
     internal static bool IsSteamLink
@@ -147,10 +148,16 @@ internal static class SteamVr
     static string? SettingsFile() => OpenVrPaths()?["config"]?[0]?.GetValue<string>() is { } config ? Path.Combine(config, "steamvr.vrsettings") : null;
 
     static void WithSettings(string what, Action<nint> use)
+        => WithInterface(what, "IVRSettings_003", use);
+
+    static void WithInterface(string what, string version, Action<nint> use)
     {
+        lock (apiLock)
+        {
         var processes = Process.GetProcessesByName("vrserver");
         try
         {
+            if (processes.Length == 0) throw new IOException(Loc.Get("GameProfileStartSteamVr"));
             var directory = Path.GetDirectoryName(processes.First().MainModule!.FileName)!;
             nint library = NativeLibrary.Load(Path.Combine(directory, "openvr_api.dll"));
             bool initialized = false;
@@ -161,7 +168,7 @@ internal static class SteamVr
                 Export<Init>("VR_InitInternal")(ref error, 3);
                 if (error != 0) throw new IOException(Loc.Format("CouldNotConnectToSteamVR", what, error));
                 initialized = true;
-                nint table = Export<GetInterface>("VR_GetGenericInterface")("FnTable:IVRSettings_003", ref error);
+                nint table = Export<GetInterface>("VR_GetGenericInterface")("FnTable:" + version, ref error);
                 if (table == 0 || error != 0) throw new IOException(Loc.Format("SteamVRSettingsAPIIsUnavailable", error));
                 use(table);
             }
@@ -172,6 +179,7 @@ internal static class SteamVr
             }
         }
         finally { foreach (var process in processes) process.Dispose(); }
+        }
     }
 
     static T Function<T>(nint table, int index) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(Marshal.ReadIntPtr(table, index * IntPtr.Size));

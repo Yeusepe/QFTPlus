@@ -12,6 +12,7 @@ internal static class Uninstall
         Try(() => SteamVrDriver.Unregister());
         Try(SteamVr.RemoveSettings);
         Try(SteamVr.RestoreSteamLink);
+        Try(() => new GameProfiles(root).Close().GetAwaiter().GetResult());
         Try(() => RemoveModule(root, SetupService.InstalledModule));
         var session = new Session(root);
         Try(() => HeadsetModelExperiment.CleanupOnUninstallAsync(session).GetAwaiter().GetResult());

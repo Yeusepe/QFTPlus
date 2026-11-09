@@ -52,6 +52,7 @@ public partial class StudioWindow
             yield return new(Loc.Get("PupilDilation"), Loc.Get("Features"), "Tracking", Loc.Get("EyesPupils"));
         }
         yield return new(Loc.Get("HybridHands"), Loc.Get("Features"), "Tracking", Loc.Get("HandTrackingControllersFingersVirtualDesktop"));
+        yield return new(Loc.Get("GameProfilesTitle"), Loc.Get("Settings"), "Settings", Loc.Get("GameProfilesSearch"));
         if (face)
         {
             var parameters = File.Exists(Path.Combine(session.Root, "tracking-parameters.json")) ? Parameters() : [];

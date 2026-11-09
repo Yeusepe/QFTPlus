@@ -341,6 +341,7 @@ public partial class StudioWindow
                 else StopManual();
             }
             if (!busy) session.Poll();
+            if (!preview) session.GameVideo.Poll();
             try { state = Session.Read(Path.Combine(session.Root, "studio.state.json")); }
             catch (InvalidDataException) { state = new(); }
             var id = state["runtimeId"]?.GetValue<string>() ?? "";

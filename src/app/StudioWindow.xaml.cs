@@ -287,6 +287,7 @@ public partial class StudioWindow : Ui.FluentWindow
         try
         {
             await session.Stop();
+            await session.GameVideo.Close();
             quitting = true;
             lipSync.Dispose();
             timer.Stop();
@@ -809,6 +810,7 @@ public partial class StudioWindow : Ui.FluentWindow
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
             nativeFaceOptions = Face(Card(Heading(Loc.Get("VRChat")), nativeFace)),
+            GameVideoOptions(),
             new Ui.CardExpander { Header = Loc.Get("SuperSecretSettings"), Content = secretSettings, IsExpanded = false },
             Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
             Card(Heading(Loc.Get("Language")),
