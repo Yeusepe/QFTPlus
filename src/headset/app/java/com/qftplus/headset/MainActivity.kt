@@ -161,6 +161,8 @@ class MainActivity : ComponentActivity() {
             Hit(getString(R.string.pupil_dilation), getString(R.string.features), 0, words = getString(R.string.eyes_pupils)),
             Hit(getString(R.string.convergence), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.independent_eye_gaze_depth_startup)),
             Hit(getString(R.string.convergence_strength), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.eyes_depth_gain_vergence)),
+            Hit(getString(R.string.meta_gaze_averaging), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.eye_samples)),
+            Hit(getString(R.string.eye_samples), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.meta_gaze_averaging)),
             Hit(getString(R.string.smile_eye_closure), areaTitle("Eyelids"), 1, "Eyelids", words = getString(R.string.smile_eye_closure_help)),
             Hit(getString(R.string.reset_to_100), areaTitle("Gaze"), 1, "Gaze", words = getString(R.string.convergence_strength_default)),
             Hit(getString(R.string.tongue_direction), getString(R.string.features), 0),
@@ -371,13 +373,34 @@ class MainActivity : ComponentActivity() {
         } }
         Group(getString(R.string.convergence), null,
             row(getString(R.string.convergence), getString(R.string.tracks_each_eye_separately_for_depth_starts_with), trailing = ocui.toggle(convergence, getString(R.string.convergence)) {
-                convergence = it; settings.edit().putBoolean("convergence", it).apply(); restartTracking()
+                convergence = it; settings.edit().putBoolean("convergence", it).apply()
             }))
         if (convergence) Group(null, getString(R.string.text_100_uses_the_calibrated_movement_at_0_both),
             numberRow(getString(R.string.convergence_strength), vergenceGain, 0f..3f, { "${(it * 100).toInt()}%" }) {
                 vergenceGain = it; settings.edit().putFloat("vergenceGain", it).apply()
             },
             row(getString(R.string.reset_to_100), trailing = ocui.button(getString(R.string.reset_2)) { vergenceGain = 1f; settings.edit().putFloat("vergenceGain", 1f).apply() }))
+    }
+
+    @Composable private fun MetaGazeAveragingGroup() {
+        var samples by remember { mutableIntStateOf(settings.getInt("metaGazeAveraging", 25).coerceIn(1, 25)) }
+        var problem by remember { mutableStateOf(MetaGazeAveraging.lastError) }
+        LaunchedEffect(resumed) { while (resumed) {
+            samples = settings.getInt("metaGazeAveraging", 25).coerceIn(1, 25)
+            problem = MetaGazeAveraging.lastError
+            delay(500)
+        } }
+        Group(getString(R.string.meta_gaze_averaging), null,
+            numberRow(getString(R.string.eye_samples), samples.toFloat(), 1f..25f,
+                { getString(R.string.meta_gaze_sample_value, kotlin.math.round(it).toInt()) }) {
+                samples = kotlin.math.round(it).toInt().coerceIn(1, 25)
+                settings.edit().putInt("metaGazeAveraging", samples).apply()
+            },
+            row(getString(R.string.reset_meta_gaze_averaging), trailing = ocui.button(getString(R.string.reset_2)) {
+                samples = 25; settings.edit().putInt("metaGazeAveraging", 25).apply()
+            }))
+        if (problem.isNotEmpty()) Group(null, null, row(problem, icon = "oc_icon_warning_filled_24"))
+        else if (!settings.getBoolean("enabled", false)) Group(null, null, row(getString(R.string.meta_gaze_averaging_when_tracking)))
     }
 
     @Composable private fun CalibrationPage() {
@@ -540,6 +563,7 @@ class MainActivity : ComponentActivity() {
                 Group(null, getString(R.string.turn_on_tracking_with_qft_on_your_pc),
                     row(getString(R.string.connecting_to_qft_on_your_pc), getString(R.string.adjustments_made_here_change_what_your_pc_sends), "oc_icon_computer_filled_24"))
                 ConvergenceGroups()
+                MetaGazeAveragingGroup()
             }
             return
         }
@@ -560,6 +584,7 @@ class MainActivity : ComponentActivity() {
             else -> Page(if (path == "*") getString(R.string.all_parameters) else chosen.singleOrNull()?.let { label(it.name) } ?: if (path.endsWith(":both")) pairTitle(path) else areaTitle(path), back = { path = if (chosen.isNotEmpty()) area!! else "" }) {
                 if (path == "Gaze") ConvergenceGroups()
                 key(path) { Editor(current, config, path, area, chosen, ::save) }
+                if (path == "Gaze") MetaGazeAveragingGroup()
                 if (chosen.isEmpty() && area != null) Group(getString(R.string.parameters), null, *current.parameters.filter { it.area == area }.flatMap { p ->
                     val pair = pair(p)
                     listOfNotNull(if (pair != null && current.parameters.first { pair(it) == pair } == p && current.parameters.count { pair(it) == pair } == 2)

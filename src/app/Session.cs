@@ -98,6 +98,13 @@ internal sealed class Session
     internal bool Hands => Use != "face";
     internal bool HybridReady => hybridReady && Alive(Hybrid);
     internal bool IndependentGaze => !HeadsetModelExperiment.Standalone(this) && (Config["independentGaze"]?.GetValue<bool>() ?? true);
+    internal int MetaGazeAveraging => Config["metaGazeAveraging"] is JsonValue value && value.TryGetValue<int>(out var n) && n is >= 1 and <= 25 ? n : 25;
+    internal void SetMetaGazeAveraging(int value)
+    {
+        if (value is < 1 or > 25) throw new ArgumentOutOfRangeException(nameof(value));
+        Save("metaGazeAveraging", JsonValue.Create(value));
+        tracking?.SetMetaGazeAveraging(value);
+    }
     internal double VergenceGain => Config["vergenceGain"] is JsonValue v && v.TryGetValue<double>(out var n) && double.IsFinite(n) ? Math.Clamp(n, 0, 3) : 1;
     internal string Python => PythonRuntime.Exe(Root);
     internal void CancelSetup() { setup?.CancelOperation(); cancelStart.Cancel(); }
@@ -123,9 +130,20 @@ internal sealed class Session
     {
         if (!double.IsFinite(value) || value < 0 || value > 3) throw new ArgumentOutOfRangeException(nameof(value));
         Save("vergenceGain", JsonValue.Create(value));
-        if (!Running || !IndependentGaze) return;
+        if (tracking?.EyeControlReady != true) return;
+        SendEyeControl(value.ToString(CultureInfo.InvariantCulture));
+    }
+    internal void SetIndependentGaze(bool enabled)
+    {
+        if (enabled && !File.Exists(SetupService.EyeModel(Root))) throw new IOException(Loc.Get("TheIndependentEyeModelIsMissingRunSetupAgainTo"));
+        if (enabled && !File.Exists(Path.Combine(Root, "calibration/qpro-independent-visual-axis-v2.json"))) throw new IOException(Loc.Get("IndependentEyeCalibrationIsMissingToUseStandardEyeTracking"));
+        Save("independentGaze", JsonValue.Create(enabled));
+        tracking?.SetIndependentEyes(enabled);
+    }
+    internal static void SendEyeControl(string command)
+    {
         using var socket = new UdpClient();
-        var data = Encoding.ASCII.GetBytes(value.ToString(CultureInfo.InvariantCulture));
+        var data = Encoding.ASCII.GetBytes(command);
         try { socket.Send(data, data.Length, "127.0.0.1", 27277); }
         catch (SocketException error) { throw new IOException(Loc.Get("YourChangeWasSavedStopAndStartTrackingToApply"), error); }
     }

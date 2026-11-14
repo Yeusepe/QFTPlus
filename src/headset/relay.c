@@ -809,6 +809,7 @@ static int run(int argc, char **argv) {
             if (now - last_control > UINT64_C(5000000000)) {
                 fprintf(stderr, "CLIENT_HEARTBEAT_EXPIRED\n"); break;
             }
+            if (g_app_session && control.version != 3) { usleep(1000); continue; }
 #else
             set_capture_lease(shared, now + CAPTURE_LEASE_NS);
 #endif

@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 
 from eye_signal_filter import IndependentEyeFilter
-from eye_trace import RawEyeSample, RawTraceEyeReader
+from eye_trace import RawEyeSample
+from eye_session import IndependentEyeSession
 from headset import stop_event
 
 
@@ -81,8 +82,9 @@ class VergenceControl:
     plain float read). If the port is unavailable the initial gain is kept.
     """
 
-    def __init__(self, initial: float, port: int = CONTROL_PORT) -> None:
+    def __init__(self, initial: float, port: int = CONTROL_PORT, enabled: bool = True) -> None:
         self.gain = float(initial)
+        self.enabled = enabled
         self._socket: socket.socket | None = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -90,7 +92,7 @@ class VergenceControl:
             self._socket = sock
             threading.Thread(target=self._listen, daemon=True).start()
         except OSError:
-            self._socket = None
+            raise RuntimeError('EYE_SWAP_BUSY')
 
     def _listen(self) -> None:
         assert self._socket is not None
@@ -100,10 +102,14 @@ class VergenceControl:
             except OSError:
                 return
             try:
-                value = float(data.decode("ascii", "ignore").strip())
-            except ValueError:
+                command = data.decode("ascii", "strict").strip()
+                if command in ('eyes:0', 'eyes:1'):
+                    self.enabled = command == 'eyes:1'
+                    continue
+                value = float(command)
+            except (ValueError, UnicodeError):
                 continue
-            if 0.0 <= value <= 10.0:
+            if 0.0 <= value <= 3.0:
                 self.gain = value
 
     def close(self) -> None:
@@ -117,17 +123,30 @@ def main() -> int:
     parser.add_argument("--calibration", required=True)
     parser.add_argument("--vergence-gain", type=float, default=1.0,
                         help="scale each eye's deviation from mean gaze (1.0 = as calibrated)")
+    parser.add_argument('--model', required=True, type=Path)
+    parser.add_argument('--enabled', choices=('0','1'), default='1')
     arguments = parser.parse_args()
     stopped = stop_event()
-    calibration = load_calibration(arguments.calibration)
-    vergence = VergenceControl(arguments.vergence_gain)
+    calibration = None
+    vergence = VergenceControl(arguments.vergence_gain, enabled=arguments.enabled == '1')
+    print('QFT_EYES_CONTROL_READY', flush=True)
     print(f"vergence gain = {arguments.vergence_gain:.2f} (live on udp/{CONTROL_PORT})", flush=True)
-    reader = RawTraceEyeReader()
+    reader = None
     eye_filter = IndependentEyeFilter(2)
     output = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        reader.start()
         while not stopped.is_set():
+            if vergence.enabled and reader is None:
+                calibration = load_calibration(arguments.calibration)
+                reader = IndependentEyeSession(arguments.model)
+                reader.start()
+                eye_filter = IndependentEyeFilter(2)
+            elif not vergence.enabled and reader is not None:
+                reader.close()
+                reader = None
+            if reader is None:
+                stopped.wait(.05)
+                continue
             if not reader.errors.empty():
                 print("QFT_ERROR: " + reader.errors.get_nowait(), flush=True)
                 return 1
@@ -144,7 +163,8 @@ def main() -> int:
     finally:
         vergence.close()
         output.close()
-        reader.close()
+        if reader is not None:
+            reader.close()
 
 
 if __name__ == "__main__":

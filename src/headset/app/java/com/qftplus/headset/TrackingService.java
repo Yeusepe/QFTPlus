@@ -32,7 +32,7 @@ public final class TrackingService extends Service {
     private volatile boolean stopping;
     private volatile int lastStart;
     private volatile Socket connection;
-    private byte[] sessionControl;
+    private volatile byte[] sessionControl;
     private Thread thread;
     private static final Object runtimeLock = new Object();
     private SharedPreferences settings;
@@ -41,6 +41,52 @@ public final class TrackingService extends Service {
     private long outputSequence;
     private HeadsetLink link;
     private OscOutput sessionOsc;
+    private Convergence eyes;
+    private MetaGazeAveraging gazeAveraging;
+    private void syncGazeAveraging() {
+        if (gazeAveraging == null) gazeAveraging = new MetaGazeAveraging(this, message -> {
+            if (!message.isEmpty()) android.util.Log.w("QFTGaze", message);
+        });
+        int samples = settings.getInt("metaGazeAveraging", 25);
+        gazeAveraging.update(samples >= 1 && samples <= 25 ? samples : 25);
+    }
+    private void closeGazeAveraging() {
+        if (gazeAveraging == null) return;
+        MetaGazeAveraging old = gazeAveraging; gazeAveraging = null;
+        try { old.close(); }
+        catch (IOException error) { android.util.Log.w("QFTGaze", "Averaging cleanup", error); }
+    }
+    private final java.util.concurrent.ExecutorService eyeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private java.util.concurrent.Future<Convergence> eyeChange;
+    private long eyeModeChangedAt;
+    private void syncEyes() throws Exception {
+        if (eyeChange != null) {
+            if (!eyeChange.isDone()) return;
+            try { eyes = eyeChange.get(); }
+            catch (java.util.concurrent.ExecutionException failure) { throw new IOException(getString(R.string.eye_swap_failed), failure.getCause()); }
+            finally { eyeChange = null; }
+            eyeModeChangedAt = System.nanoTime();
+        }
+        boolean wanted = settings.getBoolean("convergence", true);
+        if (wanted && eyes == null) eyeChange = eyeExecutor.submit(() -> Convergence.start(this));
+        else if (!wanted && eyes != null) {
+            Convergence old = eyes; eyes = null;
+            eyeChange = eyeExecutor.submit(() -> { old.close(); return null; });
+        }
+    }
+    private void closeEyes() throws Exception {
+        boolean interrupted = Thread.interrupted();
+        try {
+            long deadline = SystemClock.elapsedRealtime() + 40000;
+            while (eyeChange != null) {
+                long remaining = deadline - SystemClock.elapsedRealtime();
+                if (remaining <= 0) throw new IOException(getString(R.string.convergence_cleanup_running));
+                try { eyes = eyeChange.get(remaining, TimeUnit.MILLISECONDS); eyeChange = null; }
+                catch (InterruptedException error) { interrupted = true; }
+            }
+            if (eyes != null) { Convergence old = eyes; eyes = null; old.close(); }
+        } finally { if (interrupted) Thread.currentThread().interrupt(); }
+    }
     static File adjustmentsFile(Context context) { return new File(context.getFilesDir(), "output-settings.json"); }
     static String outputMode(SharedPreferences settings) {
         return settings.getString("output", settings.getBoolean("osc", false) ? "raw" : settings.getString("key", "").isEmpty() ? "vrchat" : "pc");
@@ -60,6 +106,9 @@ public final class TrackingService extends Service {
         }
     }
     private static String quote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
+    private static void writeControl(OutputStream output, byte[] control) throws IOException {
+        synchronized (output) { output.write(control); }
+    }
     public IBinder onBind(Intent intent) { return null; }
     public void onCreate() {
         super.onCreate(); status = getString(R.string.stopped); running = true; settings = getSharedPreferences("settings", 0);
@@ -189,7 +238,7 @@ public final class TrackingService extends Service {
             prepare();
             String pairKey = settings.getString("key", "");
             link = null;
-            try (Convergence eyes = settings.getBoolean("convergence", true) ? Convergence.start(this) : null) {
+            {
                 while (!stopping) {
                     if (!tracking() && calibration == null) break;
                     if (link == null && tracking() && outputMode(settings).equals("pc") && !pairKey.isEmpty())
@@ -200,7 +249,7 @@ public final class TrackingService extends Service {
                         Thread.sleep(500);
                         continue;
                     }
-                    session(eyes);
+                    session();
                 }
             }
         } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
@@ -216,6 +265,10 @@ public final class TrackingService extends Service {
             }
         }
         finally {
+            try { closeEyes(); } catch (Exception failure) {
+                    error = getString(R.string.eye_swap_restore_failed);
+                    android.util.Log.e("QFT", error, failure);
+            } finally { eyeExecutor.shutdown(); }
             wifi.release();
             if (link != null) link.close(); latest = null;
             try {
@@ -224,7 +277,7 @@ public final class TrackingService extends Service {
             } catch (IOException error) { android.util.Log.e("QFT", "Calibration temporary-file cleanup failed", error); }
         }
     }
-    private byte[] exact(InputStream input, int count, Convergence eyes) throws IOException {
+    private byte[] exact(InputStream input, int count) throws IOException {
         byte[] data = new byte[count]; int offset = 0;
         long deadline = SystemClock.elapsedRealtime() + 10000;
         while (offset < count && !stopping) {
@@ -236,7 +289,7 @@ public final class TrackingService extends Service {
                 if (eyes != null) eyes.check();
                 status = getString(R.string.waiting_for_eye_and_face_cameras);
                 if (sessionOsc != null) sessionOsc.idle();
-                if (sessionControl != null) connection.getOutputStream().write(sessionControl);
+                if (sessionControl != null) writeControl(connection.getOutputStream(), sessionControl);
                 poll(System.nanoTime());
                 if (!connected(System.nanoTime()) && !direct() && calibration == null) return null;
                 if (offset > 0 && SystemClock.elapsedRealtime() >= deadline) throw new IOException(getString(R.string.incomplete_camera_frame));
@@ -245,7 +298,8 @@ public final class TrackingService extends Service {
         if (stopping) throw new EOFException("Stopped");
         return data;
     }
-    private void session(Convergence eyes) throws Exception {
+    private void session() throws Exception {
+        Thread heartbeat = null;
         String libraries = getApplicationInfo().nativeLibraryDir;
         workerError = null;
         java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
@@ -265,6 +319,7 @@ public final class TrackingService extends Service {
         try (OscOutput osc = tracking() && direct() ? new OscOutput(this, settings.getString("oscHost", ""), settings.getInt("oscPort", 9000), outputMode(settings).equals("vrchat"), adjustmentsFile(this)) : null) {
             sessionOsc = osc;
             command(quote(libraries + "/libqft_attach.so") + " " + quote(libraries + "/libqft_capture_export.so") + " " + key, 25);
+            syncEyes();
             Socket socket = null;
             for (int i = 0; i < 90 && !stopping; i++) {
                 if (!worker.isAlive()) throw new IOException(getString(R.string.worker_exited , worker.exitValue(), status));
@@ -275,6 +330,21 @@ public final class TrackingService extends Service {
             connection = socket; started.set(true); socket.setSoTimeout(1000); socket.setTcpNoDelay(true);
             OutputStream output = socket.getOutputStream(); InputStream input = socket.getInputStream();
             output.write(key.toString().getBytes(StandardCharsets.US_ASCII));
+            Socket activeSocket = socket;
+            heartbeat = new Thread(() -> {
+                try {
+                    while (!stopping && connection == activeSocket) {
+                        byte[] current = sessionControl;
+                        if (current != null) writeControl(output, current);
+                        Thread.sleep(1000);
+                    }
+                } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+                catch (IOException ended) {
+                    if (!stopping) workerError = getString(R.string.headset_worker_stopped);
+                    try { activeSocket.close(); } catch (IOException ignored) {}
+                }
+            }, "qft-camera-heartbeat");
+            heartbeat.start();
             ByteBuffer control = ByteBuffer.allocate(312).order(ByteOrder.LITTLE_ENDIAN);
             long sequence = -1;
             long perfAt = SystemClock.elapsedRealtime() + 5000, statusAt = 0; int perfFrames = 0, perfStale = 0, perfFlags = 0, perfStatus = 0, perfNative = 0;
@@ -293,15 +363,17 @@ public final class TrackingService extends Service {
                 if (c == null && (!tracking() || !connected(System.nanoTime()) && osc == null)) break;
                 control.clear(); control.putInt(0x43544651).putInt(3).putInt(c != null && !c.isPupils() ? 24 : 0).putInt((int)revision);
                 control.position(24); control.putFloat(1000); control.position(308); control.putInt(options);
-                sessionControl = control.array();
-                output.write(sessionControl);
-                byte[] header = exact(input, 64, eyes);
+                sessionControl = control.array().clone();
+                writeControl(output, sessionControl);
+                syncEyes();
+                syncGazeAveraging();
+                byte[] header = exact(input, 64);
                 if (header == null) break;
                 ByteBuffer h = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
                 if (h.getLong(0) != 0x00334556494c5051L || h.getInt(8) != 3 || h.getInt(12) != 64) throw new IOException(getString(R.string.invalid_headset_header));
                 int kind = h.getInt(44), bytes = h.getInt(48);
                 if (!((kind == 4 && bytes == 608) || (kind == 5 && bytes == Calibration.FEATURES * 4))) throw new IOException(getString(R.string.invalid_headset_payload));
-                byte[] payload = exact(input, bytes, eyes);
+                byte[] payload = exact(input, bytes);
                 if (payload == null) break;
                 long captured = h.getLong(24), finished = h.getLong(56);
                 long now = System.nanoTime();
@@ -311,7 +383,9 @@ public final class TrackingService extends Service {
                 sequence = h.getLong(16);
                 ByteBuffer result = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
                 if (result.getInt(0) != 2 || result.getInt(8) != (int)revision) continue;
-                boolean converging = eyes != null && eyes.apply(result, now, settings.getFloat("vergenceGain", 1));
+                boolean converging = false;
+                if (eyeChange != null || captured < eyeModeChangedAt) result.putInt(288, result.getInt(288) & ~6);
+                else if (eyes != null) converging = eyes.apply(result, now, settings.getFloat("vergenceGain", 1));
                 latest = payload; lastFrame = SystemClock.elapsedRealtime();
                 int nativeFlags = result.getInt(288);
                 if (now - statusAt > 500_000_000L) {
@@ -319,7 +393,8 @@ public final class TrackingService extends Service {
                     status = getString(R.string.tracking_latency, Math.round((now - captured) / 1e6));
                     if ((nativeFlags & 1) == 0) status += " · " + getString(R.string.meta_face_tracking_unavailable);
                     if ((nativeFlags & 6) != 6) status += " · " + getString(R.string.meta_eye_gaze_unavailable);
-                    if (eyes != null) status += " · " + (converging ? getString(R.string.convergence_on) : getString(R.string.waiting_for_convergence));
+                    if (eyeChange != null) status += " · " + getString(R.string.eye_mode_changing);
+                    else if (eyes != null) status += " · " + (converging ? getString(R.string.convergence_on) : getString(R.string.waiting_for_convergence));
                 }
                 long outputStart = System.nanoTime();
                 boolean sending = tracking();
@@ -376,24 +451,33 @@ public final class TrackingService extends Service {
                 }
             }
         } finally {
-            Socket socket = connection; connection = null;
-            Thread.interrupted();
-            sessionControl = null;
-            sessionOsc = null;
             try {
-                if (socket != null) socket.close();
-                worker.getOutputStream().close();
+                closeEyes();
             } finally {
+                closeGazeAveraging();
+                Socket socket = connection; connection = null;
+                Thread.interrupted();
+                sessionControl = null;
+                if (heartbeat != null) {
+                    heartbeat.interrupt();
+                    try { heartbeat.join(1000); } catch (InterruptedException ignored) { Thread.interrupted(); }
+                }
+                sessionOsc = null;
                 try {
-                    if (!worker.waitFor(3, TimeUnit.SECONDS))
-                        command(environment() + quote(libraries + "/libqft_worker.so") + " --stop-token " + key, 8);
+                    if (socket != null) socket.close();
+                    worker.getOutputStream().close();
                 } finally {
-                    worker.destroy(); log.join(1000);
-                    try { command(environment() + quote(libraries + "/libqft_worker.so") + " --release-features " + quote(directory.toString()), 8); }
-                    catch (Exception error) { android.util.Log.w("QFT", "Releasing Meta face and eye tracking failed", error); }
-                    if (!worker.isAlive() && worker.exitValue() == 6) {
-                        removeCalibration(this); prepare();
-                        throw new IOException(getString(R.string.your_calibration_couldn_t_be_loaded_and_was));
+                    try {
+                        if (!worker.waitFor(3, TimeUnit.SECONDS))
+                            command(environment() + quote(libraries + "/libqft_worker.so") + " --stop-token " + key, 8);
+                    } finally {
+                        worker.destroy(); log.join(1000);
+                        try { command(environment() + quote(libraries + "/libqft_worker.so") + " --release-features " + quote(directory.toString()), 8); }
+                        catch (Exception error) { android.util.Log.w("QFT", "Releasing Meta face and eye tracking failed", error); }
+                        if (!worker.isAlive() && worker.exitValue() == 6) {
+                            removeCalibration(this); prepare();
+                            throw new IOException(getString(R.string.your_calibration_couldn_t_be_loaded_and_was));
+                        }
                     }
                 }
             }

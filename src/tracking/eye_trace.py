@@ -156,11 +156,18 @@ class RawTraceEyeReader:
             return
         for command in RELEASE:
             shell.run(command, check=False)
+        failure = ""
         for _ in range(8):
             shell.run(f"echo 1 > {INSTANCE_PATH}/free_buffer", check=False, timeout=2.0)
-            if shell.run(f"rmdir {INSTANCE_PATH}; test ! -d {INSTANCE_PATH}", check=False, timeout=2.0) is not None:
+            # Keep rmdir's response: RootShell otherwise discards output on a nonzero exit.
+            result = shell.run(f"if rmdir {INSTANCE_PATH} 2>&1 || test ! -d {INSTANCE_PATH}; "
+                               "then echo QFT_TRACE_RELEASED; else echo QFT_TRACE_RELEASE_FAILED; fi",
+                               check=False, timeout=2.0)
+            if result is not None and result.splitlines()[-1:] == ["QFT_TRACE_RELEASED"]:
                 return
+            failure = result or "ROOT_SHELL_NO_RESPONSE"
             time.sleep(0.15)
+        print("EYE_TRACE_RELEASE_DIAGNOSTIC " + failure, flush=True)
         raise RuntimeError("Could not release the previous headset eye-trace workspace. "
                            "Stop any other independent-gaze session and try again.")
 

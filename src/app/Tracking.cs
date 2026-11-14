@@ -4,26 +4,23 @@ using System.Text.RegularExpressions;
 
 namespace QFTPlus;
 
-internal sealed class Tracking
+internal sealed partial class Tracking
 {
     const string Relay = "/data/local/tmp/questpro-camera-relay-v10", Streamer = "/data/local/tmp/libquestpro-camera-streamer-v10.so";
     const string CameraLog = "/data/local/tmp/questpro-live-v10.log";
     const string Leftovers = "questpro-* libquestpro-* qft-thumbrest.log qft-permission-check-* qpro-eye-module-*.zip";
     internal const string EyeTarget = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl";
-    const string EyeCopy = "/data/local/tmp/qpro-seacliff-independent-axes.ptl";
-    const string EyeProperty = "persist.device_config.oculus_shared_vision.oculus_eyetracking_enable_experimental_model";
     const int StreamPort = 27273, MaxFps = 24;
     const string Log = "tracking.log";
 
     readonly Session session;
     readonly string adb, target;
-    readonly bool eyes;
+    volatile bool eyes;
+    internal volatile bool EyeControlReady;
     readonly bool headsetModel;
     readonly double vergence;
     readonly CancellationTokenSource stop = new();
     Process? relay;
-    bool mounted;
-    string eyeBefore = "false";
     internal string State = "waiting", Error = "", ErrorLog = Log;
     internal sealed record StreamRate(double Fps, double Busy);
     internal StreamRate? Stream;
@@ -40,16 +37,18 @@ internal sealed class Tracking
     }
 
     internal bool Running => !Run.IsCompleted;
+    internal void SetIndependentEyes(bool enabled)
+    {
+        eyes = enabled;
+        if (EyeControlReady) Session.SendEyeControl(enabled ? "eyes:1" : "eyes:0");
+    }
 
     string? Direct => Regex.Match(target, @"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$") is { Success: true } match ? match.Groups[1].Value : null;
 
     bool childrenStopped = true;
     internal async Task<bool> StopAsync() { stop.Cancel(); await Run; return childrenStopped; }
 
-    string Restore => (headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --stop; " : "") + $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}" + (eyes ? "; " + EyeRestore : "");
-
-    string EyeRestore => $"if grep -qF '{EyeTarget}' /proc/mounts; then stop trackingservice; setprop {EyeProperty} {eyeBefore}; umount '{EyeTarget}'; start trackingservice; "
-        + $"else setprop {EyeProperty} {eyeBefore}; fi; rm -f '{EyeCopy}'";
+    string Restore => (headsetModel ? $"LD_LIBRARY_PATH={HeadsetModelExperiment.Directory}:/vendor/lib64 {HeadsetModelExperiment.Worker} --stop; " : "") + $"{Relay} --stop; rm -f {Relay} {Streamer} {CameraLog}";
 
     async Task RunAsync()
     {
@@ -60,21 +59,11 @@ internal sealed class Tracking
             Write("Waiting for the rooted Quest, SteamVR and VRCFaceTracking");
             while (!await Ready()) await Task.Delay(2000, stop.Token);
             State = "starting";
-            if (eyes && (await Root($"if [ -e '{EyeCopy}' ] || grep -qF '{EyeTarget}' /proc/mounts; then echo false; else getprop {EyeProperty}; fi", allowFailure: true)).Text.Trim() == "true")
-                eyeBefore = "true";
             cleanup = await HeadsetCleanup.StartAsync(session, target, Restore, "headset-cleanup.log");
             await Root($"cd /data/local/tmp && rm -f {Leftovers}", allowFailure: true);
-            if (eyes)
-            {
-                await MountEyeModel();
-                gaze = session.Launch(session.Python, [Path.Combine(session.Root, "independent_visual_axis_runtime.py"),
-                    "--calibration", Path.Combine(session.Root, "calibration/qpro-independent-visual-axis-v2.json"),
-                    "--vergence-gain", vergence.ToString(System.Globalization.CultureInfo.InvariantCulture)], "eyes.log");
-                await Task.WhenAny(gaze.WaitForExitAsync(stop.Token), Task.Delay(7000, stop.Token));
-                Check(gaze, "eyes.log");
-            }
             var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             await StartCamera(token);
+            StartMetaGazeAveraging();
             receiver = session.Launch(session.Python, [Path.Combine(session.Root, "receiver.py")], "face.log",
                 line =>
                 {
@@ -83,6 +72,24 @@ internal sealed class Tracking
                         Stream = new(double.Parse(fps, System.Globalization.CultureInfo.InvariantCulture), double.Parse(busy, System.Globalization.CultureInfo.InvariantCulture));
                 }, ("QFT_STREAM_TOKEN", token), ("QFT_STREAM_HOST", Direct ?? "127.0.0.1"),
                 ("QFT_HEADSET_MODEL", headsetModel ? "1" : "0"));
+            var eyeModel = SetupService.EyeModel(session.Root);
+            var eyeCalibration = Path.Combine(session.Root, "calibration/qpro-independent-visual-axis-v2.json");
+            if (eyes && !File.Exists(eyeModel)) throw new IOException(Loc.Get("TheIndependentEyeModelIsMissingRunSetupAgainTo"));
+            if (eyes && !File.Exists(eyeCalibration)) throw new IOException(Loc.Get("IndependentEyeCalibrationIsMissingToUseStandardEyeTracking"));
+            if (File.Exists(eyeModel) && File.Exists(eyeCalibration))
+            {
+                gaze = session.Launch(session.Python, [Path.Combine(session.Root, "independent_visual_axis_runtime.py"),
+                    "--calibration", eyeCalibration, "--model", eyeModel, "--enabled", eyes ? "1" : "0",
+                    "--vergence-gain", vergence.ToString(System.Globalization.CultureInfo.InvariantCulture)], "eyes.log", line =>
+                    {
+                        if (line != "QFT_EYES_CONTROL_READY") return;
+                        EyeControlReady = true;
+                        SetIndependentEyes(eyes);
+                        Session.SendEyeControl(session.VergenceGain.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    });
+                await Task.WhenAny(gaze.WaitForExitAsync(stop.Token), Task.Delay(7000, stop.Token));
+                Check(gaze, "eyes.log");
+            }
             var children = new[] { gaze, relay, receiver }.OfType<Process>().ToArray();
             await Task.WhenAny(children.Select(child => child.WaitForExitAsync(stop.Token)));
             foreach (var (child, log) in new[] { (gaze, "eyes.log"), (receiver, "face.log"), (relay, "questpro-live-relay.txt") })
@@ -97,12 +104,19 @@ internal sealed class Tracking
         finally
         {
             State = "stopping";
-            childrenStopped = (await Task.WhenAll(new[] { receiver, gaze }.OfType<Process>().Select(Session.StopChild))).All(stopped => stopped);
-            receiver?.Dispose(); gaze?.Dispose();
+            EyeControlReady = false;
+            averagingReady = false;
+            childrenStopped = (await Task.WhenAll(new[] { receiver, gaze, averaging }.OfType<Process>().Select(Session.StopChild))).All(stopped => stopped);
+            if (averaging is not null && averaging.HasExited && averaging.ExitCode != 0)
+            {
+                childrenStopped = false;
+                AveragingError = Loc.Get("MetaGazeAveragingRestoreFailed");
+                Write(AveragingError);
+            }
+            receiver?.Dispose(); gaze?.Dispose(); averaging?.Dispose();
             if (cleanup is not null)
             {
                 if (!await cleanup.StopAsync()) Write("The headset didn't confirm its cleanup. It finishes on the headset once the connection closes.");
-                else if (mounted) try { await WaitForTrackingService(); } catch (IOException error) { Write(error.Message); }
                 Kill(relay);
                 await Processes.RunAsync(adb, ["-s", target, "forward", "--remove", $"tcp:{StreamPort}"]);
             }
@@ -147,41 +161,6 @@ internal sealed class Tracking
         if (Direct is null && (await Processes.RunAsync(adb, ["-s", target, "forward", $"tcp:{StreamPort}", $"tcp:{StreamPort}"])).Code != 0) throw new IOException(Loc.Get("ADBPortForwardingFailedReconnectTheHeadsetThenTryAgain"));
     }
 
-    async Task MountEyeModel()
-    {
-        Write("Mounting the independent eye model");
-        var local = SetupService.EyeModel(session.Root);
-        if (!File.Exists(local)) throw new IOException(Loc.Get("TheIndependentEyeModelIsMissingRunSetupAgainTo"));
-        if (!File.Exists(Path.Combine(session.Root, "calibration/qpro-independent-visual-axis-v2.json")))
-            throw new IOException(Loc.Get("IndependentEyeCalibrationIsMissingToUseStandardEyeTracking"));
-        if ((await Root($"grep -F '{EyeTarget}' /proc/mounts", allowFailure: true)).Text.Trim().Length > 0) await RestoreEyeModel();
-        await Root($"umount '{EyeTarget}'", allowFailure: true);
-        mounted = true;
-        if ((await Processes.RunAsync(adb, ["-s", target, "push", local, EyeCopy], stop.Token, 60)).Code != 0) throw new IOException(Loc.Get("CouldnTCopyTheEyeModelToTheHeadsetCheck"));
-        await Root($"chown root:root '{EyeCopy}' && chmod 0644 '{EyeCopy}' && chcon u:object_r:vendor_configs_file:s0 '{EyeCopy}' && mount --bind '{EyeCopy}' '{EyeTarget}'");
-        if (!(await Root($"sha256sum '{EyeTarget}'")).Text.StartsWith(WorkingCopy.Hash(local), StringComparison.Ordinal))
-            throw new IOException(Loc.Get("TheEyeModelOnTheHeadsetDidnTMatchThe"));
-        await Root($"setprop {EyeProperty} true && stop trackingservice && start trackingservice");
-        await WaitForTrackingService();
-    }
-
-    async Task RestoreEyeModel()
-    {
-        await Root(EyeRestore, allowFailure: true);
-        try { await WaitForTrackingService(); }
-        catch (IOException error) { Write(error.Message); }
-    }
-
-    async Task WaitForTrackingService()
-    {
-        for (var attempt = 0; attempt < 40; attempt++)
-        {
-            if ((await Root("getprop init.svc.trackingservice", allowFailure: true)).Text.Trim() == "running") { await Task.Delay(1500); return; }
-            await Task.Delay(250);
-        }
-        throw new IOException(Loc.Get("TheHeadsetSTrackingServiceDidnTRestartRestartThe"));
-    }
-
     async Task<(int Code, string Text)> Root(string command, bool allowFailure = false)
     {
         var result = await Processes.RunAsync(adb, Adb.Su(target, command), default, 30);
@@ -196,6 +175,10 @@ internal sealed class Tracking
         var lines = Read(log).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var reason = lines.LastOrDefault(l => l.StartsWith("QFT_ERROR:"))?["QFT_ERROR:".Length..].Trim()
             ?? (child == relay ? Loc.Get("TheConnectionToTheHeadsetEndedMakeSureItS") : lines.LastOrDefault()) ?? "";
+        if (reason.Contains("EYE_SWAP_", StringComparison.Ordinal))
+            reason = Loc.Get(reason.Contains("EYE_SWAP_UNSUPPORTED", StringComparison.Ordinal) ? "EyeSwapUnsupported"
+                : reason.Contains("EYE_SWAP_BUSY", StringComparison.Ordinal) ? "EyeSwapBusy"
+                : reason.Contains("EYE_SWAP_RESTORE_FAILED", StringComparison.Ordinal) ? "EyeSwapRestoreFailed" : "EyeSwapFailed");
         ErrorLog = log;
         throw new IOException(Regex.Replace(reason, @"^\w+(Error|Exception): ", "") is { Length: > 0 } text ? text : Loc.Format("StoppedUnexpectedly", log));
     }

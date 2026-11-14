@@ -4191,11 +4191,23 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="ControllerRepairFailed" xml:space="preserve"><value>Could not reconnect controllers. Keep the headset on. Try again.</value></data>
   <data name="ControllerRepairSearch" xml:space="preserve"><value>controllers repair reconnect recovery frozen tracking</value></data>
   <data name="MicrophoneSettingsUnsaved" xml:space="preserve"><value>Changes not saved.</value></data>
+  <data name="EyeSwapWhileTracking" xml:space="preserve"><value>Changes apply while tracking runs. Eye output pauses briefly.</value></data>
+  <data name="EyeSwapUnsupported" xml:space="preserve"><value>Independent eye tracking does not support this headset update. Use standard eye tracking.</value></data>
+  <data name="EyeSwapBusy" xml:space="preserve"><value>Another eye tracking session is active. Stop it and try again.</value></data>
+  <data name="EyeSwapFailed" xml:space="preserve"><value>Independent eye tracking could not start. Your saved calibration is unchanged.</value></data>
+  <data name="EyeSwapRestoreFailed" xml:space="preserve"><value>The standard eye model could not be restored. Restart your headset before you use eye tracking.</value></data>
   <data name="TesterId" xml:space="preserve"><value>Tester ID: {0}</value></data>
+  <data name="MetaGazeAveraging" xml:space="preserve"><value>Meta gaze averaging</value></data>
+  <data name="MetaGazeAveragingHelp" xml:space="preserve"><value>Fewer samples follow quick eye movements. More samples smooth eye movement.</value></data>
+  <data name="EyeSamples" xml:space="preserve"><value>Eye samples</value></data>
+  <data name="ResetMetaGazeAveraging" xml:space="preserve"><value>Reset to 25 samples</value></data>
+  <data name="MetaGazeAveragingWhenTracking" xml:space="preserve"><value>Applies when tracking starts.</value></data>
+  <data name="MetaGazeAveragingApplying" xml:space="preserve"><value>Applying gaze averaging…</value></data>
+  <data name="MetaGazeAveragingUnavailable" xml:space="preserve"><value>This headset software does not support gaze averaging changes.</value></data>
+  <data name="MetaGazeAveragingBusy" xml:space="preserve"><value>Another session controls gaze averaging. Stop that session and try again.</value></data>
+  <data name="MetaGazeAveragingRestoreFailed" xml:space="preserve"><value>The headset did not confirm restoring gaze averaging. Check the tracking log.</value></data>
+  <data name="MetaGazeAveragingInvalid" xml:space="preserve"><value>Choose 1 to 25 eye samples.</value></data>
+  <data name="MetaGazeAveragingFailed" xml:space="preserve"><value>Could not change gaze averaging. Check the tracking log.</value></data>
   <data name="SmileEyeClosure" xml:space="preserve"><value>Smile eye closure</value></data>
   <data name="SmileEyeClosureHelp" xml:space="preserve"><value>Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</value></data>
-  <data name="TracksTheDirectionOfEachEyeSeparately" xml:space="preserve">
-    <value>Tracks the direction of each eye separately.</value>
-    <comment>QFT+ Windows app. StudioControls.cs</comment>
-  </data>
 </root>

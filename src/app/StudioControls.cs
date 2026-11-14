@@ -233,6 +233,7 @@ public partial class StudioWindow
         response.Children.Add(Muted(Loc.Get("UsedWhileAnExpressionReturnsToRestHigherValues")));
         response.Children.Add(Toggle("invert", Loc.Get("InvertOutput")));
         Page.Children.Add(new Ui.CardExpander { Header = Loc.Get("Response"), Content = response, Margin = new(0, 0, 0, 16) });
+        if (gaze && !single) Page.Children.Add(MetaGazeAveraging());
         if (area is not null)
         {
             var limits = new StackPanel { Margin = new(0, 16, 0, 0) };
@@ -371,17 +372,18 @@ public partial class StudioWindow
         trackingRefresh = () =>
         {
             var on = enabled.IsChecked == true;
-            enabled.IsEnabled = setup.IsEnabled = !busy && !session.Running;
-            AutomationProperties.SetHelpText(enabled, Loc.Get("TracksTheDirectionOfEachEyeSeparately") + Environment.NewLine
-                + (busy ? Loc.Get("WaitForTheCurrentStepToFinishToChange_85f9003a") : session.Running ? Loc.Get("StopTrackingToChangeEyeGaze")
-                    : on ? Loc.Get("StartsWithTracking") : Loc.Get("UsesStandardEyeTracking")));
+            enabled.IsEnabled = !busy;
+            setup.IsEnabled = !busy && !session.Running;
+            AutomationProperties.SetHelpText(enabled, busy ? Loc.Get("WaitForTheCurrentStepToFinishToChange_85f9003a") : session.Running ? Loc.Get("EyeSwapWhileTracking")
+                : on ? "" : Loc.Get("UsesStandardEyeTracking"));
             setup.Visibility = Visible(on && !File.Exists(SetupService.EyeModel(session.Root)));
             convergence.Visibility = Visible(on);
             actions.Visibility = Visible(on);
         };
         enabled.Click += (_, _) =>
         {
-            session.Save("independentGaze", enabled.IsChecked == true);
+            try { session.SetIndependentGaze(enabled.IsChecked == true); }
+            catch (IOException error) { enabled.IsChecked = session.IndependentGaze; session.Notify("Error", error.Message); }
             trackingRefresh?.Invoke();
         };
         trackingRefresh();
@@ -402,9 +404,8 @@ public partial class StudioWindow
             on.IsEnabled = settings is not null;
             on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
             convergence.Visibility = actions.Visibility = Visible(settings is not null && on.IsChecked == true);
-            AutomationProperties.SetHelpText(on, Loc.Get("TracksTheDirectionOfEachEyeSeparately") + Environment.NewLine
-                + (session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? Loc.Get("ReadingSettingsFromTheHeadset")
-                    : Loc.Get("SavedInQFTHeadsetChangingItRestartsTrackingFor")));
+            AutomationProperties.SetHelpText(on, session.AppProblem.Length > 0 ? session.AppProblem : settings is null ? Loc.Get("ReadingSettingsFromTheHeadset")
+                : Loc.Get("EyeSwapWhileTracking"));
         }
         on.Click += async (_, _) =>
         {

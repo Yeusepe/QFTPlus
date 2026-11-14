@@ -75,6 +75,8 @@ public partial class StudioWindow
                 yield return new(Loc.Get("SmileEyeClosure"), Loc.Get("Eyelids"), "Adjustments", Loc.Get("SmileEyeClosureHelp"), "Eyelids");
             if (parameters.Any(p => OutputAdjustments.Area(p) == "Gaze"))
             {
+                yield return new(Loc.Get("MetaGazeAveraging"), Loc.Get("Gaze"), "Adjustments", Loc.Get("EyeSamples"), "Gaze");
+                yield return new(Loc.Get("EyeSamples"), Loc.Get("Gaze"), "Adjustments", Loc.Get("MetaGazeAveraging"), "Gaze");
                 yield return new(Loc.Get("Convergence"), Loc.Get("Gaze"), "Adjustments", Loc.Get("IndependentEyeDepthVergence"), "Gaze");
                 yield return new(Loc.Get("ConvergenceStrength"), Loc.Get("Gaze"), "Adjustments", Loc.Get("EyesDepthGainVergence"), "Gaze");
                 yield return new(Loc.Get("ResetTo100"), Loc.Get("Gaze"), "Adjustments", Loc.Get("ConvergenceStrengthDefault"), "Gaze");

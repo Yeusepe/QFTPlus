@@ -258,7 +258,7 @@
     <string name="tracking_stopped_previous_calibration_retained">Tracking stopped. Previous calibration retained.</string>
     <string name="tracking_stopped_reason">Tracking stopped: %1$s</string>
     <string name="tracking_stops_sending_to_it">Tracking stops sending to it.</string>
-    <string name="tracks_each_eye_separately_for_depth_starts_with">Tracks each eye separately for depth. Starts with tracking when enabled.</string>
+    <string name="tracks_each_eye_separately_for_depth_starts_with">Changes apply while tracking runs. Eye output pauses briefly.</string>
     <string name="turn_on_osc_in_vrchat_s_action_menu">Turn on OSC in VRChat\'s Action Menu to see it here.</string>
     <string name="turn_on_tracking_with_qft_on_your_pc">Turn on tracking with QFT+ on your PC, open VRCFaceTracking with the QFT+ module, and keep this page open.</string>
     <string name="turns_on_the_headset_s_face_and_eye">Turns on the headset\'s face and eye tracking while it runs, and off again when you stop it.</string>
@@ -558,6 +558,22 @@
     <string name="calibration_pupil_source_about">Choose one eye if QFT+ cannot track the other eye. With one eye, both avatar pupils change size together.</string>
     <string name="calibration_waiting_samples">Hold your face still for a little longer.</string>
     <string name="calibration_cancel">Cancel</string>
+    <string name="eye_swap_unsupported">Independent eye tracking does not support this headset update. Use standard eye tracking.</string>
+    <string name="eye_swap_busy">Another eye tracking session is active. Stop it and try again.</string>
+    <string name="eye_swap_failed">Independent eye tracking could not start. Your saved calibration is unchanged.</string>
+    <string name="eye_swap_restore_failed">The standard eye model could not be restored. Restart your headset before you use eye tracking.</string>
+    <string name="meta_gaze_averaging">Meta gaze averaging</string>
+    <string name="eye_samples">Eye samples</string>
+    <string name="meta_gaze_sample_value">%1$d</string>
+    <string name="reset_meta_gaze_averaging">Reset to 25 samples</string>
+    <string name="meta_gaze_averaging_when_tracking">Applies when tracking starts.</string>
+    <string name="meta_gaze_averaging_applying">Applying gaze averaging…</string>
+    <string name="meta_gaze_averaging_unavailable">This headset software does not support gaze averaging changes.</string>
+    <string name="meta_gaze_averaging_busy">Another session controls gaze averaging. Stop that session and try again.</string>
+    <string name="meta_gaze_averaging_restore_failed">The headset did not confirm restoring gaze averaging. Check the tracking log.</string>
+    <string name="meta_gaze_averaging_invalid">Choose 1 to 25 eye samples.</string>
+    <string name="meta_gaze_averaging_failed">Could not change gaze averaging. Check the tracking log.</string>
     <string name="smile_eye_closure">Smile eye closure</string>
     <string name="smile_eye_closure_help" formatted="false">Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</string>
+    <string name="eye_mode_changing">Changing eye tracking</string>
 </resources>

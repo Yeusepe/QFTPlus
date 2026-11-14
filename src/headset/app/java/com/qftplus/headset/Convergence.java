@@ -12,7 +12,6 @@ import java.util.zip.*;
 import org.json.*;
 
 final class Convergence implements AutoCloseable {
-    private static final String ENGINE = "/odm/lib64/libtrackingengines.so";
     private static final String MODEL = "/odm/etc/eyetracking/runtime/models/Seacliff_V1_5/fbnet/int8/experimental/bolt/bolt.ptl";
     private static final String OLD = "\"id\": 52, \"name\": \"211_reshape\", \"op\": \"OP_Reshape\", \"padding\": \"NN_PAD_NA\", \"input\": [[50, 0], [51, 0]]";
     private static final Pattern SAMPLE = Pattern.compile("(\\d+\\.\\d+): detector_output(?:_secondary)?: .*?x=0x([0-9a-fA-F]+) y=0x([0-9a-fA-F]+) z=0x([0-9a-fA-F]+) tag=0x([0-9a-fA-F]+) valid=0x([0-9a-fA-F]+)");
@@ -27,7 +26,8 @@ final class Convergence implements AutoCloseable {
     private Process process;
     private Thread reader;
     private Path directory;
-    private volatile boolean closed;
+    private volatile boolean closed, restored;
+    private volatile int owner;
     private final Context context;
 
     Convergence(Context context, JSONObject calibration) throws JSONException {
@@ -71,23 +71,18 @@ final class Convergence implements AutoCloseable {
         }
         Convergence eyes = new Convergence(context, calibration);
         try {
-            EyeProbe probe;
-            try { probe = new EyeProbe(rootFile(context, ENGINE)); }
-            catch (IllegalArgumentException unsupported) {
-                android.util.Log.e("QFT", "Eye tracking engine unsupported", unsupported);
-                throw new IOException(context.getString(R.string.eye_tracking_engine_unsupported), unsupported);
-            }
             eyes.directory = Files.createTempDirectory(context.getCacheDir().toPath(), "convergence-");
-            Path model = eyes.directory.resolve("bolt.ptl"), script = eyes.directory.resolve("convergence.sh");
-            patch(context, rootFile(context, MODEL), model);
-            try (InputStream input = context.getAssets().open("convergence.sh")) { Files.copy(input, script); }
-            eyes.process = new ProcessBuilder("su", "--mount-master", "-c", "sh " + quote(script.toString()) + " " + quote(model.toString()) + " " +
-                Integer.toHexString(probe.offsets[0]) + " " + Integer.toHexString(probe.offsets[1]) + " " + quote(probe.fetch())).redirectErrorStream(true).start();
+            Path model = eyes.directory.resolve("model.payload"), script = eyes.directory.resolve("eye_swap.js");
+            payload(context, rootFile(context, MODEL), model);
+            try (InputStream input = context.getAssets().open("eye_swap.js")) { Files.copy(input, script); }
+            String libraries = context.getApplicationInfo().nativeLibraryDir;
+            eyes.process = new ProcessBuilder("su", "-c", quote(libraries + "/libqft_attach.so") + " --eyes " +
+                quote(libraries + "/libqft_eye_swap.so") + " " + quote(script.toString()) + " " + quote(model.toString())).redirectErrorStream(true).start();
             eyes.reader = new Thread(eyes::read, "qft-convergence"); eyes.reader.start();
             if (!eyes.ready.await(30, TimeUnit.SECONDS)) throw new IOException(context.getString(R.string.convergence_startup_timed_out));
             eyes.check();
             return eyes;
-        } catch (Exception error) { eyes.close(); throw error; }
+        } catch (Exception error) { try { eyes.close(); } catch (Exception cleanup) { error.addSuppressed(cleanup); } throw error; }
     }
     private static void contract(Context context, JSONObject graph, boolean patched) throws JSONException {
         Map<Integer, JSONObject> nodes = new HashMap<>(); JSONArray list = graph.getJSONArray("node");
@@ -102,8 +97,7 @@ final class Convergence implements AutoCloseable {
         for (int i = 0; i < shapes.length; i++) if (!outputs.getJSONObject(i).getJSONArray("shape").toString().equals(shapes[i]))
             throw new IllegalArgumentException(context.getString(R.string.unsupported_eye_model_output_shape));
     }
-    static void patch(Context context, byte[] source, Path destination) throws Exception {
-        boolean found = false;
+    static void payload(Context context, byte[] source, Path destination) throws Exception {
         ByteBuffer zip = ByteBuffer.wrap(source).order(ByteOrder.LITTLE_ENDIAN);
         int end = source.length - 22, wide = end - 76;
         if (wide >= 0 && zip.getInt(end) == 0x06054b50 && zip.getShort(end + 20) == 0 && zip.getInt(wide) == 0x06064b50 &&
@@ -118,44 +112,43 @@ final class Convergence implements AutoCloseable {
         Path stock = Files.createTempFile(destination.getParent(), "stock-", ".ptl");
         try {
             Files.write(stock, source);
-            try (ZipFile input = new ZipFile(stock.toFile()); ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(destination))) {
-                Enumeration<? extends ZipEntry> entries = input.entries();
-                while (entries.hasMoreElements()) {
-                    ZipEntry entry = entries.nextElement();
-                    byte[] bytes;
-                    try (InputStream data = input.getInputStream(entry)) { bytes = data.readAllBytes(); }
-                    if (entry.getName().equals("model/data.pkl")) {
-                        if (found) throw new IOException(context.getString(R.string.duplicate_eye_model_graph)); found = true;
-                        String pickle = new String(bytes, StandardCharsets.ISO_8859_1);
-                        int start = pickle.indexOf("{\"version\": \"HEXAGON");
-                        if (start < 0) throw new IOException(context.getString(R.string.missing_eye_model_graph));
-                        JSONObject graph = (JSONObject)new JSONTokener(pickle.substring(start)).nextValue();
-                        contract(context, graph, false);
-                        if (pickle.indexOf(OLD) < 0 || pickle.indexOf(OLD) != pickle.lastIndexOf(OLD)) throw new IOException(context.getString(R.string.eye_model_reshape_not_unique));
-                        pickle = pickle.replace(OLD, OLD.replace("[[50, 0]", "[[18, 0]"));
-                        contract(context, (JSONObject)new JSONTokener(pickle.substring(start)).nextValue(), true);
-                        bytes = pickle.getBytes(StandardCharsets.ISO_8859_1);
-                    }
-                    ZipEntry saved = new ZipEntry(entry.getName()); saved.setMethod(entry.getMethod());
-                    if (saved.getMethod() == ZipEntry.STORED) {
-                        CRC32 crc = new CRC32(); crc.update(bytes); saved.setSize(bytes.length); saved.setCrc(crc.getValue());
-                    }
-                    output.putNextEntry(saved); output.write(bytes); output.closeEntry();
-                }
+            byte[] raw;
+            try (ZipFile archive = new ZipFile(stock.toFile())) {
+                ZipEntry entry = archive.getEntry("model/data.pkl");
+                if (entry == null) throw new IOException(context.getString(R.string.missing_eye_model_graph));
+                try (InputStream input = archive.getInputStream(entry)) { raw = input.readAllBytes(); }
             }
+            String pickle = new String(raw, StandardCharsets.ISO_8859_1);
+            int start = pickle.indexOf("{\"version\": \"HEXAGON");
+            if (start < 0) throw new IOException(context.getString(R.string.missing_eye_model_graph));
+            String independent = OLD.replace("[[50, 0]", "[[18, 0]");
+            boolean patched = pickle.contains(independent);
+            contract(context, (JSONObject)new JSONTokener(pickle.substring(start)).nextValue(), patched);
+            if (patched) pickle = pickle.replace(independent, OLD);
+            raw = pickle.getBytes(StandardCharsets.ISO_8859_1);
+            ByteBuffer data = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN);
+            if (raw.length != 375236 || raw[575] != 'X' || data.getInt(576) != 108564 || raw[109156] != 'X' || data.getInt(109157) != 266054)
+                throw new IOException(context.getString(R.string.eye_swap_unsupported));
+            ByteBuffer output = ByteBuffer.allocate(374634).order(ByteOrder.LITTLE_ENDIAN);
+            output.put("QFTEYE01".getBytes(StandardCharsets.US_ASCII)).putInt(108564).putInt(266054);
+            output.put(raw, 580, 108564).put(raw, 109161, 266054);
+            Files.write(destination, output.array());
         } finally { Files.deleteIfExists(stock); }
-        if (!found) throw new IOException(context.getString(R.string.missing_eye_model_graph));
     }
     private void read() {
         try (BufferedReader input = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = input.readLine()) != null) {
-                if (line.equals("QFT_CONVERGENCE_READY")) ready.countDown();
-                else if (line.startsWith("QFT_CONVERGENCE_ERROR:")) {
+                if (line.equals("QFT_EYES_READY")) ready.countDown();
+                else if (line.startsWith("QFT_EYES_OWNER ")) owner = Integer.parseInt(line.substring(15).trim());
+                else if (line.equals("QFT_EYES_RESTORED")) restored = true;
+                else if (line.startsWith("QFT_EYES_ERROR ")) {
                     android.util.Log.e("QFT", line);
-                    failure = context.getString(R.string.convergence_reader_failed);
+                    failure = context.getString(line.endsWith("unsupported") ? R.string.eye_swap_unsupported :
+                        line.endsWith("busy") ? R.string.eye_swap_busy : R.string.eye_swap_failed);
                 }
-                else sample(line);
+                else if (line.contains("detector_output")) sample(line);
+                else android.util.Log.i("QFTEyes", line);
             }
             if (!closed && failure == null) failure = context.getString(R.string.convergence_reader_stopped);
         } catch (Exception error) { if (!closed) failure = error.getMessage(); }
@@ -218,14 +211,29 @@ final class Convergence implements AutoCloseable {
             if (process != null) {
                 try { process.getOutputStream().close(); } catch (IOException ignored) {}
                 try {
-                    if (!process.waitFor(15, TimeUnit.SECONDS)) throw new IOException(context.getString(R.string.convergence_cleanup_running));
+                    long deadline = android.os.SystemClock.elapsedRealtime() + 15000;
+                    while (process.isAlive()) {
+                        long remaining = deadline - android.os.SystemClock.elapsedRealtime();
+                        if (remaining <= 0) throw new IOException(context.getString(R.string.convergence_cleanup_running));
+                        try { process.waitFor(remaining, TimeUnit.MILLISECONDS); }
+                        catch (InterruptedException error) { interrupted = true; }
+                    }
                     if (reader != null) reader.join(1000);
-                    if (process.exitValue() != 0) throw new IOException(failure == null ? context.getString(R.string.convergence_cleanup_failed) : failure);
+                    if (!restored && owner > 1) {
+                        for (int attempt = 0; attempt < 24 && !restored; attempt++) {
+                            try {
+                                String state = new String(rootFile(context, "/data/local/tmp/qft-eye-status-" + owner), StandardCharsets.US_ASCII).trim();
+                                restored = state.equals("GUARD_RESTORED 0") || state.equals("GUARD_RESTORED 1");
+                            } catch (Exception unavailable) { break; }
+                            if (!restored) Thread.sleep(250);
+                        }
+                    }
+                    if (!restored) throw new IOException(context.getString(R.string.eye_swap_restore_failed));
                 } catch (InterruptedException error) { interrupted = true; throw new IOException(context.getString(R.string.convergence_cleanup_interrupted), error); }
             }
         } finally {
             if (directory != null) {
-                Files.deleteIfExists(directory.resolve("bolt.ptl")); Files.deleteIfExists(directory.resolve("convergence.sh")); Files.deleteIfExists(directory);
+                Files.deleteIfExists(directory.resolve("model.payload")); Files.deleteIfExists(directory.resolve("eye_swap.js")); Files.deleteIfExists(directory);
             }
             if (interrupted) Thread.currentThread().interrupt();
         }
