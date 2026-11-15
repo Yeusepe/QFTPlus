@@ -4192,7 +4192,7 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="ControllerRepairSearch" xml:space="preserve"><value>controllers repair reconnect recovery frozen tracking</value></data>
   <data name="MicrophoneSettingsUnsaved" xml:space="preserve"><value>Changes not saved.</value></data>
   <data name="EyeSwapWhileTracking" xml:space="preserve"><value>Changes apply while tracking runs. Eye output pauses briefly.</value></data>
-  <data name="EyeSwapUnsupported" xml:space="preserve"><value>Independent eye tracking does not support this headset update. Use standard eye tracking.</value></data>
+  <data name="EyeSwapUnsupported" xml:space="preserve"><value>Independent eyes are unavailable on this headset update. Standard eye tracking is active. Your saved calibration is unchanged.</value></data>
   <data name="EyeSwapBusy" xml:space="preserve"><value>Another eye tracking session is active. Stop it and try again.</value></data>
   <data name="EyeSwapFailed" xml:space="preserve"><value>Independent eye tracking could not start. Your saved calibration is unchanged.</value></data>
   <data name="EyeSwapRestoreFailed" xml:space="preserve"><value>The standard eye model could not be restored. Restart your headset before you use eye tracking.</value></data>

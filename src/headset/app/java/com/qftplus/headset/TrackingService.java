@@ -17,6 +17,7 @@ public final class TrackingService extends Service {
     static final int ROOT_NEEDED = R.string.root_needed;
     static volatile String status = "";
     static volatile String error;
+    static volatile String independentEyeError = "";
     private volatile String workerError;
     static volatile byte[] latest;
     static volatile long lastFrame;
@@ -59,16 +60,22 @@ public final class TrackingService extends Service {
     private final java.util.concurrent.ExecutorService eyeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
     private java.util.concurrent.Future<Convergence> eyeChange;
     private long eyeModeChangedAt;
+    private boolean eyesUnsupported;
     private void syncEyes() throws Exception {
         if (eyeChange != null) {
             if (!eyeChange.isDone()) return;
             try { eyes = eyeChange.get(); }
-            catch (java.util.concurrent.ExecutionException failure) { throw new IOException(getString(R.string.eye_swap_failed), failure.getCause()); }
+            catch (java.util.concurrent.ExecutionException failure) {
+                if (!(failure.getCause() instanceof Convergence.Unsupported)) throw new IOException(getString(R.string.eye_swap_failed), failure.getCause());
+                eyesUnsupported = true;
+                independentEyeError = getString(R.string.eye_swap_unsupported);
+            }
             finally { eyeChange = null; }
             eyeModeChangedAt = System.nanoTime();
         }
         boolean wanted = settings.getBoolean("convergence", true);
-        if (wanted && eyes == null) eyeChange = eyeExecutor.submit(() -> Convergence.start(this));
+        if (!wanted) { eyesUnsupported = false; independentEyeError = ""; }
+        if (wanted && eyes == null && !eyesUnsupported) eyeChange = eyeExecutor.submit(() -> Convergence.start(this));
         else if (!wanted && eyes != null) {
             Convergence old = eyes; eyes = null;
             eyeChange = eyeExecutor.submit(() -> { old.close(); return null; });
@@ -111,7 +118,7 @@ public final class TrackingService extends Service {
     }
     public IBinder onBind(Intent intent) { return null; }
     public void onCreate() {
-        super.onCreate(); status = getString(R.string.stopped); running = true; settings = getSharedPreferences("settings", 0);
+        super.onCreate(); status = getString(R.string.stopped); independentEyeError = ""; running = true; settings = getSharedPreferences("settings", 0);
         directory = new File(getFilesDir(), "model");
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("tracking", getString(R.string.headset_tracking), NotificationManager.IMPORTANCE_LOW));

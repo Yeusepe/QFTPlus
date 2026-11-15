@@ -5,6 +5,8 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <spawn.h>
+#include <sys/wait.h>
+#include "eye_abi.h"
 
 #define TRACE "/sys/kernel/tracing"
 #define GROUP "qft_live_eyes"
@@ -39,17 +41,21 @@ static void unlock_attachment(void) {if(attach_lock>=0)flock(attach_lock,LOCK_UN
 
 static gboolean broker_idle(gpointer data) {
     unsigned *idle=data;
+    if(attach_lock<0)attach_lock=open("/data/local/tmp/qft-tracking-attach.lock",O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(attach_lock<0||flock(attach_lock,LOCK_EX|LOCK_NB)){*idle=0;return G_SOURCE_CONTINUE;}
     const char *paths[]={"/data/local/tmp/qft-live-eyes.lock","/data/local/tmp/qft-meta-gaze.lock"};
     int active=0;
     for(unsigned i=0;i<2;i++) {
         int fd=open(paths[i],O_RDWR|O_CLOEXEC|O_NOFOLLOW);
-        if(fd<0)continue;
+        if(fd<0){if(errno!=ENOENT)active=1;continue;}
         if(flock(fd,LOCK_EX|LOCK_NB))active=1;
         else flock(fd,LOCK_UN);
         close(fd);
     }
     *idle=active?0:*idle+1;
-    if(interrupted||*idle>=20){g_main_loop_quit(loop);return G_SOURCE_REMOVE;}
+    // Keep new attachments out until the idle broker has released its socket and owner lock.
+    if(*idle>=20){g_main_loop_quit(loop);return G_SOURCE_REMOVE;}
+    unlock_attachment();
     return G_SOURCE_CONTINUE;
 }
 
@@ -72,50 +78,71 @@ int qft_eye_broker_main(void) {
     FridaControlServiceOptions *options=frida_control_service_options_new();
     frida_control_service_options_set_enable_preload(options,FALSE);
     FridaControlService *service=frida_control_service_new(endpoint,options,&error);
-    if(!service)return 4;
+    if(!service)_exit(4);
     frida_control_service_start_sync(service,NULL,&error);
-    if(error)return 4;
+    if(error)_exit(4);
     int fd=open(CONTROL_DIR "/token",O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC|O_NOFOLLOW,0600);
-    if(fd<0||write(fd,token,64)!=64)return 4;
+    if(fd<0||write(fd,token,64)!=64)_exit(4);
     close(fd);
     loop=g_main_loop_new(NULL,FALSE);unsigned idle=0;
     signal(SIGTERM,signal_stop);signal(SIGHUP,signal_stop);signal(SIGINT,signal_stop);
     g_timeout_add_seconds(1,broker_idle,&idle);g_main_loop_run(loop);
     unlink(CONTROL_DIR "/token");
+    // Frida teardown can block after closing the listener. No feature owns a session here.
+    signal(SIGALRM,SIG_DFL);
+    sigset_t alarms;sigemptyset(&alarms);sigaddset(&alarms,SIGALRM);sigprocmask(SIG_UNBLOCK,&alarms,NULL);
+    alarm(3);
     frida_control_service_stop_sync(service,NULL,&error);
     _exit(error?5:0);
 }
 
 static FridaDevice *shared_device(FridaDeviceManager *manager,GError **error) {
-    if(mkdir(CONTROL_DIR,0700)&&errno!=EEXIST)return NULL;
+    if(mkdir(CONTROL_DIR,0700)&&errno!=EEXIST){g_set_error(error,G_FILE_ERROR,g_file_error_from_errno(errno),"broker directory: %s",strerror(errno));return NULL;}
     struct stat st;
-    if(lstat(CONTROL_DIR,&st)||!S_ISDIR(st.st_mode)||st.st_uid||(st.st_mode&077))return NULL;
+    if(lstat(CONTROL_DIR,&st)){g_set_error(error,G_FILE_ERROR,g_file_error_from_errno(errno),"broker directory status: %s",strerror(errno));return NULL;}
+    if(!S_ISDIR(st.st_mode)||st.st_uid||(st.st_mode&077)){
+        g_set_error(error,G_FILE_ERROR,G_FILE_ERROR_ACCES,"broker directory rejected: uid=%u mode=%o",(unsigned)st.st_uid,(unsigned)st.st_mode);return NULL;
+    }
     int owner=open(CONTROL_DIR "/owner",O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
-    if(owner<0)return NULL;
+    if(owner<0){g_set_error(error,G_FILE_ERROR,g_file_error_from_errno(errno),"broker owner file: %s",strerror(errno));return NULL;}
+    pid_t child=0;
     if(!flock(owner,LOCK_EX|LOCK_NB)) {
         unlink(CONTROL_DIR "/token");flock(owner,LOCK_UN);
         posix_spawn_file_actions_t actions;posix_spawn_file_actions_init(&actions);
         for(int i=0;i<3;i++)posix_spawn_file_actions_addopen(&actions,i,"/dev/null",i?O_WRONLY:O_RDONLY,0);
-        char *args[]={"qft-eye-broker","--eye-broker",NULL};pid_t child;
+        char *args[]={"qft-eye-broker","--eye-broker",NULL};
         int result=posix_spawn(&child,"/proc/self/exe",&actions,NULL,args,environ);
         posix_spawn_file_actions_destroy(&actions);
-        if(result){close(owner);return NULL;}
+        if(result){close(owner);g_set_error(error,G_FILE_ERROR,g_file_error_from_errno(result),"broker launch: %s",strerror(result));return NULL;}
+    } else if(errno!=EWOULDBLOCK&&errno!=EAGAIN) {
+        int result=errno;close(owner);g_set_error(error,G_FILE_ERROR,g_file_error_from_errno(result),"broker owner lock: %s",strerror(result));return NULL;
     }
     close(owner);
     gint64 deadline=g_get_monotonic_time()+10000000;
+    int token_error=0;ssize_t token_length=-1;
     do {
+        if(child) {
+            int status=0;pid_t exited=waitpid(child,&status,WNOHANG);
+            if(exited==child){
+                g_clear_error(error);
+                g_set_error(error,G_FILE_ERROR,G_FILE_ERROR_FAILED,"broker exited before connection: exit=%d signal=%d",WIFEXITED(status)?WEXITSTATUS(status):-1,WIFSIGNALED(status)?WTERMSIG(status):0);
+                return NULL;
+            }
+        }
         char token[65]={0};int fd=open(CONTROL_DIR "/token",O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
-        ssize_t length=fd<0?-1:read(fd,token,65);if(fd>=0)close(fd);
+        ssize_t length=fd<0?-1:read(fd,token,65);token_error=length<0?errno:0;token_length=length;if(fd>=0)close(fd);
         if(length==64) {
             FridaRemoteDeviceOptions *options=frida_remote_device_options_new();
             frida_remote_device_options_set_token(options,token);
+            g_clear_error(error);
             FridaDevice *device=frida_device_manager_add_remote_device_sync(manager,CONTROL_ADDRESS,options,NULL,error);
             g_object_unref(options);
             if(device)return device;
-            g_clear_error(error);
         }
         usleep(50000);
     } while(g_get_monotonic_time()<deadline);
+    if(*error)g_prefix_error(error,"broker connection: ");
+    else g_set_error(error,G_FILE_ERROR,G_FILE_ERROR_FAILED,"broker token unavailable: bytes=%d error=%s",(int)token_length,token_error?strerror(token_error):"none");
     return NULL;
 }
 
@@ -149,13 +176,14 @@ static int start_trace(void) {
     if(mkdir(INSTANCE,0700))return -1;
     traced=1;
     if(put(INSTANCE "/trace_clock","mono",0))return -1;
-    const unsigned offsets[]={0xb1f470,0xb1f4e4};
     const char *names[]={"detector_output","detector_output_secondary"};
     for(int i=0;i<2;i++) {
         char probe[512],path[256];
-        snprintf(probe,sizeof probe,"p:" GROUP "/%s /odm/lib64/libtrackingengines.so:0x%x "
-            "x=+0x300(%%x20):x32 y=+0x304(%%x20):x32 z=+0x308(%%x20):x32 "
-            "tag=+0x0(%%x20):x8 valid=+0x30c(%%x20):x8\n",names[i],offsets[i]);
+        unsigned long long axis=(unsigned long long)eye_discovered_profile.axis;
+        snprintf(probe,sizeof probe,"p:" GROUP "/%s /odm/lib64/libtrackingengines.so:0x%llx "
+            "x=+0x%llx(%%x20):x32 y=+0x%llx(%%x20):x32 z=+0x%llx(%%x20):x32 "
+            "tag=+0x0(%%x20):x8 valid=+0x%llx(%%x20):x8\n",names[i],
+            (unsigned long long)eye_discovered_profile.trace[i],axis,axis+4,axis+8,axis+12);
         if(put(TRACE "/uprobe_events",probe,1))return -1;
         snprintf(path,sizeof path,INSTANCE "/events/" GROUP "/%s/enable",names[i]);
         if(put(path,"1",0))return -1;
@@ -201,7 +229,12 @@ static void on_message(FridaScript *sender,const gchar *message,GBytes *bytes,gp
             restored=1;puts("QFT_EYES_RESTORED");g_main_loop_quit(loop);
         } else if(!strcmp(event,"error")) {
             fprintf(stderr,"EYE_AGENT %s\n",message);
-            failed=1;puts("QFT_EYES_ERROR model");request_stop();
+            const char *reason=json_object_get_string_member_with_default(payload,"reason","");
+            int safe=json_object_get_boolean_member_with_default(payload,"safe",FALSE);
+            int unsupported=!ready&&safe&&(!strcmp(reason,"Error: loaded_code_changed")||!strcmp(reason,"Error: engine_profile")||
+                !strcmp(reason,"Error: model_contract")||!strcmp(reason,"Error: baseline_mismatch")||
+                !strcmp(reason,"Error: activation_failed")||!strcmp(reason,"Error: unchanged_outputs_mismatch"));
+            failed=1;puts(unsupported?"QFT_EYES_ERROR unsupported":"QFT_EYES_ERROR model");request_stop();
         } else fprintf(stderr,"EYE_AGENT %s\n",message);
     } else if(!strcmp(type,"error")) {
         fprintf(stderr,"EYE_AGENT %s\n",message);
@@ -242,31 +275,55 @@ static gboolean poll_session(gpointer data) {
     }
     return G_SOURCE_CONTINUE;
 }
-static gchar *configuration(const char *library,const char *payload_path,const char *status_path) {
-    gchar *payload=NULL;gsize length=0;
-    if(!g_file_get_contents(payload_path,&payload,&length,NULL)||length!=374634)return NULL;
-    gchar *hash=g_compute_checksum_for_data(G_CHECKSUM_SHA256,(guchar*)payload,length);
-    int valid=!strcmp(hash,"70847c7fa4beb32cfdb923484336eeaaca8d2f402e85338e3766394ec6ecd014");g_free(hash);
-    if(!valid){g_free(payload);return NULL;}
-    guint32 graph_length,binary_length;
-    memcpy(&graph_length,payload+8,4);memcpy(&binary_length,payload+12,4);
-    if(memcmp(payload,"QFTEYE01",8)||graph_length!=108564||binary_length!=266054){g_free(payload);return NULL;}
-    gchar *graph=g_strndup(payload+16,graph_length),*binary=g_malloc(binary_length*2+1);
-    for(guint i=0;i<binary_length;i++)sprintf(binary+i*2,"%02x",(guchar)payload[16+graph_length+i]);
+static gchar *configuration(const char *library,const char *status_path) {
     JsonBuilder *builder=json_builder_new();json_builder_begin_object(builder);
     json_builder_set_member_name(builder,"owner");json_builder_add_int_value(builder,getpid());
     json_builder_set_member_name(builder,"status");json_builder_add_string_value(builder,status_path);
     json_builder_set_member_name(builder,"library");json_builder_add_string_value(builder,library);
-    json_builder_set_member_name(builder,"json");json_builder_add_string_value(builder,graph);
-    json_builder_set_member_name(builder,"binary");json_builder_add_string_value(builder,binary);
     json_builder_end_object(builder);
     JsonNode *node=json_builder_get_root(builder);JsonGenerator *generator=json_generator_new();json_generator_set_root(generator,node);
     gchar *result=json_generator_to_data(generator,NULL);
-    json_node_free(node);g_object_unref(generator);g_object_unref(builder);g_free(graph);g_free(binary);g_free(payload);return result;
+    json_node_free(node);g_object_unref(generator);g_object_unref(builder);return result;
+}
+static gchar *engine_configuration(gchar *config,const char *engine,size_t length) {
+    struct EyeImage image;
+    if(!config||!eye_image_open(&image,engine,length)){g_free(config);return NULL;}
+    JsonParser *parser=json_parser_new();
+    if(!json_parser_load_from_data(parser,config,-1,NULL)){g_object_unref(parser);g_free(config);return NULL;}
+    g_free(config);
+    JsonObject *root=json_node_get_object(json_parser_get_root(parser)),*profile=json_object_new(),*functions=json_object_new();
+    JsonArray *code=json_array_new(),*trace=json_array_new(),*bindings=json_array_new();
+    for(unsigned i=0;i<QFT_EYE_CODE_COUNT;i++) {
+        uint64_t offset=eye_discovered_profile.code[i];json_array_add_int_element(code,(gint64)offset);
+        if(!offset)continue;
+        const struct EyeCodeContract *contract=&eye_code_contracts[i];
+        size_t code_length=eye_code_length(&image,offset,(enum QftEyeCode)i,eye_discovered_profile.code[QFT_ASSERT]);
+        const unsigned char *bytes=code_length?eye_image_at(&image,offset,code_length,PF_R|PF_X):NULL;
+        if(!bytes){g_object_unref(parser);json_object_unref(profile);json_object_unref(functions);json_array_unref(code);json_array_unref(trace);json_array_unref(bindings);return NULL;}
+        json_object_set_int_member(functions,contract->name,(gint64)offset);
+        JsonObject *binding=json_object_new();
+        json_object_set_int_member(binding,"offset",(gint64)offset);
+        json_object_set_int_member(binding,"length",(gint64)code_length);
+        gchar *hash=g_compute_checksum_for_data(G_CHECKSUM_SHA256,bytes,code_length);
+        json_object_set_string_member(binding,"sha256",hash);g_free(hash);
+        json_array_add_object_element(bindings,binding);
+    }
+    json_array_add_int_element(trace,(gint64)eye_discovered_profile.trace[0]);
+    json_array_add_int_element(trace,(gint64)eye_discovered_profile.trace[1]);
+    json_object_set_array_member(profile,"code",code);json_object_set_object_member(profile,"functions",functions);
+    json_object_set_array_member(profile,"trace",trace);
+    json_object_set_int_member(profile,"backendVtable",(gint64)eye_discovered_profile.backend_vtable);
+    json_object_set_int_member(profile,"filterVtable",(gint64)eye_discovered_profile.filter_vtable);
+    json_object_set_int_member(profile,"axis",(gint64)eye_discovered_profile.axis);
+    json_object_set_int_member(profile,"modelVtable",(gint64)eye_discovered_profile.model_vtable);
+    json_object_set_object_member(root,"profile",profile);json_object_set_array_member(root,"bindings",bindings);
+    JsonGenerator *generator=json_generator_new();json_generator_set_root(generator,json_parser_get_root(parser));
+    gchar *result=json_generator_to_data(generator,NULL);g_object_unref(generator);g_object_unref(parser);return result;
 }
 int qft_eye_session_main(int argc,char **argv) {
-    if(argc!=4||geteuid()!=0)return 2;
+    if(argc<3||geteuid()!=0)return 2;
     averaging=!strcmp(argv[1],"--averaging");
+    if(argc!=(averaging?4:3))return 2;
     long sample_count=25;
     if(averaging) {
         char *end=NULL;sample_count=strtol(argv[3],&end,10);
@@ -284,9 +341,14 @@ int qft_eye_session_main(int argc,char **argv) {
     if(!averaging&&(legacy||!access(TRACE "/instances/qft_headset_eyes",F_OK))){puts("QFT_EYES_ERROR busy");return 3;}
     gchar *engine=NULL;gsize size=0;
     if(!g_file_get_contents("/odm/lib64/libtrackingengines.so",&engine,&size,NULL))return 4;
-    gchar *hash=g_compute_checksum_for_data(G_CHECKSUM_SHA256,(guchar*)engine,size);g_free(engine);
-    int supported=!strcmp(hash,"0fb6f54a3e190bec791d757ea18d32a8ecc1af4a861992d04b1703c93293cd03");g_free(hash);
-    if(!supported){puts("QFT_EYES_ERROR unsupported");return 4;}
+    gchar *hash=g_compute_checksum_for_data(G_CHECKSUM_SHA256,(guchar*)engine,size);
+    gsize engine_size=size;int supported=eye_engine_compatible(engine,size,averaging);
+    fprintf(stderr,"EYE_ENGINE sha256=%s bytes=%zu compatible=%d\n",hash,(size_t)size,supported);g_free(hash);
+    if(!supported){g_free(engine);puts("QFT_EYES_ERROR unsupported");return 4;}
+    fprintf(stderr,"EYE_ABI_DISCOVERED prepare=0x%llx execute=0x%llx detector=0x%llx filter=0x%llx axis=0x%llx\n",
+        (unsigned long long)eye_discovered_profile.code[QFT_MODEL_PREPARE],(unsigned long long)eye_discovered_profile.code[QFT_EXECUTE],
+        (unsigned long long)eye_discovered_profile.code[QFT_DETECTOR],(unsigned long long)eye_discovered_profile.code[QFT_FILTER_PROCESS],
+        (unsigned long long)eye_discovered_profile.axis);
     pid_t pid;if(find_pids("trackingservice",&pid,1)!=1){puts("QFT_EYES_ERROR service");return 4;}
     char status_path[128],process_path[64];struct stat process;
     snprintf(status_path,sizeof status_path,"/data/local/tmp/qft-eye-status-%d",getpid());
@@ -295,8 +357,10 @@ int qft_eye_session_main(int argc,char **argv) {
     int status=averaging?-1:open(status_path,O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC|O_NOFOLLOW,0600);
     if(!averaging&&(status<0||fchown(status,process.st_uid,process.st_gid))){puts("QFT_EYES_ERROR payload");return 4;}
     if(status>=0)close(status);printf("QFT_EYES_OWNER %d\n",getpid());
-    gchar *config=averaging?g_strdup_printf("{\"samples\":%ld}",sample_count):configuration(argv[1],argv[3],status_path),*source=NULL;
-    if(!config||!g_file_get_contents(argv[2],&source,&size,NULL)){puts("QFT_EYES_ERROR payload");unlink(status_path);return 4;}
+    gchar *config=averaging?g_strdup_printf("{\"samples\":%ld}",sample_count):configuration(argv[1],status_path),*source=NULL;
+    config=engine_configuration(config,engine,engine_size);g_free(engine);
+    if(!config){puts("QFT_EYES_ERROR unsupported");unlink(status_path);return 4;}
+    if(!g_file_get_contents(argv[2],&source,&size,NULL)){puts("QFT_EYES_ERROR payload");unlink(status_path);return 4;}
     if(!averaging&&release_trace()){puts("QFT_EYES_ERROR trace_cleanup");return 4;}
     gchar *agent=g_strconcat("const qftEyeConfig = ",config,";\n",source,NULL);g_free(config);g_free(source);
     // Both features share one injector so their agent lifetimes cannot conflict in Meta's process.
@@ -306,7 +370,7 @@ int qft_eye_session_main(int argc,char **argv) {
     loop=g_main_loop_new(NULL,FALSE);GError *error=NULL;
     FridaDeviceManager *manager=frida_device_manager_new();
     FridaDevice *device=shared_device(manager,&error);
-    fprintf(stderr,"EYE_HOST attaching pid=%d mode=%s\n",pid,averaging?"averaging":"eyes");
+    if(device)fprintf(stderr,"EYE_HOST attaching pid=%d mode=%s\n",pid,averaging?"averaging":"eyes");
     FridaSession *session=device?frida_device_attach_sync(device,pid,NULL,NULL,&error):NULL;
     if(session) {
         fprintf(stderr,"EYE_HOST attached\n");
@@ -318,7 +382,11 @@ int qft_eye_session_main(int argc,char **argv) {
         g_signal_connect(script,"message",G_CALLBACK(on_message),NULL);
         frida_script_load_sync(script,NULL,&error);
     }
-    if(error||!script){fprintf(stderr,"EYE_ATTACH %s\n",error?error->message:"failed");failed=1;}
+    if(error||!script){
+        fprintf(stderr,"EYE_ATTACH %s\n",error?error->message:"failed");failed=1;
+        if(!script){restored=1;puts("QFT_EYES_UNCHANGED");}
+        puts("QFT_EYES_ERROR attach");
+    }
     else {
         signal(SIGTERM,signal_stop);signal(SIGHUP,signal_stop);signal(SIGINT,signal_stop);
         fcntl(STDIN_FILENO,F_SETFL,fcntl(STDIN_FILENO,F_GETFL)|O_NONBLOCK);
@@ -329,13 +397,11 @@ int qft_eye_session_main(int argc,char **argv) {
     detaching=1;
     fprintf(stderr,"EYE_HOST cleanup restored=%d failed=%d\n",restored,failed);
     g_clear_error(&error);
-    int cleanup_locked=detached?0:!lock_attachment();
-    if(!detached&&!cleanup_locked){failed=1;fprintf(stderr,"EYE_HOST cleanup lock timed out\n");}
-    if(script&&!detached&&cleanup_locked)frida_script_unload_sync(script,NULL,&error);
-    fprintf(stderr,"EYE_HOST unloaded\n");
+    int cleanup_locked=detached||!session?0:!lock_attachment();
+    if(session&&!detached&&!cleanup_locked){failed=1;fprintf(stderr,"EYE_HOST cleanup lock timed out\n");}
+    if(script&&!detached&&cleanup_locked){frida_script_unload_sync(script,NULL,&error);fprintf(stderr,"EYE_HOST unloaded\n");}
     if(error){failed=1;g_clear_error(&error);}
-    if(session&&!detached&&cleanup_locked)frida_session_detach_sync(session,NULL,&error);
-    fprintf(stderr,"EYE_HOST detached\n");
+    if(session&&!detached&&cleanup_locked){frida_session_detach_sync(session,NULL,&error);fprintf(stderr,"EYE_HOST detached\n");}
     if(error)failed=1;
     unlock_attachment();
     if(!restored&&!detached)failed=1;

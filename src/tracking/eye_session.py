@@ -1,45 +1,21 @@
 """Own the shared headset eye session; all model restoration runs on the headset."""
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 import queue
 import secrets
 import shlex
-import struct
 import subprocess
 import threading
-import tempfile
 import time
-import zipfile
 
-from eye_model_patch import OLD_NODE, NEW_NODE, validate_contract, graph_from_pickle
 from eye_trace import RawTraceEyeReader
 from headset import ADB, NO_WINDOW, RootShell, adb
 
 
-def model_payload(archive: Path) -> bytes:
-    with zipfile.ZipFile(archive) as source:
-        raw = source.read('model/data.pkl')
-    graph = graph_from_pickle(raw)
-    validate_contract(graph, patched=next(n['input'][0][0] for n in graph['node'] if n['id'] == 52) == 18)
-    if raw.count(NEW_NODE) == 1:
-        raw = raw.replace(NEW_NODE, OLD_NODE)
-    values = []
-    for offset, length in ((575,108564), (109156,266054)):
-        if raw[offset:offset+1] != b'X' or struct.unpack_from('<I', raw, offset+1)[0] != length:
-            raise ValueError('EYE_SWAP_UNSUPPORTED')
-        values.append(raw[offset+5:offset+5+length])
-    payload=b'QFTEYE01'+struct.pack('<II',*(len(v) for v in values))+b''.join(values)
-    if hashlib.sha256(payload).hexdigest() != '70847c7fa4beb32cfdb923484336eeaaca8d2f402e85338e3766394ec6ecd014':
-        raise ValueError('EYE_SWAP_UNSUPPORTED')
-    return payload
-
-
 class IndependentEyeSession(RawTraceEyeReader):
-    def __init__(self, model: Path):
+    def __init__(self):
         super().__init__()
-        self.model = model
         self._ready = threading.Event()
         self._restored = False
         self._closed = threading.Event()
@@ -55,12 +31,8 @@ class IndependentEyeSession(RawTraceEyeReader):
             self._shell.undo_on_exit('rm -f '+self._work+'/*; rmdir '+self._work)
             for name in ('qft-eye-session','libqft_eye_swap.so','eye_swap.js'):
                 adb('push', str(folder/name), self._work+'/'+name)
-            payload = model_payload(self.model)
-            with tempfile.TemporaryDirectory(prefix='qft-eye-') as temporary:
-                source=Path(temporary)/'model.payload';source.write_bytes(payload)
-                adb('push',str(source),self._work+'/model.payload')
             self._shell.run('chown -R root:root '+self._work+'; chmod 755 '+self._work+' '+self._work+'/qft-eye-session; chmod 644 '+self._work+'/libqft_eye_swap.so')
-            command=' '.join(shlex.quote(self._work+'/'+name) for name in ('qft-eye-session','libqft_eye_swap.so','eye_swap.js','model.payload'))
+            command=' '.join(shlex.quote(self._work+'/'+name) for name in ('qft-eye-session','libqft_eye_swap.so','eye_swap.js'))
             self._process=subprocess.Popen([ADB,'shell','su'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace',bufsize=1,creationflags=NO_WINDOW)
             self._process.stdin.write('exec '+command+'\n');self._process.stdin.flush()
@@ -71,7 +43,9 @@ class IndependentEyeSession(RawTraceEyeReader):
                 raise RuntimeError(self.errors.get_nowait())
         except Exception as error:
             try:self.close()
-            except Exception as cleanup:print('EYE_SESSION_CLEANUP',repr(cleanup),flush=True)
+            except Exception as cleanup:
+                print('EYE_SESSION_CLEANUP',repr(cleanup),flush=True)
+                raise RuntimeError('EYE_SWAP_RESTORE_FAILED') from cleanup
             if str(error).startswith('EYE_SWAP_'):raise
             print('EYE_SESSION_DIAGNOSTIC',repr(error),flush=True)
             raise RuntimeError('EYE_SWAP_START_FAILED') from error
@@ -87,7 +61,7 @@ class IndependentEyeSession(RawTraceEyeReader):
                     self._ready.set()
                 elif line.startswith('QFT_EYES_OWNER '):
                     self._owner=int(line.split()[-1])
-                elif line=='QFT_EYES_RESTORED':
+                elif line in ('QFT_EYES_RESTORED','QFT_EYES_UNCHANGED'):
                     self._restored=True
                 elif line=='QFT_EYES_CLOSED':
                     self._closed.set()

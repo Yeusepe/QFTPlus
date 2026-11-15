@@ -123,7 +123,6 @@ def main() -> int:
     parser.add_argument("--calibration", required=True)
     parser.add_argument("--vergence-gain", type=float, default=1.0,
                         help="scale each eye's deviation from mean gaze (1.0 = as calibrated)")
-    parser.add_argument('--model', required=True, type=Path)
     parser.add_argument('--enabled', choices=('0','1'), default='1')
     arguments = parser.parse_args()
     stopped = stop_event()
@@ -132,18 +131,33 @@ def main() -> int:
     print('QFT_EYES_CONTROL_READY', flush=True)
     print(f"vergence gain = {arguments.vergence_gain:.2f} (live on udp/{CONTROL_PORT})", flush=True)
     reader = None
+    attempted = False
     eye_filter = IndependentEyeFilter(2)
     output = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         while not stopped.is_set():
-            if vergence.enabled and reader is None:
+            if not vergence.enabled:
+                if attempted and reader is None:
+                    print('QFT_EYES_STANDARD', flush=True)
+                attempted = False
+            if vergence.enabled and reader is None and not attempted:
+                attempted = True
                 calibration = load_calibration(arguments.calibration)
-                reader = IndependentEyeSession(arguments.model)
-                reader.start()
+                reader = IndependentEyeSession()
+                try:
+                    reader.start()
+                except (RuntimeError, ValueError) as error:
+                    if str(error) != 'EYE_SWAP_UNSUPPORTED':
+                        raise
+                    reader = None
+                    print('QFT_EYES_UNAVAILABLE EYE_SWAP_UNSUPPORTED', flush=True)
+                    continue
+                print('QFT_EYES_ACTIVE', flush=True)
                 eye_filter = IndependentEyeFilter(2)
             elif not vergence.enabled and reader is not None:
                 reader.close()
                 reader = None
+                print('QFT_EYES_STANDARD', flush=True)
             if reader is None:
                 stopped.wait(.05)
                 continue

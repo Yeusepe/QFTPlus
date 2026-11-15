@@ -120,6 +120,7 @@ public final class ControlReceiver extends BroadcastReceiver {
         return new JSONObject().put("v", 1).put("version", version).put("tracking", enabled).put("running", TrackingService.running)
             .put("receiving", receiving).put("faceAvailable", (nativeFlags & 1) != 0).put("eyesAvailable", (nativeFlags & 6) == 6)
             .put("metaGazeAveragingError", MetaGazeAveraging.lastError)
+            .put("independentEyeError", TrackingService.independentEyeError)
             .put("status", enabled ? TrackingService.status : context.getString(R.string.off)).put("error", enabled || TrackingService.error == null ? "" : TrackingService.error).put("pcConnected", enabled && TrackingService.pcConnected)
             .put("settings", new JSONObject().put("enabled", enabled).put("output", TrackingService.outputMode(settings))
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))

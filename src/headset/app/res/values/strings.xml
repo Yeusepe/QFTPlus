@@ -558,7 +558,7 @@
     <string name="calibration_pupil_source_about">Choose one eye if QFT+ cannot track the other eye. With one eye, both avatar pupils change size together.</string>
     <string name="calibration_waiting_samples">Hold your face still for a little longer.</string>
     <string name="calibration_cancel">Cancel</string>
-    <string name="eye_swap_unsupported">Independent eye tracking does not support this headset update. Use standard eye tracking.</string>
+    <string name="eye_swap_unsupported">Independent eyes are unavailable on this headset update. Standard eye tracking is active. Your saved calibration is unchanged.</string>
     <string name="eye_swap_busy">Another eye tracking session is active. Stop it and try again.</string>
     <string name="eye_swap_failed">Independent eye tracking could not start. Your saved calibration is unchanged.</string>
     <string name="eye_swap_restore_failed">The standard eye model could not be restored. Restart your headset before you use eye tracking.</string>

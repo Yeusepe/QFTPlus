@@ -1,5 +1,6 @@
 'use strict';
 const lifetime = {};
+const profile = qftEyeConfig.profile;
 const filters = new Map();
 let hooks = [], desired = qftEyeConfig.samples, stopped = false, engine;
 let heartbeat = Date.now(), lease;
@@ -8,7 +9,7 @@ function checkSamples(value) {
     if (!Number.isInteger(value) || value < 1 || value > 25) throw new Error('invalid_samples');
     return value;
 }
-function matches(p) { return p.readPointer().equals(engine.base.add(0x2c51278)); }
+function matches(p) { return p.readPointer().equals(engine.base.add(profile.filterVtable)); }
 function restore(p, state) {
     if (!matches(p)) return;
     if (p.add(0x48).readU32() === state.applied) p.add(0x48).writeU32(state.fallback);
@@ -47,7 +48,12 @@ setImmediate(() => {
     try {
         checkSamples(desired);
         engine = Process.getModuleByName('libtrackingengines.so');
-        const address = engine.base.add(0xb294b0);
+        if(!profile||!Array.isArray(qftEyeConfig.bindings)||qftEyeConfig.bindings.length!==3)throw new Error('engine_profile');
+        for(const binding of qftEyeConfig.bindings) {
+            if(!Number.isSafeInteger(binding.offset)||binding.offset<=0||!Number.isSafeInteger(binding.length)||binding.length<=0||binding.offset+binding.length>engine.size||
+                Checksum.compute('sha256',engine.base.add(binding.offset).readByteArray(binding.length))!==binding.sha256)throw new Error('loaded_code_changed');
+        }
+        const address = engine.base.add(profile.functions.filter_process);
         const signature = Array.from(new Uint8Array(address.readByteArray(16))).map(v=>v.toString(16).padStart(2,'0')).join('');
         if (signature !== 'fd7bbda9f65701a9f44f02a9fd030091') throw new Error('instruction_signature');
         hooks.push(Interceptor.attach(address, {
@@ -72,7 +78,7 @@ setImmediate(() => {
                 } catch (error) { send({event:'error',reason:String(error)}); stop(); }
             }
         }));
-        hooks.push(Interceptor.attach(engine.base.add(0xb21140), {
+        hooks.push(Interceptor.attach(engine.base.add(profile.functions.filter_destroy), {
             onEnter(args) {
                 const key = args[0].toString(), state = filters.get(key);
                 if (state) {

@@ -365,6 +365,7 @@ public partial class StudioWindow
     {
         if (HeadsetModelExperiment.Standalone(session)) return HeadsetEyeOptions();
         var enabled = new CheckBox { Content = Loc.Get("IndependentEyeGaze"), IsChecked = session.IndependentGaze };
+        var problem = Muted("", live:true); problem.Margin = new(0, 8, 0, 0);
         var setup = Button(Loc.Get("SetUpEyeTracking"), () => Navigate("Setup"));
         var convergence = Button(Loc.Get("AdjustConvergence"), () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
         var actions = Buttons(setup, convergence);
@@ -372,6 +373,8 @@ public partial class StudioWindow
         trackingRefresh = () =>
         {
             var on = enabled.IsChecked == true;
+            problem.Text = session.tracking?.EyeError ?? "";
+            problem.Visibility = Visible(problem.Text.Length > 0);
             enabled.IsEnabled = !busy;
             setup.IsEnabled = !busy && !session.Running;
             AutomationProperties.SetHelpText(enabled, busy ? Loc.Get("WaitForTheCurrentStepToFinishToChange_85f9003a") : session.Running ? Loc.Get("EyeSwapWhileTracking")
@@ -387,13 +390,14 @@ public partial class StudioWindow
             trackingRefresh?.Invoke();
         };
         trackingRefresh();
-        return Card(enabled, actions);
+        return Card(enabled, problem, actions);
     }
 
     UIElement HeadsetEyeOptions()
     {
         var sending = 0;
         var on = new CheckBox { Content = Loc.Get("IndependentEyeGaze") };
+        var problem = Muted("", live:true); problem.Margin = new(0, 8, 0, 0);
         var convergence = Button(Loc.Get("AdjustConvergence"), () => { outputParameter = "Gaze"; Navigate("Adjustments"); });
         var actions = Buttons(convergence);
         actions.Margin = new(0, 8, 0, 0);
@@ -401,6 +405,8 @@ public partial class StudioWindow
         {
             if (sending > 0) return;
             var settings = session.App?["settings"];
+            problem.Text = session.App?["independentEyeError"]?.GetValue<string>() ?? "";
+            problem.Visibility = Visible(problem.Text.Length > 0);
             on.IsEnabled = settings is not null;
             on.IsChecked = settings?["convergence"]?.GetValue<bool>() != false;
             convergence.Visibility = actions.Visibility = Visible(settings is not null && on.IsChecked == true);
@@ -415,7 +421,7 @@ public partial class StudioWindow
         };
         trackingRefresh += Refresh;
         Refresh();
-        return Card(on, actions);
+        return Card(on, problem, actions);
     }
 
     UIElement ConvergenceOptions()

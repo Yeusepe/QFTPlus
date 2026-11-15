@@ -218,16 +218,17 @@ class MainActivity : ComponentActivity() {
 
     @Composable private fun TrackingPage() {
         var status by remember { mutableStateOf(TrackingService.status) }
+        var eyeProblem by remember { mutableStateOf(TrackingService.independentEyeError) }
         var enabled by remember { mutableStateOf(settings.getBoolean("enabled", false)) }
         val pupils = preference("pupils"); val tongue = preference("tongue"); val boot = preference("boot")
         var rate by remember { mutableIntStateOf(settings.getInt("rate", 0)) }
         LaunchedEffect(resumed) { while (resumed) {
-            status = TrackingService.status; enabled = settings.getBoolean("enabled", false); rate = settings.getInt("rate", 0)
+            status = TrackingService.status; eyeProblem = TrackingService.independentEyeError; enabled = settings.getBoolean("enabled", false); rate = settings.getInt("rate", 0)
             for ((state, key) in listOf(pupils to "pupils", tongue to "tongue", boot to "boot")) state.value = settings.getBoolean(key, false)
             delay(500)
         } }
         Group(null, null,
-            row(getString(R.string.face_and_eye_tracking), if (enabled) status else TrackingService.error?.let { getString(R.string.stopped_reason, it) } ?: getString(R.string.off), trailing = ocui.toggle(enabled, getString(R.string.face_and_eye_tracking)) {
+            row(getString(R.string.face_and_eye_tracking), if (enabled) eyeProblem.ifBlank { status } else TrackingService.error?.let { getString(R.string.stopped_reason, it) } ?: getString(R.string.off), trailing = ocui.toggle(enabled, getString(R.string.face_and_eye_tracking)) {
                 if (it) start() else stop(); enabled = settings.getBoolean("enabled", false)
             }))
         Group(getString(R.string.features), null,
@@ -367,12 +368,13 @@ class MainActivity : ComponentActivity() {
 
     @Composable private fun ConvergenceGroups() {
         var convergence by remember { mutableStateOf(settings.getBoolean("convergence", true)) }
+        var problem by remember { mutableStateOf(TrackingService.independentEyeError) }
         var vergenceGain by remember { mutableFloatStateOf(settings.getFloat("vergenceGain", 1f)) }
         LaunchedEffect(resumed) { while (resumed) {
-            convergence = settings.getBoolean("convergence", true); vergenceGain = settings.getFloat("vergenceGain", 1f); delay(500)
+            convergence = settings.getBoolean("convergence", true); vergenceGain = settings.getFloat("vergenceGain", 1f); problem = TrackingService.independentEyeError; delay(500)
         } }
         Group(getString(R.string.convergence), null,
-            row(getString(R.string.convergence), getString(R.string.tracks_each_eye_separately_for_depth_starts_with), trailing = ocui.toggle(convergence, getString(R.string.convergence)) {
+            row(getString(R.string.convergence), problem.ifBlank { getString(R.string.tracks_each_eye_separately_for_depth_starts_with) }, trailing = ocui.toggle(convergence, getString(R.string.convergence)) {
                 convergence = it; settings.edit().putBoolean("convergence", it).apply()
             }))
         if (convergence) Group(null, getString(R.string.text_100_uses_the_calibrated_movement_at_0_both),

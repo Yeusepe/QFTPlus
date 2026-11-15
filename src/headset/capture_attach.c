@@ -7,7 +7,7 @@ int qft_eye_broker_main(void);
 
 int main(int argc, char **argv) {
     if(argc==2&&!strcmp(argv[1],"--eye-broker"))return qft_eye_broker_main();
-    if(argc==5&&!strcmp(argv[1],"--eyes"))return qft_eye_session_main(argc-1,argv+1);
+    if(argc==4&&!strcmp(argv[1],"--eyes"))return qft_eye_session_main(argc-1,argv+1);
     if(argc==4&&!strcmp(argv[1],"--averaging"))return qft_eye_session_main(argc,argv);
     if ((argc != 2 && argc != 3) || geteuid() != 0) { fprintf(stderr, "Root access is required.\n"); return 2; }
     if (argc == 3 && (strlen(argv[2]) != 64 || strspn(argv[2], "0123456789abcdef") != 64)) return 2;

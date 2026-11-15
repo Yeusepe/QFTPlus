@@ -17,6 +17,7 @@ internal sealed partial class Tracking
     readonly string adb, target;
     volatile bool eyes;
     internal volatile bool EyeControlReady;
+    internal volatile string EyeError = "";
     readonly bool headsetModel;
     readonly double vergence;
     readonly CancellationTokenSource stop = new();
@@ -72,16 +73,16 @@ internal sealed partial class Tracking
                         Stream = new(double.Parse(fps, System.Globalization.CultureInfo.InvariantCulture), double.Parse(busy, System.Globalization.CultureInfo.InvariantCulture));
                 }, ("QFT_STREAM_TOKEN", token), ("QFT_STREAM_HOST", Direct ?? "127.0.0.1"),
                 ("QFT_HEADSET_MODEL", headsetModel ? "1" : "0"));
-            var eyeModel = SetupService.EyeModel(session.Root);
             var eyeCalibration = Path.Combine(session.Root, "calibration/qpro-independent-visual-axis-v2.json");
-            if (eyes && !File.Exists(eyeModel)) throw new IOException(Loc.Get("TheIndependentEyeModelIsMissingRunSetupAgainTo"));
             if (eyes && !File.Exists(eyeCalibration)) throw new IOException(Loc.Get("IndependentEyeCalibrationIsMissingToUseStandardEyeTracking"));
-            if (File.Exists(eyeModel) && File.Exists(eyeCalibration))
+            if (File.Exists(eyeCalibration))
             {
                 gaze = session.Launch(session.Python, [Path.Combine(session.Root, "independent_visual_axis_runtime.py"),
-                    "--calibration", eyeCalibration, "--model", eyeModel, "--enabled", eyes ? "1" : "0",
+                    "--calibration", eyeCalibration, "--enabled", eyes ? "1" : "0",
                     "--vergence-gain", vergence.ToString(System.Globalization.CultureInfo.InvariantCulture)], "eyes.log", line =>
                     {
+                        if (line == "QFT_EYES_UNAVAILABLE EYE_SWAP_UNSUPPORTED") EyeError = Loc.Get("EyeSwapUnsupported");
+                        else if (line is "QFT_EYES_ACTIVE" or "QFT_EYES_STANDARD") EyeError = "";
                         if (line != "QFT_EYES_CONTROL_READY") return;
                         EyeControlReady = true;
                         SetIndependentEyes(eyes);
