@@ -576,4 +576,5 @@
     <string name="smile_eye_closure">Smile eye closure</string>
     <string name="smile_eye_closure_help" formatted="false">Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</string>
     <string name="eye_mode_changing">Changing eye tracking</string>
+    <string name="ocui_api_unavailable">This headset\'s Settings UI does not expose the controls QFT+ needs.</string>
 </resources>

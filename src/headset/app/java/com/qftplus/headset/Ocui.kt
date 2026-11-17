@@ -5,7 +5,6 @@ import android.content.pm.ApplicationInfo
 import android.content.res.AssetManager
 import android.content.res.Resources
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.AttributeSet
@@ -31,10 +30,10 @@ import java.util.function.Function
 internal class Ocui(private val host: Context) {
     companion object {
         const val PROVIDER = "com.oculus.panelapp.settings"
-        const val SETTINGS_VERSION = 675101304L
     }
     val context: Context
     private val loader: ClassLoader
+    private val api: OcuiApi
     val root: ViewGroup
     private val overlays = mutableListOf<() -> Unit>()
 
@@ -43,15 +42,12 @@ internal class Ocui(private val host: Context) {
         require((info.applicationInfo!!.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) {
             host.getString(R.string.ocui_system_settings_required)
         }
-        require(info.longVersionCode == SETTINGS_VERSION) {
-            host.getString(R.string.ocui_update_required , info.versionName, info.longVersionCode)
-        }
         val loaded = host.createPackageContext(PROVIDER, Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
         loaded.classLoader
         val foreign = loaded.createConfigurationContext(host.resources.configuration)
         loader = foreign.classLoader
-        val theme = type("X.0fv").getMethod("A00", Resources::class.java, type("X.0fw"))
-            .invoke(null, foreign.resources, enum("X.0fw", "Spatial")) as Resources.Theme
+        api = OcuiApi(host, loader, listOf(info.applicationInfo!!.sourceDir) + info.applicationInfo!!.splitSourceDirs.orEmpty())
+        val theme = api.theme(foreign.resources)
         context = object : ContextThemeWrapper(host, theme) {
             override fun getResources(): Resources = foreign.resources
             override fun getAssets(): AssetManager = foreign.assets
@@ -59,19 +55,20 @@ internal class Ocui(private val host: Context) {
         }
         root = view("popup.OCMultiLayerContainer") as ViewGroup
         root.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xFF414141.toInt(), 0xFF272727.toInt()))
-        listOf("X.18f", "X.18b", "X.0b4", "X.1Bw", "X.0zN").forEach(::type)
     }
 
     private fun type(name: String) = loader.loadClass(name)
-    private fun enum(name: String, value: String) = type(name).enumConstants!!.first { (it as Enum<*>).name == value }
     private fun view(name: String): View = type("com.oculus.ocui.view.$name")
         .getConstructor(Context::class.java, AttributeSet::class.java).newInstance(context, null) as View
-    private fun field(obj: Any, name: String): Any = obj.javaClass.getField(name).get(obj)!!
-    private fun set(obj: Any, name: String, value: Any?) = obj.javaClass.getField(name).set(obj, value)
+    private fun property(obj: Any, matches: (Class<*>) -> Boolean): java.lang.reflect.Field =
+        obj.javaClass.fields.single { !java.lang.reflect.Modifier.isStatic(it.modifiers) && matches(it.type) }
+    private fun method(obj: Any, vararg parameters: Class<*>) = obj.javaClass.declaredMethods.single {
+        !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(parameters)
+    }
     private fun invoke(obj: Any, name: String, vararg args: Any?): Any? =
         obj.javaClass.methods.single { it.name == name && it.parameterCount == args.size }.invoke(obj, *args)
-    private fun callback(name: String, action: (Array<out Any?>) -> Unit): Any =
-        Proxy.newProxyInstance(loader, arrayOf(type(name))) { proxy, method, args ->
+    private fun callback(cls: Class<*>, action: (Array<out Any?>) -> Unit): Any =
+        Proxy.newProxyInstance(loader, arrayOf(cls)) { proxy, method, args ->
             when (method.name) {
                 "equals" -> proxy === args?.firstOrNull()
                 "hashCode" -> System.identityHashCode(proxy)
@@ -79,6 +76,56 @@ internal class Ocui(private val host: Context) {
                 else -> { action(args ?: emptyArray()); null }
             }
         }
+    private fun part(view: View, name: String): View = view.findViewById(context.resources.getIdentifier(name, "id", PROVIDER))
+        ?: error(host.getString(R.string.ocui_resource_missing, name))
+    private fun popup(select: View): Any = property(select) { cls -> cls.declaredMethods.any {
+        it.parameterTypes.contentEquals(arrayOf(View::class.java, Boolean::class.javaPrimitiveType)) && it.returnType == Void.TYPE
+    } }.get(select)!!
+    private fun selected(select: View, index: Int) = method(select, Any::class.java).invoke(select, index)
+    private fun closeSelect(select: View) { val popup = popup(select); method(popup, Boolean::class.javaPrimitiveType!!).invoke(popup, false) }
+    private fun configureSelect(select: View, options: List<String>, choose: (Int) -> Unit) {
+        val labels = select.javaClass.declaredMethods.single { m ->
+            m.parameterTypes.contentEquals(arrayOf(Map::class.java)) &&
+                (m.genericParameterTypes[0] as? java.lang.reflect.ParameterizedType)?.actualTypeArguments?.get(1) == String::class.java
+        }
+        labels.invoke(select, options.indices.associateWith { options[it] })
+        method(select, List::class.java).invoke(select, options.indices.toList())
+        val popup = popup(select)
+        val adapter = property(popup) { cls -> cls.declaredFields.any { List::class.java.isAssignableFrom(it.type) } &&
+            cls.declaredFields.any { Map::class.java.isAssignableFrom(it.type) } }.get(popup)!!
+        val listener = property(adapter) { cls -> cls.isInterface && cls.methods.count {
+            java.lang.reflect.Modifier.isAbstract(it.modifiers) && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(Any::class.java))
+        } == 1 }
+        listener.set(adapter, callback(listener.type) { args -> val index = args[0] as Int; selected(select, index); choose(index) })
+    }
+    private fun navigationAdapter(nav: View): Any = property(nav) { cls ->
+        cls.declaredFields.any { Function::class.java.isAssignableFrom(it.type) } && cls.declaredFields.any { List::class.java.isAssignableFrom(it.type) }
+    }.get(nav)!!
+    private fun navigationSelection(adapter: Any) = adapter.javaClass.declaredMethods.single {
+        !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE && it.parameterCount == 1 &&
+            !it.parameterTypes[0].isPrimitive
+    }
+    private fun nativeDialog(): Pair<Any, View> {
+        val cls = type("com.oculus.ocui.view.dialog.OCDialog")
+        val builder = cls.getMethod("builder", View::class.java).invoke(null, root)
+        val dialog = builder.javaClass.declaredMethods.single { it.parameterCount == 0 && it.returnType == cls }.invoke(builder)
+        val getter = cls.declaredMethods.single { it.parameterCount == 0 && View::class.java.isAssignableFrom(it.returnType) }
+        getter.isAccessible = true
+        return dialog to (getter.invoke(dialog) as View)
+    }
+    private val dialogPrototype by lazy { nativeDialog().second }
+    private val rowPrototype by lazy { view("OCListItem") }
+    private fun styleText(text: TextView, kind: String = "body") {
+        val sample = when (kind) {
+            "title" -> sheetPart(dialogPrototype, "title")
+            "strong" -> part(rowPrototype, "list_item_title")
+            "detail" -> part(rowPrototype, "list_item_subtitle")
+            else -> sheetPart(dialogPrototype, "body_text")
+        } as TextView
+        text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, sample.textSize)
+        text.typeface = sample.typeface; text.letterSpacing = sample.letterSpacing; text.includeFontPadding = sample.includeFontPadding
+        text.setLineSpacing(sample.lineSpacingExtra, sample.lineSpacingMultiplier); text.setTextColor(sample.textColors)
+    }
     private fun drawable(name: String): Drawable {
         val id = context.resources.getIdentifier(name, "drawable", PROVIDER)
         require(id != 0) { host.getString(R.string.ocui_resource_missing , name) }
@@ -92,7 +139,7 @@ internal class Ocui(private val host: Context) {
             addState(intArrayOf(android.R.attr.state_focused), pill(0x24FFFFFF)); addState(intArrayOf(android.R.attr.state_hovered), pill(0x1CFFFFFF))
             addState(intArrayOf(), pill(0x12FFFFFF))
         }
-        setTextAppearance(0x7f100058); textSize = 14f; setTextColor(android.graphics.Color.WHITE); setHintTextColor(secondaryText)
+        styleText(this); textSize = 14f; setTextColor(android.graphics.Color.WHITE); setHintTextColor(secondaryText)
         setPaddingRelative(px(16), 0, px(16), 0)
     }
     private fun tile(fill: Int) = android.graphics.drawable.StateListDrawable().apply {
@@ -104,7 +151,7 @@ internal class Ocui(private val host: Context) {
     }
     private fun pill(color: Int) = android.graphics.drawable.GradientDrawable().apply { cornerRadius = px(22).toFloat(); setColor(color) }
     private fun pillButton(style: String) = android.widget.Button(context).apply {
-        setTextAppearance(0x7f100058); textSize = 14.8f; isAllCaps = false; stateListAnimator = null
+        styleText(this); textSize = 14.8f; isAllCaps = false; stateListAnimator = null
         minWidth = 0; minimumWidth = 0; minHeight = px(44); minimumHeight = px(44); setPaddingRelative(px(16), 0, px(16), 0)
         val (fills, ink) = when (style) {
             "PRIMARY" -> intArrayOf(0xFFFFFFFF.toInt(), 0xFFE4E6EB.toInt(), 0xFFCED0D4.toInt()) to 0xFF1C1E21.toInt()
@@ -123,7 +170,7 @@ internal class Ocui(private val host: Context) {
     @Composable fun Text(text: String, modifier: Modifier = Modifier, kind: String = "body", color: Int? = null, size: Float? = null) {
         AndroidView(modifier = modifier, factory = {
             (view("text.OCTextView") as TextView).apply {
-                setTextAppearance(when (kind) { "title" -> 0x7f10005b; "strong" -> 0x7f10005c; "detail" -> 0x7f100059; else -> 0x7f100058 })
+                styleText(this, kind)
                 if (kind == "title") isAccessibilityHeading = true
                 size?.let { textSize = it }
             }
@@ -189,42 +236,37 @@ internal class Ocui(private val host: Context) {
         val select = remember(options) {
             view("popup.OCSelect").apply {
                 contentDescription = label
-                invoke(this, "A02", options.indices.associateWith { options[it] })
-                invoke(this, "A01", options.indices.toList())
-                set(field(field(this, "A07"), "A0B"), "A00", callback("X.18b") { args ->
-                    val index = args[0] as Int
-                    invoke(this, "A00", index); changed(index)
-                })
+                configureSelect(this, options) { changed(it) }
             }
         }
         DisposableEffect(select) {
-            val close = { invoke(field(select, "A07"), "A02", false); Unit }
+            val close = { closeSelect(select); Unit }
             overlays.add(close)
             onDispose { close(); overlays.remove(close) }
         }
-        key(select) { AndroidView(modifier = modifier.heightIn(min = 60.dp), factory = { select }, update = { invoke(it, "A00", selected) }) }
+        key(select) { AndroidView(modifier = modifier.heightIn(min = 60.dp), factory = { select }, update = { selected(it, selected) }) }
     }
 
     @Composable fun Navigation(pages: List<String>, icons: List<String>, selected: Int, choose: (Int) -> Unit, modifier: Modifier = Modifier) {
         val changed by rememberUpdatedState(choose)
         val nav = remember {
             view("navigation.OCSideNav").apply {
-                (field(this, "A05") as TextView).visibility = View.GONE
-                (field(this, "A00") as View).apply { layoutParams = android.widget.LinearLayout.LayoutParams(-1, -1); setPaddingRelative(px(8), 0, px(8), 0) }
-                (field(this, "A02") as View).visibility = View.GONE
-                val constructor = type("X.0b4").getConstructor(Drawable::class.java, Uri::class.java, type("X.18Q"),
-                    String::class.java, String::class.java, String::class.java, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
-                val items = pages.mapIndexed { i, title -> constructor.newInstance(icon(icons[i]), null, enum("X.18Q", "SMALL"), i.toString(), title, null, i, true) }
-                val adapter = field(this, "A04")
-                set(adapter, "A01", items)
-                set(adapter, "A02", Function<Any, Any?> { item -> changed(items.indexOf(item)); null })
-                val observer = adapter.javaClass.superclass.getField("A00").get(adapter)
-                invoke(observer, "A00")
+                part(this, "ocsidenav_header").visibility = View.GONE
+                part(this, "ocsidenav_container").apply { layoutParams = android.widget.LinearLayout.LayoutParams(-1, -1); setPaddingRelative(px(8), 0, px(8), 0) }
+                part(this, "ocsidenav_grid_button").visibility = View.GONE
+                val adapter = navigationAdapter(this)
+                val constructor = api.navigationItem(navigationSelection(adapter).parameterTypes[0])
+                val small = constructor.parameterTypes[2].enumConstants!!.first { (it as Enum<*>).name == "SMALL" }
+                val items = pages.mapIndexed { i, title -> constructor.newInstance(icon(icons[i]), null, small, i.toString(), title, null, i, true) }
+                property(adapter) { List::class.java.isAssignableFrom(it) }.set(adapter, items)
+                property(adapter) { Function::class.java.isAssignableFrom(it) }.set(adapter, Function<Any, Any?> { item -> changed(items.indexOf(item)); null })
+                val observer = property(adapter) { android.database.Observable::class.java.isAssignableFrom(it) }.get(adapter)!!
+                method(observer).invoke(observer)
             }
         }
         AndroidView(modifier = modifier, factory = { nav }, update = {
-            val adapter = field(it, "A04")
-            invoke(adapter, "A05", (field(adapter, "A01") as List<*>)[selected])
+            val adapter = navigationAdapter(it)
+            navigationSelection(adapter).invoke(adapter, (property(adapter) { List::class.java.isAssignableFrom(it) }.get(adapter) as List<*>)[selected])
         })
     }
 
@@ -250,14 +292,12 @@ internal class Ocui(private val host: Context) {
         return Slot(options, {
             view("popup.OCSelect").apply {
                 contentDescription = label
-                invoke(this, "A02", options.indices.associateWith { options[it] })
-                invoke(this, "A01", options.indices.toList())
-                set(field(field(this, "A07"), "A0B"), "A00", callback("X.18b") { args -> invoke(this, "A00", args[0] as Int); current(args[0] as Int) })
-                val close = { invoke(field(this, "A07"), "A02", false); Unit }
+                configureSelect(this, options) { current(it) }
+                val close = { closeSelect(this); Unit }
                 overlays.add(close)
                 ((this as ViewGroup).getChildAt(0) as TextView).apply { layoutParams = layoutParams.apply { height = px(44) }; minHeight = px(44) }
             }
-        }) { current = choose; invoke(it, "A00", selected) }
+        }) { current = choose; selected(it, selected) }
     }
     fun slider(value: Float, label: String, change: (Float) -> Unit): Slot {
         var current: (Float) -> Unit = change
@@ -288,19 +328,26 @@ internal class Ocui(private val host: Context) {
         }, height = px(44)) { current = change; val edit = (it as ViewGroup).getChildAt(0) as EditText; if (edit.text.toString() != value) { binding = true; edit.setText(value); binding = false } }
     }
     fun chevron() = Slot("chevron", { android.widget.ImageView(context).apply {
-        setImageDrawable(drawable("oc_icon_chevron_right_filled_24")); imageTintList = android.content.res.ColorStateList.valueOf(attribute(0x7f040279).data)
+        setImageDrawable(drawable("oc_icon_chevron_right_filled_24")); imageTintList = android.content.res.ColorStateList.valueOf(secondaryText)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     } }) {}
 
     // Meta's dialog layout, filled in directly instead of through OCDialog so steps can change in place.
-    fun sheet(): View = android.view.LayoutInflater.from(context).inflate(0x7f0c0015, null).also {
+    fun sheet(): View = nativeDialog().second.also { sheet ->
+        (sheet.parent as? ViewGroup)?.removeView(sheet)
+    }.also {
         (sheetPart(it, "body_text") as TextView).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL; textAlignment = View.TEXT_ALIGNMENT_CENTER }
         // Meta's surface is translucent for the system blur, which app panels don't get.
         it.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xFF3A3A3A.toInt(), 0xFF2A2A2A.toInt())).apply {
-            cornerRadius = android.util.TypedValue.complexToDimension(attribute(0x7f040270).data, context.resources.displayMetrics)
+            cornerRadius = dialogRadius
         }
     }
-    val sheetWidth get() = android.util.TypedValue.complexToDimensionPixelSize(attribute(0x7f040335).data, context.resources.displayMetrics)
+    val sheetWidth get() = dialogPrototype.layoutParams.width
+    private val dialogRadius by lazy {
+        val background = drawable("ocdialog_background")
+        background.setBounds(0, 0, 1000, 1000)
+        android.graphics.Outline().also { background.getOutline(it) }.radius
+    }
     fun sheetPart(sheet: View, name: String): View = sheet.findViewById(context.resources.getIdentifier("oc_dialog_$name", "id", PROVIDER))
         ?: error(host.getString(R.string.ocui_resource_missing, name))
     fun hero(sheet: View, media: View, aspect: Float) {
@@ -311,7 +358,7 @@ internal class Ocui(private val host: Context) {
         space.removeView(image)
         media.id = image.id
         params.height = (sheetWidth / aspect).toInt()
-        val radius = android.util.TypedValue.complexToDimension(attribute(0x7f040270).data, context.resources.displayMetrics)
+        val radius = dialogRadius
         space.outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(view: View, outline: android.graphics.Outline) { outline.setRoundRect(0, 0, view.width, view.height + radius.toInt(), radius) }
         }
@@ -320,9 +367,10 @@ internal class Ocui(private val host: Context) {
         space.visibility = View.VISIBLE
         space.addView(media, params)
     }
-    fun sheetText(sheet: View, name: String, text: String) = (sheetPart(sheet, name) as TextView).let { if (it.text.toString() != text) it.text = text }
+    private fun reveal(view: View, sheet: View) { var at: View? = view; while (at != null) { at.visibility = View.VISIBLE; if (at == sheet) break; at = at.parent as? View } }
+    fun sheetText(sheet: View, name: String, text: String) = (sheetPart(sheet, name) as TextView).let { if (it.text.toString() != text) it.text = text; reveal(it, sheet) }
     fun sheetButton(sheet: View, name: String, label: String?, click: () -> Unit) = sheetPart(sheet, name).run {
-        visibility = if (label == null) View.GONE else View.VISIBLE
+        if (label == null) visibility = View.GONE else reveal(this, sheet)
         if (this is TextView && name != "back_button") text = label
         contentDescription = label; setOnClickListener { click() }
     }
@@ -334,12 +382,12 @@ internal class Ocui(private val host: Context) {
             AndroidView(modifier = modifier.fillMaxWidth(), factory = { ctx ->
                 android.widget.FrameLayout(ctx).apply { minimumHeight = px(72); addView((view("OCListItem") as ViewGroup).apply {
                     fun slot(child: View, name: String, width: Int) = addView(child.apply { id = View.generateViewId(); tag = name }, ViewGroup.LayoutParams(width, -2))
-                    (field(this, "A08") as View).visibility = View.GONE
+                    part(this, "list_item_more_button").visibility = View.GONE
                     setPaddingRelative(px(4), paddingTop, paddingEnd, paddingBottom)
                     background = null; foreground = null; isClickable = false; isFocusable = false
                     icon?.let { name -> slot(android.widget.ImageView(context).apply {
                         setImageDrawable(icon(name)); setPadding(px(12), px(12), px(12), px(12))
-                        imageTintList = android.content.res.ColorStateList.valueOf(attribute(0x7f040279).data)
+                        imageTintList = android.content.res.ColorStateList.valueOf(secondaryText)
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, "list_item_image_view", -2) }
                     trailing?.let { addView(it.create(ctx).apply { id = View.generateViewId(); tag = "list_item_button_layout" }, ViewGroup.LayoutParams(-2, it.height)) }
@@ -348,8 +396,8 @@ internal class Ocui(private val host: Context) {
             }, update = { frame ->
                 val item = frame.getChildAt(0) as ViewGroup
                 if (frame.tag != highlighted) { frame.tag = highlighted; frame.background = tile(if (highlighted) highlight else surface) }
-                (field(item, "A02") as TextView).text = title
-                (field(item, "A01") as TextView).apply { text = subtitle.orEmpty(); visibility = if (subtitle.isNullOrEmpty()) View.GONE else View.VISIBLE }
+                (part(item, "list_item_title") as TextView).text = title
+                (part(item, "list_item_subtitle") as TextView).apply { text = subtitle.orEmpty(); visibility = if (subtitle.isNullOrEmpty()) View.GONE else View.VISIBLE }
                 for (i in 0 until item.childCount) {
                     val child = item.getChildAt(i)
                     when (child.tag) { "list_item_button_layout" -> trailing?.update?.invoke(child); "list_item_bottom_component" -> below?.update?.invoke(child) }
@@ -359,13 +407,28 @@ internal class Ocui(private val host: Context) {
         }
     }
 
-    private fun attribute(id: Int) = android.util.TypedValue().also { require(context.theme.resolveAttribute(id, it, true)) { host.getString(R.string.ocui_attribute_missing , Integer.toHexString(id)) } }
     private fun px(dp: Int) = (dp * context.resources.displayMetrics.density).toInt()
     private val surface = 0x0EFFFFFF
-    private val secondaryText by lazy { attribute(0x7f0402d6).data }
+    private val secondaryText by lazy { (part(rowPrototype, "list_item_subtitle") as TextView).currentTextColor }
     private val highlight = 0x2AFFFFFF
     val sidebar = 0x0CFFFFFF
     private val cornerRadius = 16f
+
+    init {
+        // Validate the installed API before Compose can invoke it outside the startup error handler.
+        val select = view("popup.OCSelect")
+        configureSelect(select, emptyList()) { }
+        closeSelect(select)
+        val adapter = navigationAdapter(view("navigation.OCSideNav"))
+        api.navigationItem(navigationSelection(adapter).parameterTypes[0])
+        property(adapter) { List::class.java.isAssignableFrom(it) }
+        property(adapter) { Function::class.java.isAssignableFrom(it) }
+        val observer = property(adapter) { android.database.Observable::class.java.isAssignableFrom(it) }.get(adapter)!!
+        method(observer)
+        for (kind in listOf("body", "title", "strong", "detail")) styleText(view("text.OCTextView") as TextView, kind)
+        check(sheetWidth > 0) { host.getString(R.string.ocui_api_unavailable) }
+        dialogRadius
+    }
 
     @Composable fun Section(header: String? = null, footer: String? = null, rows: @Composable ColumnScope.() -> Unit) {
         Column(Modifier.fillMaxWidth()) {
@@ -392,13 +455,11 @@ internal class Ocui(private val host: Context) {
         val accept by rememberUpdatedState(confirm)
         BackHandler { cancel() }
         DisposableEffect(title, message, action) {
-            val cls = type("com.oculus.ocui.view.dialog.OCDialog")
-            val builder = cls.getMethod("builder", View::class.java).invoke(null, root)
-            set(builder, "A09", title); set(builder, "A07", message)
-            invoke(builder, "A0E", callback("X.1Bw") { accept() }, action, true)
-            invoke(builder, "A0D", callback("X.1Bw") { cancel() }, host.getString(R.string.cancel))
-            set(builder, "A06", callback("X.0zN") { cancel() })
-            val dialog = invoke(builder, "A0C")!!
+            val (dialog, sheet) = nativeDialog()
+            sheetText(sheet, "title", title); sheetText(sheet, "body_text", message)
+            sheetButton(sheet, "primary_button", action) { accept() }
+            sheetButton(sheet, "secondary_button", host.getString(R.string.cancel)) { cancel() }
+            part(sheet.rootView, "oc_dialog_scrim").setOnClickListener { cancel() }
             var closed = false
             val close = { if (!closed) { closed = true; invoke(dialog, "dismiss"); cancel() }; Unit }
             overlays.add(close)
