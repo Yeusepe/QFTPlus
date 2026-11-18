@@ -761,19 +761,33 @@ public partial class StudioWindow : Ui.FluentWindow
 
     static Visibility Visible(bool shown) => shown ? Visibility.Visible : Visibility.Collapsed;
 
-    bool CanControlNativeFace
+    CheckBox NativeFaceOption()
     {
-        get
+        if (!HeadsetModelExperiment.Standalone(session)) return Check("nativeFaceTracking", Loc.Get("NativeVRChatFaceTracking"), true);
+        var box = new CheckBox { Content = Loc.Get("NativeVRChatFaceTracking") };
+        var sending = false;
+        void Refresh()
         {
-            var config = session.Config;
-            return config["headsetStandalone"]?.GetValue<bool>() != true || config["headsetDirect"]?.GetValue<bool>() != true;
+            if (sending) return;
+            var value = session.App?["settings"]?["nativeFaceTracking"];
+            box.IsEnabled = value is not null;
+            box.IsChecked = value?.GetValue<bool>() != false;
+            AutomationProperties.SetHelpText(box, value is null ? Loc.Get("ReadingSettingsFromTheHeadset") : Loc.Get("NativeVRChatFaceTrackingAbout"));
         }
+        box.Click += async (_, _) =>
+        {
+            sending = true;
+            try { await SendToHeadset("nativeFaceTracking", box.IsChecked == true); }
+            finally { sending = false; Refresh(); }
+        };
+        trackingRefresh += Refresh;
+        Refresh();
+        return box;
     }
 
     void Settings()
     {
         var faceOnly = new List<UIElement>();
-        UIElement? nativeFaceOptions = null;
         UIElement Face(UIElement element)
         {
             faceOnly.Add(element);
@@ -781,7 +795,7 @@ public partial class StudioWindow : Ui.FluentWindow
         }
         void ShowFace(string use)
         {
-            foreach (var element in faceOnly) element.Visibility = Visible(use != "hands" && (element != nativeFaceOptions || CanControlNativeFace));
+            foreach (var element in faceOnly) element.Visibility = Visible(use != "hands");
             UseChanged(use);
         }
         session.DisableUncalibratedOutputs();
@@ -795,7 +809,7 @@ public partial class StudioWindow : Ui.FluentWindow
         var selfInstall = Loc.Get("TurnOffOnlyIfYouInstallTheModuleYourself");
         var installModule = Check("installModule", Loc.Get("InstallTheVRCFaceTrackingModule"), true);
         AutomationProperties.SetHelpText(installModule, selfInstall);
-        var nativeFace = Check("nativeFaceTracking", Loc.Get("NativeVRChatFaceTracking"), true);
+        var nativeFace = NativeFaceOption();
         AutomationProperties.SetHelpText(nativeFace, Loc.Get("NativeVRChatFaceTrackingAbout"));
         Page.Style = (Style)FindResource("SettingsLayout");
         UpdateOptions();
@@ -809,7 +823,7 @@ public partial class StudioWindow : Ui.FluentWindow
             Card(Heading(Loc.Get("SetupGuide")), Buttons(Button(Loc.Get("RunSetupGuide"), ShowOnboarding))),
             Card(Heading(Loc.Get("Startup")), Check("setupOnStart", Loc.Get("SetUpTheHeadsetOnStart"), true), Face(installModule),
                 Face(Check("startWithVrcft", Loc.Get("StartWithVRCFaceTracking"), true)), Check("openVrApps", Loc.Get("OpenVRAppsOnStart"), true)),
-            nativeFaceOptions = Face(Card(Heading(Loc.Get("VRChat")), nativeFace)),
+            Face(Card(Heading(Loc.Get("VRChat")), nativeFace)),
             GameVideoOptions(),
             new Ui.CardExpander { Header = Loc.Get("SuperSecretSettings"), Content = secretSettings, IsExpanded = false },
             Face(ProcessingOptions()), Face(FaceCalibrationOptions), Face(testerCard), LogView,
@@ -818,7 +832,6 @@ public partial class StudioWindow : Ui.FluentWindow
         })
             Page.Children.Add(element);
         UninstallOptions();
-        trackingRefresh += () => nativeFaceOptions!.Visibility = Visible(session.Use != "hands" && CanControlNativeFace);
         ShowFace(session.Use);
         if (revealLog is not null) Dispatcher.BeginInvoke(() => PageScroll.ScrollToVerticalOffset(LogView.TranslatePoint(new Point(), Page).Y), DispatcherPriority.Loaded);
         revealLog = null;

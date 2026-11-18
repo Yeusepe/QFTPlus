@@ -23,6 +23,7 @@ final class OscOutput implements AutoCloseable {
     private final FaceExpressions expressions = new FaceExpressions(false), headset = new FaceExpressions(true);
     private final OutputAdjustments adjustments;
     private final NativeFaceOsc nativeFace = new NativeFaceOsc();
+    private boolean nativeFaceActive;
     private long refresh;
     private static final String[] PREFIXES = {"FT/v2/", "v2/"};
     private static final int[] BITS = {1, 2, 4, 8, 16, 32, 64, 128};
@@ -161,7 +162,12 @@ final class OscOutput implements AutoCloseable {
             adjustments.apply(values, adjustments.passthrough() ? headset.read(payload, now, smileEyeClosure) : null, now);
             readNs += t1 - t0; applyNs += System.nanoTime() - t1;
             long faceAt = System.nanoTime();
-            begin(); face(values); flush(); sendNs += System.nanoTime() - faceAt;
+            boolean nativeEnabled = context.getSharedPreferences("settings", 0).getBoolean("nativeFaceTracking", true);
+            if (nativeEnabled || nativeFaceActive) {
+                begin(); face(nativeEnabled ? values : null); flush();
+            }
+            nativeFaceActive = nativeEnabled;
+            sendNs += System.nanoTime() - faceAt;
             if (avatar != null && avatar.heard && !probedHeard && probeAt == 0 && probeLowAt == 0 && probeDoneAt != 0 && now >= probeDoneAt) probedAvatar = reportedAvatar = -1;
             if (avatar != null && avatar.avatar != probedAvatar) { probedAvatar = avatar.avatar; probeAt = now + 1_500_000_000L; probeLowAt = probeDoneAt = 0; }
             if (probeAt != 0 && now >= probeAt) { probedHeard = avatar.heard; avatar.learning = true; probe(values.keySet(), true); probeAt = 0; probeLowAt = now + 350_000_000L; }
@@ -208,7 +214,12 @@ final class OscOutput implements AutoCloseable {
     }
     void idle() throws IOException {
         begin();
-        if (vrchat) { active(false, false); face(null); targets.clear(); }
+        if (vrchat) {
+            active(false, false);
+            if (nativeFaceActive) face(null);
+            nativeFaceActive = false;
+            targets.clear();
+        }
         else { value("/qft/status/tracking", 0); value("/qft/status/native_face", 0); value("/qft/status/pupils", 0); }
         flush();
     }

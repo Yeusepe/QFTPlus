@@ -174,6 +174,7 @@ class MainActivity : ComponentActivity() {
             Hit(getString(R.string.reduce_motion), getString(R.string.calibration_space), 2, words = getString(R.string.animation)),
             Hit(getString(R.string.remove_saved_calibration), null, 2, words = getString(R.string.delete_reset_clear)),
             Hit("VRChat", getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_osc_vrcft)),
+            Hit(getString(R.string.native_vrchat_face_tracking), getString(R.string.vrchat), 3),
             Hit(getString(R.string.osc_apps), getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_raw)),
             Hit(getString(R.string.qft_on_your_pc), getString(R.string.send_tracking_to), 3, words = getString(R.string.output_destination_pair_computer_vrcfacetracking_module)))
         if (TrackingService.outputMode(settings) != "pc") hits += listOf(
@@ -466,12 +467,21 @@ class MainActivity : ComponentActivity() {
             back = { editing = null }, save = { h, p -> save(h, p) }, forget = { stop(); settings.edit().remove("oscHost").remove("oscService").remove("oscServiceType").remove("oscName").apply(); revision++; editing = null }); return }
         fun choose(id: String) { if (mode != id) { stop(); mode = id; settings.edit().putString("output", id).apply(); notice = getString(R.string.destination_changed_turn_tracking_on_when_you_re) } }
         val paired = !settings.getString("key", "").isNullOrEmpty()
+        val nativeFace = remember { mutableStateOf(settings.getBoolean("nativeFaceTracking", true)) }
+        DisposableEffect(Unit) {
+            val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == "nativeFaceTracking") nativeFace.value = settings.getBoolean(key, true)
+            }
+            settings.registerOnSharedPreferenceChangeListener(listener)
+            onDispose { settings.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
         Page(pages[3]) {
             Group(getString(R.string.send_tracking_to), null,
                 row("VRChat", getString(R.string.standard_vrcft_v2_parameters_over_osc), "sports_esports", trailing = ocui.radio(mode == "vrchat", "VRChat") { choose("vrchat") }) { choose("vrchat") },
                 row(getString(R.string.osc_apps), getString(R.string.named_qft_values), "apps", trailing = ocui.radio(mode == "raw", getString(R.string.osc_apps)) { choose("raw") }) { choose("raw") },
                 row(getString(R.string.qft_on_your_pc), if (paired) getString(R.string.paired_connects_automatically) else getString(R.string.pair_from_settings_in_qft_on_your_pc), "oc_icon_computer_filled_24",
                     trailing = ocui.radio(mode == "pc", getString(R.string.qft_on_your_pc)) { choose("pc") }) { choose("pc") })
+            Group(getString(R.string.vrchat), null, switchRow(getString(R.string.native_vrchat_face_tracking), getString(R.string.native_vrchat_face_tracking_about), nativeFace, "nativeFaceTracking"))
             if (mode == "pc") return@Page
             Group(getString(R.string.my_receiver), null, *listOfNotNull(
                 if (host.isEmpty()) null else row(name, getString(if (sending) R.string.sending_to else R.string.selected_receiver, "$host:$port"), "router", ocui.chevron()) { editing = "saved" },

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="vrchat" translatable="false">VRChat</string>
+    <string name="native_vrchat_face_tracking">Native VRChat face tracking</string>
+    <string name="native_vrchat_face_tracking_about">Turn off to send VRCFaceTracking parameters only.</string>
     <string name="calibration_show_advanced">Show advanced options</string>
     <string name="calibration_hide_advanced">Hide advanced options</string>
     <string name="clear_search">Clear search</string>

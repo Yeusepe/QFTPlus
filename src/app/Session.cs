@@ -42,9 +42,16 @@ internal sealed class Session
             try { reply = await HeadsetApp.SendAsync(this, token, wanted is { } want ? [("tracking", want), .. changes] : changes); }
             catch (HeadsetApp.Refused) { if (appWanted == wanted) appWanted = null; throw; }
             if (appWanted == wanted) appWanted = null;
+            SyncNativeFaceSetting(reply);
             return reply;
         }
         finally { appGate.Release(); }
+    }
+    internal void SyncNativeFaceSetting(JsonObject reply)
+    {
+        if (reply["settings"]?["nativeFaceTracking"] is JsonValue value && value.TryGetValue<bool>(out var enabled)
+            && Config["nativeFaceTracking"]?.GetValue<bool>() != enabled)
+            Save("nativeFaceTracking", enabled);
     }
     volatile bool hybridReady;
     bool hybridPending, stopping;

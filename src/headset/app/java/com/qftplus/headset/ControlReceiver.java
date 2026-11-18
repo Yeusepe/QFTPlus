@@ -48,7 +48,7 @@ public final class ControlReceiver extends BroadcastReceiver {
             catch (IOException error) { setResultCode(2); setResultData(context.getString(R.string.could_not_save_headset_adjustments , error.getMessage())); return; }
         boolean restart = intent.hasExtra("rate") && intent.getIntExtra("rate", 0) != settings.getInt("rate", 0);
         SharedPreferences.Editor edit = settings.edit();
-        for (String key : new String[]{"tongue", "pupils", "boot", "convergence", "setupDone"}) if (intent.hasExtra(key)) edit.putBoolean(key, intent.getBooleanExtra(key, false));
+        for (String key : new String[]{"tongue", "pupils", "boot", "convergence", "setupDone", "nativeFaceTracking"}) if (intent.hasExtra(key)) edit.putBoolean(key, intent.getBooleanExtra(key, false));
         if (intent.hasExtra("vergenceGain")) edit.putFloat("vergenceGain", intent.getFloatExtra("vergenceGain", 1));
         if (intent.hasExtra("rate")) edit.putInt("rate", intent.getIntExtra("rate", 0));
         if (intent.hasExtra("metaGazeAveraging")) edit.putInt("metaGazeAveraging", intent.getIntExtra("metaGazeAveraging", 25));
@@ -125,6 +125,7 @@ public final class ControlReceiver extends BroadcastReceiver {
             .put("settings", new JSONObject().put("enabled", enabled).put("output", TrackingService.outputMode(settings))
                 .put("oscHost", settings.getString("oscHost", "")).put("oscPort", settings.getInt("oscPort", 9000)).put("oscName", settings.getString("oscName", ""))
                 .put("tongue", settings.getBoolean("tongue", false)).put("pupils", settings.getBoolean("pupils", false))
+                .put("nativeFaceTracking", settings.getBoolean("nativeFaceTracking", true))
                 .put("convergence", settings.getBoolean("convergence", true)).put("vergenceGain", settings.getFloat("vergenceGain", 1))
                 .put("metaGazeAveraging", settings.getInt("metaGazeAveraging", 25))
                 .put("boot", settings.getBoolean("boot", false)).put("setupDone", settings.getBoolean("setupDone", false)).put("rate", settings.getInt("rate", 0)))
