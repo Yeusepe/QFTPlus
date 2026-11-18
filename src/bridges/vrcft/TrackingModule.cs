@@ -52,6 +52,8 @@ public sealed class TrackingModule : ExtTrackingModule
     private MemoryMappedViewAccessor? _view;
     private long _mapTick;
     private UdpClient? _steamLinkSocket;
+    private long _steamLinkRetryAt = long.MaxValue, _labelStatusAt;
+    private bool _steamLinkPortConflict;
     private readonly SteamLinkState _steamLink = new();
     private readonly byte[] _steamLinkBytes = new byte[StateBytes];
     private IPEndPoint _labelsEndpoint = new(IPAddress.Loopback, 27274);
@@ -137,8 +139,8 @@ public sealed class TrackingModule : ExtTrackingModule
         };
 
         _runtimeSocket = Bind(RuntimePort, "Could not bind QFT+ port {Port}; factory tracking remains available");
-        _steamLinkSocket = Bind(SteamLinkState.Port, "Steam Link port {Port} unavailable. Disable the standalone SteamLink module and restart VRCFaceTracking");
-        if (_steamLinkSocket is not null) _steamLinkSocket.Client.ReceiveBufferSize = 1024 * 1024;
+        _steamLinkRetryAt = 0;
+        EnsureSteamLink(Environment.TickCount64);
         TryOpenMap(Environment.TickCount64);
         _labelSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         StartLocalRuntime();
@@ -162,6 +164,32 @@ public sealed class TrackingModule : ExtTrackingModule
         {
             Logger.LogError(error, failure, port);
             return null;
+        }
+    }
+
+    private void EnsureSteamLink(long now, int port = SteamLinkState.Port)
+    {
+        if (_steamLinkSocket is not null || now < _steamLinkRetryAt) return;
+        bool firstAttempt = _steamLinkRetryAt == 0;
+        _steamLinkRetryAt = now + 1000;
+        UdpClient? socket = null;
+        try
+        {
+            socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
+            socket.Client.Blocking = false;
+            socket.Client.ReceiveBufferSize = 1024 * 1024;
+            WakeOnPackets(socket);
+            _steamLinkSocket = socket;
+            if (!firstAttempt) Logger?.LogInformation("Steam Link input recovered on port {Port}", port);
+            _steamLinkPortConflict = false;
+        }
+        catch (SocketException error)
+        {
+            socket?.Dispose();
+            bool conflict = error.SocketErrorCode == SocketError.AddressAlreadyInUse;
+            if (firstAttempt || conflict != _steamLinkPortConflict)
+                Logger?.LogError(error, "Steam Link input unavailable on port {Port}; retrying every second", port);
+            _steamLinkPortConflict = conflict;
         }
     }
 
@@ -197,9 +225,15 @@ public sealed class TrackingModule : ExtTrackingModule
             else Thread.Sleep(WaitMs);
             _packetSignal.Reset();
             long now = Environment.TickCount64;
+            EnsureSteamLink(now);
             Receive(_runtimeSocket, 64, now);
             if (_headset.Poll(now)) AcceptHeadset(now);
             bool tracking = TryReadState(now);
+            if (now >= _labelStatusAt)
+            {
+                SendLabel(new { V = 1, Type = "status", SteamLinkPortConflict = _steamLinkPortConflict });
+                _labelStatusAt = now + 1000;
+            }
             if (!tracking) Array.Clear(_second);
 
             var expressions = MemoryMarshal.Cast<byte, float>(_second.AsSpan(ExpressionOffset, ExpressionCount * sizeof(float)));

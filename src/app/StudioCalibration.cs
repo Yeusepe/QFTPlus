@@ -79,6 +79,17 @@ public partial class StudioWindow
         if (pupilSourcePicker is not null) pupilSourcePicker.IsEnabled = !recording && !training;
         slowMode.Visibility = Visible(kind == "enroll" && !recording && !training);
         begin.Visibility = Visible(!recording && !training);
+        var faceReady = kind == "pupils" || FreshState() && state["faceReady"]?.GetValue<bool>() == true;
+        begin.IsEnabled = faceReady;
+        if (FreshState() && state["faceReady"]?.GetValue<bool>() == true &&
+            (Notice.Text == Loc.Get("CalibrationFacePortConflict") || Notice.Text == Loc.Get("CalibrationFaceDataUnavailable") ||
+             Notice.Text == Loc.Get("CalibrationCameraDataUnavailable"))) ClearNotice();
+        if (!recording && !training && !faceReady)
+        {
+            count.Text = Loc.Get(state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable");
+            count.Visibility = Visibility.Visible;
+        }
+        else if (!recording && !training && kind != "pupils") count.Text = Loc.Get("RecordingsStayOnThisPC");
         setUpFace.Visibility = Visible(SetupFirst && !recording && !training);
         pause.Visibility = Visible(recording);
         skip.Visibility = repeatPose.Visibility = Visible(recording && kind != "pupils");
@@ -230,6 +241,8 @@ public partial class StudioWindow
         }
         if (!session.Running) Error(Loc.Get("StartTrackingThenStartCalibration"));
         else if (runtimeId.Length == 0 || session.State != "Connected" || !FreshState()) Error(Loc.Get("WaitingForTheHeadsetCamerasMakeSureTheHeadset"));
+        else if (kind != "pupils" && state["faceReady"]?.GetValue<bool>() != true)
+            Error(Loc.Get(state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable"));
         else
         {
             ClearNotice();
@@ -369,6 +382,7 @@ public partial class StudioWindow
             }
             if (recording && !cancelPending && DateTime.UtcNow - heartbeat > TimeSpan.FromMilliseconds(700)) Send("heartbeat");
             if (page == "Calibration" && recording) UpdateGuide();
+            if (page == "Calibration") RefreshCalibrationControls();
             if (recording && !FreshState()) Error(Loc.Get("CameraFeedPausedMakeSureTheHeadsetIsAwake"));
             if (page == "Cameras" && IsVisible) await UpdateCameras();
             if (IsVisible) adjustmentRefresh?.Invoke();
@@ -392,7 +406,8 @@ public partial class StudioWindow
         if (kind == "pupils") SetPupilStimulus(state["level"]?.GetValue<double>() ?? 0);
         else DrawFace(state["targets"]?.AsObject() ?? new());
         pause.Content = state["paused"]?.GetValue<bool>() == true ? Loc.Get("Resume") : Loc.Get("Pause");
-        skip.IsEnabled = kind != "enroll" || state["condition"]?.GetValue<string>() is string condition && condition is not ("neutral" or "validate:neutral");
+        repeatPose.IsEnabled = state["waitingForFace"]?.GetValue<bool>() != true;
+        skip.IsEnabled = repeatPose.IsEnabled && (kind != "enroll" || state["condition"]?.GetValue<string>() is string condition && condition is not ("neutral" or "validate:neutral"));
         if (state["phase"]?.GetValue<string>() is not ("complete" or "cancelled")) return;
         recording = false;
         Theme("System");

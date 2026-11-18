@@ -22,8 +22,12 @@ def publish(path, value):
 
 
 class StudioCapture:
-    def __init__(self, root):
+    def __init__(self, root, labels=None):
         self.root = Path(root)
+        self.native_labels = labels
+        self.last_frame_ns = None
+        self.last_stream_ns = None
+        self.waiting_for_face = False
         self.runtime_id = uuid.uuid4().hex
         self.last_id = 0
         self.last_poll = self.last_publish = 0.
@@ -36,6 +40,42 @@ class StudioCapture:
         self.last_video = 0.
         self.last_hash = None
         self.reload_requested = True
+
+    def face_issue(self, now_ns):
+        labels = self.native_labels
+        sample = labels.latest if labels else None
+        native = fresh_values(sample, labels.schema_names, now_ns) if labels else None
+        if (native is not None and sample.get('faceFlags', 0) & 1
+                and 'JawDrop' in native and any(n.startswith('LipPucker') for n in native)
+                and ('TongueOut' in native or 'TongueTipInterdental' in native)):
+            return ''
+        status = labels.status if labels else None
+        if (status and 0 <= now_ns - status['arrivalMonotonicNs'] < 3_000_000_000
+                and status['steamLinkPortConflict']):
+            return 'CalibrationFacePortConflict'
+        return 'CalibrationFaceDataUnavailable'
+
+    def data_issue(self, now_ns):
+        issue = self.face_issue(now_ns)
+        if issue:
+            return issue
+        camera_ns = self.last_frame_ns if self.guided else self.last_stream_ns
+        if camera_ns is None or not 0 <= now_ns - camera_ns <= 500_000_000:
+            return 'CalibrationCameraDataUnavailable'
+        return ''
+
+    def wait_for_data(self, now_ns, issue):
+        self.guided.update(now_ns, True)
+        self.waiting_for_face = True
+        self.state.update(self.guided.ui(), paused=self.paused, waitingForFace=True, cue='GuidePaused', instruction=issue)
+
+    def camera_frame(self, now_ns, *, full=True):
+        self.last_stream_ns = now_ns
+        if not full:
+            return
+        if self.guided and self.last_frame_ns is not None and now_ns - self.last_frame_ns > 500_000_000:
+            self.wait_for_data(now_ns, 'CalibrationCameraDataUnavailable')
+        self.last_frame_ns = now_ns
 
     def command(self, command, now):
         if command.get('runtimeId') != self.runtime_id:
@@ -55,9 +95,13 @@ class StudioCapture:
             if kind not in ('pupils', 'benchmark', 'benchmark-quick', 'enroll'):
                 raise ValueError("GuideUnknownCalibration")
             self.kind = kind
+            self.state['kind'] = kind
+            if kind != 'pupils' and (issue := self.data_issue(int(now * 1e9))):
+                raise ValueError(issue)
             self.prefix = self.root / 'captures' / (kind+'-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
             self.prefix.parent.mkdir(parents=True, exist_ok=True)
             self.paused = False
+            self.waiting_for_face = False
             self.state = {'phase': 'recording', 'prefix': str(self.prefix), 'kind': kind}
             if kind in ('benchmark', 'benchmark-quick', 'enroll'):
                 self.writer = CaptureWriter(self.prefix.with_suffix('.qpcap'))
@@ -88,8 +132,11 @@ class StudioCapture:
         elif action == 'reload':
             self.reload_requested = True
         elif action == 'repeat' and self.guided:
-            self.guided.repeat(time.monotonic_ns())
+            if not self.data_issue(int(now * 1e9)):
+                self.guided.repeat(time.monotonic_ns())
         elif action == 'skip' and self.guided:
+            if self.data_issue(int(now * 1e9)):
+                return
             if isinstance(self.guided, EnrollmentSession) and self.guided.current.slot == 'neutral':
                 return
             self.guided.skip(time.monotonic_ns())
@@ -110,11 +157,19 @@ class StudioCapture:
                 except (OSError, ValueError, KeyError, TypeError) as error:
                     self.finish(False)
                     self.state['error'] = str(error)
+        issue = self.data_issue(monotonic_ns)
+        self.state.update(faceReady=not issue, faceIssue=issue)
+        if not issue and self.state.get('error') in ('CalibrationFacePortConflict', 'CalibrationFaceDataUnavailable', 'CalibrationCameraDataUnavailable'):
+            self.state.pop('error', None)
+        if self.guided and issue:
+            self.wait_for_data(monotonic_ns, issue)
         if now-self.last_publish >= .2:
             self.last_publish = now
             publish(self.root/'studio.state.json', dict(self.state, runtimeId=self.runtime_id, ack=self.last_id, time=time.time()))
 
     def update(self, strip, header, payload, monotonic_ns, labels, *, headset_pupils=False):
+        self.native_labels = labels
+        self.camera_frame(monotonic_ns)
         self.poll(monotonic_ns)
         now = monotonic_ns / 1e9
         try:
@@ -158,6 +213,15 @@ class StudioCapture:
         if now-self.last_ui > 3:
             self.paused = True
         guided = self.guided
+        issue = self.data_issue(monotonic_ns)
+        if issue:
+            self.wait_for_data(monotonic_ns, issue)
+            return
+        if self.waiting_for_face:
+            if isinstance(guided, EnrollmentSession):
+                guided.repeat(monotonic_ns)
+            self.waiting_for_face = False
+        self.state['waitingForFace'] = False
         guided.update(monotonic_ns, self.paused)
         if guided.completed:
             self.finish(True)

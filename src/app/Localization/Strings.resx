@@ -4210,4 +4210,7 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="MetaGazeAveragingFailed" xml:space="preserve"><value>Could not change gaze averaging. Check the tracking log.</value></data>
   <data name="SmileEyeClosure" xml:space="preserve"><value>Smile eye closure</value></data>
   <data name="SmileEyeClosureHelp" xml:space="preserve"><value>Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</value></data>
+  <data name="CalibrationFacePortConflict" xml:space="preserve"><value>Another app or module is using Steam Link face data. Close the other app or disable its Steam Link module. QFT+ will reconnect automatically.</value></data>
+  <data name="CalibrationFaceDataUnavailable" xml:space="preserve"><value>Waiting for live face data from the QFT+ module in VRCFaceTracking. Live face data is required for calibration.</value></data>
+  <data name="CalibrationCameraDataUnavailable" xml:space="preserve"><value>Waiting for live camera images. Keep the headset on and connected.</value></data>
 </root>

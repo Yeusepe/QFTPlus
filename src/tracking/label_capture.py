@@ -58,6 +58,7 @@ class LabelSidecarRecorder:
     def __init__(self, port: int = 27274) -> None:
         self.schema_names: list[str] = []
         self.latest: dict | None = None
+        self.status: dict | None = None
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("127.0.0.1", port))
         self._socket.settimeout(0.2)
@@ -83,6 +84,8 @@ class LabelSidecarRecorder:
                         self.schema_names = names
                 elif message["type"] == "sample":
                     self.latest = {**sample_record(message, self.schema_names), **arrival}
+                elif message["type"] == "status" and type(message.get("steamLinkPortConflict")) is bool:
+                    self.status = {"steamLinkPortConflict": message["steamLinkPortConflict"], **arrival}
             except (KeyError, TypeError, ValueError, OverflowError, RecursionError):
                 pass
 

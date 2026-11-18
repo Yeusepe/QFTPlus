@@ -219,7 +219,7 @@ def main() -> int:
     shared = SharedPreview()
     server = start_preview_server(shared, PREVIEW_PORT)
     labels = LabelSidecarRecorder(port=LABELS_PORT)
-    studio = StudioCapture(ROOT)
+    studio = StudioCapture(ROOT, labels)
     face = pupils = connection = None
     headset = os.environ.get('QFT_HEADSET_MODEL') == '1'
     def reload_models():
@@ -323,6 +323,7 @@ def main() -> int:
                     shared.update(strip, pupils.detected_pupils if pupils else (None, None))
                 try:
                     if strip is None:
+                        studio.camera_frame(now_ns, full=False)
                         studio.poll(now_ns)
                     else:
                         studio.update(strip, raw_header, payload, now_ns, labels, headset_pupils=headset)
