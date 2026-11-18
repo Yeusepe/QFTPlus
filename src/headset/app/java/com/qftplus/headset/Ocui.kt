@@ -61,12 +61,10 @@ internal class Ocui(private val host: Context) {
     private fun view(name: String): View = type("com.oculus.ocui.view.$name")
         .getConstructor(Context::class.java, AttributeSet::class.java).newInstance(context, null) as View
     private fun property(obj: Any, matches: (Class<*>) -> Boolean): java.lang.reflect.Field =
-        obj.javaClass.fields.single { !java.lang.reflect.Modifier.isStatic(it.modifiers) && matches(it.type) }
-    private fun method(obj: Any, vararg parameters: Class<*>) = obj.javaClass.declaredMethods.single {
-        !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(parameters)
-    }
+        api.property(obj) { matches(it.type) }
+    private fun method(obj: Any, vararg parameters: Class<*>) = api.method(obj, Void.TYPE, *parameters)
     private fun invoke(obj: Any, name: String, vararg args: Any?): Any? =
-        obj.javaClass.methods.single { it.name == name && it.parameterCount == args.size }.invoke(obj, *args)
+        api.namedMethod(obj, name, *args).invoke(obj, *args)
     private fun callback(cls: Class<*>, action: (Array<out Any?>) -> Unit): Any =
         Proxy.newProxyInstance(loader, arrayOf(cls)) { proxy, method, args ->
             when (method.name) {
@@ -78,39 +76,34 @@ internal class Ocui(private val host: Context) {
         }
     private fun part(view: View, name: String): View = view.findViewById(context.resources.getIdentifier(name, "id", PROVIDER))
         ?: error(host.getString(R.string.ocui_resource_missing, name))
-    private fun popup(select: View): Any = property(select) { cls -> cls.declaredMethods.any {
+    private fun popup(select: View): Any = property(select) { cls -> api.methods(cls).any {
         it.parameterTypes.contentEquals(arrayOf(View::class.java, Boolean::class.javaPrimitiveType)) && it.returnType == Void.TYPE
     } }.get(select)!!
     private fun selected(select: View, index: Int) = method(select, Any::class.java).invoke(select, index)
     private fun closeSelect(select: View) { val popup = popup(select); method(popup, Boolean::class.javaPrimitiveType!!).invoke(popup, false) }
     private fun configureSelect(select: View, options: List<String>, choose: (Int) -> Unit) {
-        val labels = select.javaClass.declaredMethods.single { m ->
-            m.parameterTypes.contentEquals(arrayOf(Map::class.java)) &&
-                (m.genericParameterTypes[0] as? java.lang.reflect.ParameterizedType)?.actualTypeArguments?.get(1) == String::class.java
-        }
+        val labels = api.labels(select)
         labels.invoke(select, options.indices.associateWith { options[it] })
         method(select, List::class.java).invoke(select, options.indices.toList())
         val popup = popup(select)
-        val adapter = property(popup) { cls -> cls.declaredFields.any { List::class.java.isAssignableFrom(it.type) } &&
-            cls.declaredFields.any { Map::class.java.isAssignableFrom(it.type) } }.get(popup)!!
-        val listener = property(adapter) { cls -> cls.isInterface && cls.methods.count {
+        val adapter = property(popup) { cls -> api.fields(cls).any { List::class.java.isAssignableFrom(it.type) } &&
+            api.fields(cls).any { Map::class.java.isAssignableFrom(it.type) } }.get(popup)!!
+        val listener = property(adapter) { cls -> cls.isInterface && api.methods(cls).count {
             java.lang.reflect.Modifier.isAbstract(it.modifiers) && it.returnType == Void.TYPE && it.parameterTypes.contentEquals(arrayOf(Any::class.java))
         } == 1 }
         listener.set(adapter, callback(listener.type) { args -> val index = args[0] as Int; selected(select, index); choose(index) })
     }
     private fun navigationAdapter(nav: View): Any = property(nav) { cls ->
-        cls.declaredFields.any { Function::class.java.isAssignableFrom(it.type) } && cls.declaredFields.any { List::class.java.isAssignableFrom(it.type) }
+        api.fields(cls).any { Function::class.java.isAssignableFrom(it.type) } && api.fields(cls).any { List::class.java.isAssignableFrom(it.type) }
     }.get(nav)!!
-    private fun navigationSelection(adapter: Any) = adapter.javaClass.declaredMethods.single {
-        !java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE && it.parameterCount == 1 &&
-            !it.parameterTypes[0].isPrimitive
-    }
+    private fun navigationSelection(adapter: Any) = api.navigationSelection(adapter)
+    private fun navigationField(adapter: Any, container: Class<*>) =
+        api.itemField(adapter, container, api.navigationItem(navigationSelection(adapter).parameterTypes[0]).declaringClass)
     private fun nativeDialog(): Pair<Any, View> {
         val cls = type("com.oculus.ocui.view.dialog.OCDialog")
-        val builder = cls.getMethod("builder", View::class.java).invoke(null, root)
-        val dialog = builder.javaClass.declaredMethods.single { it.parameterCount == 0 && it.returnType == cls }.invoke(builder)
-        val getter = cls.declaredMethods.single { it.parameterCount == 0 && View::class.java.isAssignableFrom(it.returnType) }
-        getter.isAccessible = true
+        val builder = cls.getMethod("builder", View::class.java).invoke(null, root)!!
+        val dialog = api.method(builder, cls).invoke(builder)!!
+        val getter = api.dialogView(dialog)
         return dialog to (getter.invoke(dialog) as View)
     }
     private val dialogPrototype by lazy { nativeDialog().second }
@@ -258,15 +251,15 @@ internal class Ocui(private val host: Context) {
                 val constructor = api.navigationItem(navigationSelection(adapter).parameterTypes[0])
                 val small = constructor.parameterTypes[2].enumConstants!!.first { (it as Enum<*>).name == "SMALL" }
                 val items = pages.mapIndexed { i, title -> constructor.newInstance(icon(icons[i]), null, small, i.toString(), title, null, i, true) }
-                property(adapter) { List::class.java.isAssignableFrom(it) }.set(adapter, items)
-                property(adapter) { Function::class.java.isAssignableFrom(it) }.set(adapter, Function<Any, Any?> { item -> changed(items.indexOf(item)); null })
+                navigationField(adapter, List::class.java).set(adapter, items)
+                navigationField(adapter, Function::class.java).set(adapter, Function<Any, Any?> { item -> changed(items.indexOf(item)); null })
                 val observer = property(adapter) { android.database.Observable::class.java.isAssignableFrom(it) }.get(adapter)!!
                 method(observer).invoke(observer)
             }
         }
         AndroidView(modifier = modifier, factory = { nav }, update = {
             val adapter = navigationAdapter(it)
-            navigationSelection(adapter).invoke(adapter, (property(adapter) { List::class.java.isAssignableFrom(it) }.get(adapter) as List<*>)[selected])
+            navigationSelection(adapter).invoke(adapter, (navigationField(adapter, List::class.java).get(adapter) as List<*>)[selected])
         })
     }
 
@@ -421,8 +414,8 @@ internal class Ocui(private val host: Context) {
         closeSelect(select)
         val adapter = navigationAdapter(view("navigation.OCSideNav"))
         api.navigationItem(navigationSelection(adapter).parameterTypes[0])
-        property(adapter) { List::class.java.isAssignableFrom(it) }
-        property(adapter) { Function::class.java.isAssignableFrom(it) }
+        navigationField(adapter, List::class.java)
+        navigationField(adapter, Function::class.java)
         val observer = property(adapter) { android.database.Observable::class.java.isAssignableFrom(it) }.get(adapter)!!
         method(observer)
         for (kind in listOf("body", "title", "strong", "detail")) styleText(view("text.OCTextView") as TextView, kind)
