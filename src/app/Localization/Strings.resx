@@ -4212,5 +4212,13 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="SmileEyeClosureHelp" xml:space="preserve"><value>Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</value></data>
   <data name="CalibrationFacePortConflict" xml:space="preserve"><value>Another app or module is using Steam Link face data. Close the other app or disable its Steam Link module. QFT+ will reconnect automatically.</value></data>
   <data name="CalibrationFaceDataUnavailable" xml:space="preserve"><value>Waiting for live face data from the QFT+ module in VRCFaceTracking. Live face data is required for calibration.</value></data>
+  <data name="GuideNeedMoreCalibrationImages" xml:space="preserve"><value>QFT+ needs more camera images for this pose. Keep holding it.</value></data>
   <data name="CalibrationCameraDataUnavailable" xml:space="preserve"><value>Waiting for live camera images. Keep the headset on and connected.</value></data>
+  <data name="CalibrationPartialSummary" xml:space="preserve"><value>Calibration was saved for the movements that passed. Open the details to see what needs attention.</value></data>
+  <data name="CalibrationPoseFailure" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="CalibrationPoseSkipped" xml:space="preserve"><value>This step was skipped.</value></data>
+  <data name="CalibrationPoseNotValidated" xml:space="preserve"><value>This movement did not complete both checks.</value></data>
+  <data name="CalibrationTonguePosesMissing" xml:space="preserve"><value>All five tongue poses must pass before tongue direction can work.</value></data>
+  <data name="CalibrationTongueDirectionsNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated tongue directions.</value></data>
+  <data name="CalibrationCheeksNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated cheek movements.</value></data>
 </root>

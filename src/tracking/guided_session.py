@@ -216,6 +216,7 @@ class GuidedSession:
 
 
 ENROLL_CAP_SECONDS = 150.
+ENROLL_HOLD_FRAMES = 8
 SLOW = 2.
 RELAX = Step("GuideRelax", "GuideLetYourFaceGoLoose", 1., "relax")
 
@@ -289,7 +290,7 @@ class EnrollmentSession(GuidedSession):
             if elapsed >= self.current.seconds and entry.get("extensionSeconds", 0.) < 4*self.pace:
                 gate = self.evaluate(self.current)
                 if gate.get("reason") in ("GuideTheHeadsetCamerasDidnTSendImages", "GuideTheCameraImageFroze",
-                                          "GuideTryToHoldStill", "GuideFaceTrackingDidnTSeeItClearly"):
+                                          "GuideTryToHoldStill", "GuideFaceTrackingDidnTSeeItClearly", "GuideNeedMoreCalibrationImages"):
                     extra = .5*self.pace
                     self.steps[self.index] = replace(self.current, seconds=self.current.seconds+extra)
                     entry["plannedSeconds"] = self.current.seconds
@@ -343,6 +344,9 @@ class EnrollmentSession(GuidedSession):
             if error > max(3., .35 * result.get("distance", 0.)):
                 return {**result, "passed": False, "reason": "GuideCalibrationRepeatMismatch"}
             result["repeatError"] = error
+        result["savedFrames"] = sum(bool(f[2]) for f in self.record["steps"][self.index].get("frames", []))
+        if result["savedFrames"] < ENROLL_HOLD_FRAMES:
+            return {**result, "passed": False, "reason": "GuideNeedMoreCalibrationImages"}
         return {**result, "passed": True}
 
     def _advance(self, now_ns, skipped):
@@ -392,12 +396,12 @@ def check(prefix, model=None):
         raise ValueError("GuideThisIsnTAFaceSetupRecording")
     validated = {s["condition"].split(":", 1)[1] for s in session["steps"]
                  if s["condition"].startswith("validate:") and not s.get("skipped") and s.get("gate", {}).get("passed")
-                 and sum(bool(f[2]) for f in s.get("frames", [])) >= 8}
+                 and sum(bool(f[2]) for f in s.get("frames", [])) >= ENROLL_HOLD_FRAMES}
     entries = scan_frames(prefix.with_suffix(".qpcap"), 0x1F)
     with prefix.with_suffix(".qpcap").open("rb") as capture:
         def frames(indices):
             out = []
-            for i in indices[-8:]:
+            for i in indices[-ENROLL_HOLD_FRAMES:]:
                 offset, _, w, h = entries[i]
                 capture.seek(offset)
                 out.append(np.frombuffer(capture.read(w * h), np.uint8).reshape(h, w))
@@ -410,7 +414,7 @@ def check(prefix, model=None):
                 gates.setdefault(slot, []).append(step["gate"])
                 held = [f[0] for f in step.get("frames", []) if f[2]]
                 if (not step.get("skipped") and step["gate"]["passed"] and held and slot not in slots
-                        and (not session.get("requiresValidation") or len(held) >= 8 and slot in validated)):
+                        and (not session.get("requiresValidation") or len(held) >= ENROLL_HOLD_FRAMES and slot in validated)):
                     arrays["slot_" + slot] = frames(held); slots[slot] = len(held)
         for s in session["steps"]:
             if s["condition"].startswith("validate:") and not s.get("skipped") and s.get("gate", {}).get("passed"):

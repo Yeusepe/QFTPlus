@@ -319,18 +319,19 @@ public partial class StudioWindow
         }
         CalibrationCard.Content = CalibrationResultPanel;
         var benchmark = passed && trainingKind.StartsWith("benchmark");
-        ResultTitle.Text = benchmark ? Loc.Get("BenchmarkRecorded") : passed ? Loc.Get("CalibrationIsOn") : Loc.Get("CalibrationWasnTSaved");
-        ResultDetail.Text = passed ? message : Loc.Get("YourCurrentCalibrationHasnTChanged");
+        var lines = message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var partial = passed && trainingKind == "enroll" && lines.Length > 1;
+        ResultTitle.Text = benchmark ? Loc.Get("BenchmarkRecorded") : partial ? Loc.Get("CalibrationPartiallyCalibrated") : passed ? Loc.Get("CalibrationIsOn") : Loc.Get("CalibrationWasnTSaved");
+        ResultDetail.Text = passed ? lines.FirstOrDefault() ?? message : Loc.Get("YourCurrentCalibrationHasnTChanged");
         ResultFiles.Visibility = Visible(benchmark && File.Exists(candidate));
-        var lines = passed ? [] : message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         ResultError.Text = lines.FirstOrDefault() ?? Loc.Get("TryRecordingYourPosesAgain");
         ResultError.Visibility = Visible(!passed);
         ResultFindings.IsExpanded = false;
         ResultLines.ItemsSource = lines.Skip(1);
         ResultDetailsHost.Children.Clear();
-        if (lines.Length > 1) ResultDetailsHost.Children.Add(ResultFindings);
-        begin.Content = passed ? Loc.Get("CalibrateAgain") : Loc.Get("TryAgain");
-        begin.Appearance = passed ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
+        if (lines.Length > 1 && (!passed || partial)) ResultDetailsHost.Children.Add(ResultFindings);
+        begin.Content = passed && !partial ? Loc.Get("CalibrateAgain") : Loc.Get("TryAgain");
+        begin.Appearance = passed && !partial ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         RefreshCalibrationControls();
         review.Visibility = Visible(File.Exists(prefix + ".avi"));
         UIElementAutomationPeer.FromElement(ResultTitle)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
@@ -340,6 +341,37 @@ public partial class StudioWindow
     {
         try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{candidate}\"").Dispose(); }
         catch (Exception) { Error(Loc.Format("ExplorerFailure", Path.GetDirectoryName(candidate))); }
+    }
+
+    internal static string FaceCalibrationMessage(JsonObject capture, JsonObject report)
+    {
+        if (capture["requiresValidation"]?.GetValue<bool>() != true || capture["steps"] is not JsonArray entries)
+            return Loc.Get("FaceCalibrationIsOn");
+        var steps = entries.OfType<JsonObject>().ToArray();
+        var validated = report["validatedSlots"]?.AsArray().Select(n => n?.GetValue<string>()).ToHashSet() ?? [];
+        var findings = new List<string>();
+        foreach (var group in steps.Where(s => s["condition"]?.GetValue<string>()?.StartsWith("anchor:") == true)
+                     .GroupBy(s => s["condition"]!.GetValue<string>()[7..]))
+        {
+            if (validated.Contains(group.Key)) continue;
+            var attempt = group.Any(s => s["gate"]?["passed"]?.GetValue<bool>() == true)
+                ? steps.LastOrDefault(s => s["condition"]?.GetValue<string>() == "validate:" + group.Key) : group.Last();
+            var reason = attempt?["skipped"]?.GetValue<bool>() == true ? Loc.Get("CalibrationPoseSkipped")
+                : attempt?["gate"]?["passed"]?.GetValue<bool>() == true ? Loc.Get("GuideNeedMoreCalibrationImages")
+                : attempt?["gate"]?["reason"] is { } failure && failure.GetValue<string>() != "skipped" ? Loc.Text(failure)
+                : Loc.Get("CalibrationPoseNotValidated");
+            findings.Add(Loc.Format("CalibrationPoseFailure", Loc.Text(group.First()["name"]), reason));
+        }
+        if (report["features"]?["tongueDirection"]?.GetValue<bool>() == false)
+        {
+            var complete = new[] { "tongue_out", "tongue_up", "tongue_down", "tongue_left", "tongue_right" }.All(validated.Contains);
+            findings.Add(Loc.Format("CalibrationPoseFailure", Loc.Get("CalibrationTongueDirection"),
+                Loc.Get(complete ? "CalibrationTongueDirectionsNotDistinct" : "CalibrationTonguePosesMissing")));
+        }
+        if (report["features"]?["cheekSeparation"]?.GetValue<bool>() == false)
+            findings.Add(Loc.Format("CalibrationPoseFailure", Loc.Get("CalibrationCheekSeparation"), Loc.Get("CalibrationCheeksNotDistinct")));
+        return findings.Count == 0 ? Loc.Get("FaceCalibrationIsOn")
+            : string.Join('\n', new[] { Loc.Get("CalibrationPartialSummary") }.Concat(findings));
     }
 
     internal async Task Tick()
@@ -437,20 +469,8 @@ public partial class StudioWindow
                 _ = Conclude(async () =>
                 {
                     candidate = await session.Enroll(prefix);
-                    var message = Loc.Get("FaceCalibrationIsOn");
                     var capture = Session.Read(prefix + ".qpsession.json");
-                    if (capture["requiresValidation"]?.GetValue<bool>() == true && capture["steps"] is JsonArray steps)
-                    {
-                        var report = Session.Read(prefix + ".calibration.json");
-                        var validated = report["validatedSlots"]?.AsArray().Select(n => n?.GetValue<string>()).ToHashSet() ?? [];
-                        var missing = steps.OfType<JsonObject>().Where(s => s["condition"]?.GetValue<string>()?.StartsWith("anchor:") == true)
-                            .GroupBy(s=>s["condition"]!.GetValue<string>()).Select(group=>group.First())
-                            .Where(s => !validated.Contains(s["condition"]!.GetValue<string>()[7..]))
-                            .Select(s => Loc.Text(s["name"])).Distinct().ToList();
-                        if (report["features"]?["tongueDirection"]?.GetValue<bool>() == false) missing.Add(Loc.Get("CalibrationTongueDirection"));
-                        if (report["features"]?["cheekSeparation"]?.GetValue<bool>() == false) missing.Add(Loc.Get("CalibrationCheekSeparation"));
-                        if (missing.Count > 0) message = Loc.Format("CalibrationPartialResult", string.Join(", ", missing));
-                    }
+                    var message = FaceCalibrationMessage(capture, Session.Read(prefix + ".calibration.json"));
                     Apply("enroll");
                     return message;
                 });
