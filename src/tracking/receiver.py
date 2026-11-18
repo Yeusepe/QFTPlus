@@ -9,7 +9,6 @@ import os
 import socket
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -27,6 +26,10 @@ STREAM_PORT, LABELS_PORT, PREVIEW_PORT = 27273, 27274, 8081
 
 
 class ReceiverStopped(Exception):
+    pass
+
+
+class ModelsReloadRequested(Exception):
     pass
 
 
@@ -217,30 +220,32 @@ def main() -> int:
     server = start_preview_server(shared, PREVIEW_PORT)
     labels = LabelSidecarRecorder(port=LABELS_PORT)
     studio = StudioCapture(ROOT)
-    loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="studio-reload")
-    loading = None
     face = pupils = connection = None
     headset = os.environ.get('QFT_HEADSET_MODEL') == '1'
+    def reload_models():
+        nonlocal face, pupils
+        # Session creation holds the GIL, so even a loader thread can starve an open stream.
+        studio.reload_requested = False
+        try:
+            new_face, new_pupils, error = load_models()
+        except Exception as error:
+            studio.state['error'] = 'Could not load calibration: ' + str(error)
+            if headset:
+                raise RuntimeError(studio.state['error']) from error
+            return
+        old_models = face, pupils
+        face, pupils = new_face, new_pupils
+        for old in old_models:
+            if old is not None:
+                old.close()
+        studio.state['error'] = error
+
     def tick():
-        nonlocal loading, face, pupils
         now_ns = time.monotonic_ns()
         studio.poll(now_ns)
-        if studio.reload_requested and loading is None:
-            studio.reload_requested = False
-            loading = loader.submit(load_models)
-        if loading is not None and loading.done():
-            pending, loading = loading, None
-            try:
-                new_face, new_pupils, error = pending.result()
-                for old in (face, pupils):
-                    if old is not None:
-                        old.close()
-                face, pupils = new_face, new_pupils
-                studio.state['error'] = error
-            except Exception as error:
-                studio.state['error'] = 'Could not load calibration: ' + str(error)
-                if headset:
-                    raise RuntimeError(studio.state['error']) from error
+        if studio.reload_requested:
+            # Unwind partial frame reads before closing and reloading; never reuse their bytes.
+            raise ModelsReloadRequested()
         if headset:
             from headset_outputs import control_packet
             now = now_ns / 1e9
@@ -249,7 +254,6 @@ def main() -> int:
                 preview=now-shared.pupil_requested_at < 1., calibrating=studio.pupil is not None))
             if studio.pupil is not None and now-studio.last_ui > 3:
                 studio.pupil_state(now)
-    automatic = Automatic(usb=os.environ.get("QFT_STREAM_HOST", "127.0.0.1") == "127.0.0.1")
     setting, setting_stamp, setting_checked, sent_level, strip_asked, busy = "auto", None, -1., None, -1., 0.
     def choose_level(now):
         """Tell the relay what to send: full strips while Studio records, calibrates or shows cameras (or the model
@@ -273,77 +277,83 @@ def main() -> int:
             connection.sendall(bytes([ONE_STRIP]))
             strip_asked = now
     try:
-        connection = connect(should_stop)
-        if connection is None:
-            return 0
-        print("CONNECTED", flush=True)
-        window_start, frames, waited = time.perf_counter(), 0, 0.
-        received = 0
         while True:
-            tick()
-            if not headset and (elapsed := time.perf_counter() - window_start) >= 5.:
-                busy = 1 - waited / elapsed
-                print(f"STREAM_RATE {frames / elapsed:.1f} {busy:.2f}", flush=True)
-                print(f"STREAM_BYTES {received / max(frames, 1) / 1e3:.1f} kB/frame", flush=True)
+            if should_stop():
+                raise ReceiverStopped()
+            if connection is None:
+                reload_models()
+                if should_stop():
+                    raise ReceiverStopped()
+                connection = connect(should_stop)
+                if connection is None:
+                    return 0
+                print("CONNECTED", flush=True)
+                automatic = Automatic(usb=os.environ.get("QFT_STREAM_HOST", "127.0.0.1") == "127.0.0.1")
+                sent_level, strip_asked, busy = None, -1., 0.
                 window_start, frames, waited, received = time.perf_counter(), 0, 0., 0
-            if not headset:
-                choose_level(time.monotonic())
-            started = time.perf_counter()
-            raw_header = receive_exact(connection, HEADER.size, should_stop, tick)
-            (magic, version, header_size, _sequence, timestamp_ns, width, height,
-             stride, pixel_format, payload_size, camera_mask, _reserved) = HEADER.unpack(raw_header)
-            if magic != MAGIC or version != 3 or header_size != HEADER.size:
-                raise ValueError("Unexpected live-stream header")
-            is_result = headset and (width, height, stride, pixel_format, payload_size) == (66, 1, 66, 3, 264)
-            is_small = (not headset and pixel_format in FORMATS and (width, height, stride) == (5 * SMALL_SIDE, SMALL_SIDE, 5 * SMALL_SIDE)
-                        and payload_size <= 2 * SMALL_BYTES)
-            if camera_mask != 0x1F or not (is_result or is_small or (width, height, stride, pixel_format, payload_size) == (2000, 400, 2000, 1, 800_000)):
-                raise ValueError(f"Unsupported frame layout {width}x{height}, cameras 0x{camera_mask:x}, format {pixel_format}")
-            payload = receive_exact(connection, payload_size, should_stop, tick)
-            frames, waited, received = frames + 1, waited + time.perf_counter() - started, received + payload_size
-            now_ns = time.monotonic_ns()
-            thumbs = None
-            if is_small:
-                cameras, thumbs = decode(pixel_format, payload)
-                automatic.update(now_ns / 1e9, (now_ns - timestamp_ns) / 1e9, busy)
-            strip = None if is_result or is_small else np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
-            if strip is not None:
-                shared.update(strip, pupils.detected_pupils if pupils else (None, None))
             try:
-                if strip is None:
-                    studio.poll(now_ns)
-                else:
-                    studio.update(strip, raw_header, payload, now_ns, labels, headset_pupils=headset)
-            except Exception as error:
-                print("STUDIO_CAPTURE_ERROR " + str(error), flush=True)
+                tick()
+                if not headset and (elapsed := time.perf_counter() - window_start) >= 5.:
+                    busy = 1 - waited / elapsed
+                    print(f"STREAM_RATE {frames / elapsed:.1f} {busy:.2f}", flush=True)
+                    print(f"STREAM_BYTES {received / max(frames, 1) / 1e3:.1f} kB/frame", flush=True)
+                    window_start, frames, waited, received = time.perf_counter(), 0, 0., 0
+                if not headset:
+                    choose_level(time.monotonic())
+                started = time.perf_counter()
+                raw_header = receive_exact(connection, HEADER.size, should_stop, tick)
+                (magic, version, header_size, _sequence, timestamp_ns, width, height,
+                 stride, pixel_format, payload_size, camera_mask, _reserved) = HEADER.unpack(raw_header)
+                if magic != MAGIC or version != 3 or header_size != HEADER.size:
+                    raise ValueError("Unexpected live-stream header")
+                is_result = headset and (width, height, stride, pixel_format, payload_size) == (66, 1, 66, 3, 264)
+                is_small = (not headset and pixel_format in FORMATS and (width, height, stride) == (5 * SMALL_SIDE, SMALL_SIDE, 5 * SMALL_SIDE)
+                            and payload_size <= 2 * SMALL_BYTES)
+                if camera_mask != 0x1F or not (is_result or is_small or (width, height, stride, pixel_format, payload_size) == (2000, 400, 2000, 1, 800_000)):
+                    raise ValueError(f"Unsupported frame layout {width}x{height}, cameras 0x{camera_mask:x}, format {pixel_format}")
+                payload = receive_exact(connection, payload_size, should_stop, tick)
+                frames, waited, received = frames + 1, waited + time.perf_counter() - started, received + payload_size
+                now_ns = time.monotonic_ns()
+                thumbs = None
+                if is_small:
+                    cameras, thumbs = decode(pixel_format, payload)
+                    automatic.update(now_ns / 1e9, (now_ns - timestamp_ns) / 1e9, busy)
+                strip = None if is_result or is_small else np.frombuffer(payload, dtype=np.uint8).reshape((height, stride))
+                if strip is not None:
+                    shared.update(strip, pupils.detected_pupils if pupils else (None, None))
                 try:
-                    studio.close()
-                except OSError:
-                    pass
-                studio.state.update(phase="cancelled", completed=False, error=str(error))
-            if pupils is not None and strip is not None and not headset:
-                pupils.update(strip, preview=time.monotonic() - shared.pupil_requested_at < 1.)
-            if face is not None:
-                if is_result:
-                    measurements = face.update(payload, labels.latest, now_ns)
-                    if measurements is not None:
-                        studio.update_pupils(measurements, now_ns)
-                # A model reload can leave compact frames in flight after we request full strips.
-                elif not headset and (not is_small or face.small is not None):
-                    face.update(cameras if is_small else strip, labels.latest, labels.schema_names, now_ns, thumbs=thumbs)
+                    if strip is None:
+                        studio.poll(now_ns)
+                    else:
+                        studio.update(strip, raw_header, payload, now_ns, labels, headset_pupils=headset)
+                except Exception as error:
+                    print("STUDIO_CAPTURE_ERROR " + str(error), flush=True)
+                    try:
+                        studio.close()
+                    except OSError:
+                        pass
+                    studio.state.update(phase="cancelled", completed=False, error=str(error))
+                if pupils is not None and strip is not None and not headset:
+                    pupils.update(strip, preview=time.monotonic() - shared.pupil_requested_at < 1.)
+                if face is not None:
+                    if is_result:
+                        measurements = face.update(payload, labels.latest, now_ns)
+                        if measurements is not None:
+                            studio.update_pupils(measurements, now_ns)
+                    elif not headset and (not is_small or face.small is not None):
+                        face.update(cameras if is_small else strip, labels.latest, labels.schema_names, now_ns, thumbs=thumbs)
+            except ModelsReloadRequested:
+                connection.close()
+                connection = None
     except ReceiverStopped:
         pass
     finally:
-        studio.close()
-        models = [face, pupils]
-        loader.shutdown(cancel_futures=True)
-        if loading is not None and not loading.cancelled() and loading.exception() is None:
-            models += loading.result()[:2]
         if connection is not None:
             connection.close()
+        studio.close()
         server.shutdown()
         server.server_close()
-        for model in models:
+        for model in (face, pupils):
             if model is not None:
                 model.close()
         labels.close()
