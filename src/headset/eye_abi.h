@@ -4,23 +4,23 @@
 #include "eye_profile.h"
 #define EYE_EXECUTE_TYPE "NSt6__ndk110__function6__funcIZN5torch3jit12_GLOBAL__N_114getExecuteFuncIN4bolt2nn13BoltNNBackendEEENS_8functionIFvRNS_6vectorIN3c106IValueENS_9allocatorISC_EEEEEEEvEUlSG_E_NSD_ISJ_EESH_EE"
 
-// Fingerprints retain instructions and field offsets; only relocated addresses and verified assertion line numbers are normalized.
-struct EyeCodeContract { const char *name; size_t length; const char *hash[2]; size_t alternate_length; };
+// Normalize relocations and independently checked layout relationships before comparing instructions.
+struct EyeCodeContract { const char *name; size_t length; const char *hash[3]; size_t alternate_length; size_t third_length; };
 static const struct EyeCodeContract eye_code_contracts[QFT_EYE_CODE_COUNT] = {
-    {"execute", 1580, {"71b32b79c4a2e99a471142b1bd92e494607009b5f681e47853953f08895c4127", NULL}, 0},
-    {"retain", 44, {"8d6fb4aedde7516c736d746187fae008b759608cbad44ebc5d8bab3bbd5fa013", NULL}, 0},
-    {"release", 128, {"bfcf035aa5c355e80f38482544a803403cd328a95a6ccf2d55b7eb7c35557878", NULL}, 0},
-    {"assert", 408, {"8bd5d020b114dc31157edc69390b90169dbeedc8dd209ecc78792e5e838b803c", NULL}, 0},
-    {"detector", 220, {"68429067ec27a05bf6fb0e10e8ad6a82c9f16e8f1badbb0b7da86ea48eb8feda", "8c8392ac6a65094239c583ee8861f656eb2bf552af4c36816f9f476f0c762edd"}, 0},
-    {"filter_process", 480, {"f58d5a56350e284f7638254231c328fcee90802b328b6611b938a79b5cbe8bbf", NULL}, 0},
-    {"filter_destroy", 132, {"fe4b1cb1d2fcc6efc9e7ee52eba89f6e9ebbf77e32387e1ddb1926d731a47f23", NULL}, 0},
-    {"filter_apply", 1704, {"2bcba004c982b79d4f68b6165cfd4e1ba535d3d4dc04863e5485ec81adabb688", NULL}, 0},
-    {"model_prepare", 2768, {"84170fa460e1f5fa58b034ca1a33247bc11917eb266043cea7d8c248dacc8a3b", "2b9c8d585bae191ca6244a595fcf55828f78ff307820d5eda1c19173e6e6907a"}, 2768},
-    {"model_stop", 1140, {"04f10e4dd533e51f595a5ff5acde218f4288c73f5eebebadc974aabf2cfbfde5", "d6d060ba15bd13cfc38bb99453a561f9bd5a51d893e731b18046252f3a64b529"}, 1136},
-    {"task_dispatch", 396, {"dfac854ef08c052f9e1caa05b7e282575f69c90a91903a32e4f46d0161922911", "5975aa8853c2a5d8b16f010de98e790b6d1a32b6e81474be76ec15bcc98c09d7"}, 404},
-    {"task_construct", 1072, {"3af31c304a7c0c0d35ea4c81ffec45c8ae771d52987ed6b0317817ad445c8780", "1df3645fca9f0806b6d4fd98875fce1b85c2741673860cd97094739f2bac6680"}, 1080},
-    {"task_run", 620, {"10cafc74c3cf6c1a8a47f37b034031df7ae7a64d95bd9742cb200d6c8889f5ea", "ca97fd15c5413fd18de692897d57c1a0705cf938b13cb0d5d5eec83a3fa41fc3"}, 624},
-    {"task_error", 608, {"2c9a616789fe99d0d02bc53f4313dc98e889a003c701dac87f5faa7457f5e346", "f2793836e1d88ecbef9e7428412fd69b35325b0bee3a4408eded5478ea2f154b"}, 620},
+    {"execute", 1580, {"71b32b79c4a2e99a471142b1bd92e494607009b5f681e47853953f08895c4127", NULL, NULL}, 0, 0},
+    {"retain", 44, {"8d6fb4aedde7516c736d746187fae008b759608cbad44ebc5d8bab3bbd5fa013", NULL, NULL}, 0, 0},
+    {"release", 128, {"bfcf035aa5c355e80f38482544a803403cd328a95a6ccf2d55b7eb7c35557878", NULL, NULL}, 0, 0},
+    {"assert", 408, {"8bd5d020b114dc31157edc69390b90169dbeedc8dd209ecc78792e5e838b803c", NULL, NULL}, 0, 0},
+    {"detector", 220, {"8c8392ac6a65094239c583ee8861f656eb2bf552af4c36816f9f476f0c762edd", NULL, NULL}, 0, 0},
+    {"filter_process", 480, {"f58d5a56350e284f7638254231c328fcee90802b328b6611b938a79b5cbe8bbf", NULL, NULL}, 0, 0},
+    {"filter_destroy", 132, {"fe4b1cb1d2fcc6efc9e7ee52eba89f6e9ebbf77e32387e1ddb1926d731a47f23", NULL, NULL}, 0, 0},
+    {"filter_apply", 1704, {"2bcba004c982b79d4f68b6165cfd4e1ba535d3d4dc04863e5485ec81adabb688", NULL, "0a7b613a0ec6fb561a170624e19c8ecb35b20c21c68eb46fce7c5fcae54b3856"}, 0, 1760},
+    {"model_prepare", 2768, {"84170fa460e1f5fa58b034ca1a33247bc11917eb266043cea7d8c248dacc8a3b", "2b9c8d585bae191ca6244a595fcf55828f78ff307820d5eda1c19173e6e6907a", "eb6b7c9e4f22d5997b18c4f64d76e6da10fc3c5bbf53ad1555039e4f390c2b70"}, 2768, 2768},
+    {"model_stop", 1140, {"04f10e4dd533e51f595a5ff5acde218f4288c73f5eebebadc974aabf2cfbfde5", "d6d060ba15bd13cfc38bb99453a561f9bd5a51d893e731b18046252f3a64b529", "11ce956f227d0f09cacf22eae2ce86e698cd7f94c4f13ceb90e70a9c09d5b4fb"}, 1136, 1136},
+    {"task_dispatch", 396, {"dfac854ef08c052f9e1caa05b7e282575f69c90a91903a32e4f46d0161922911", "5975aa8853c2a5d8b16f010de98e790b6d1a32b6e81474be76ec15bcc98c09d7", "7058e44ec73d7582befc0dfe079c6baf794ffb58a12b323d3ae52378e357d6f8"}, 404, 400},
+    {"task_construct", 1072, {"3af31c304a7c0c0d35ea4c81ffec45c8ae771d52987ed6b0317817ad445c8780", "1df3645fca9f0806b6d4fd98875fce1b85c2741673860cd97094739f2bac6680", "2c3ae4bde21fb6a3c847eae8ab4a28e1c597b3e30fb4e060ed8d34195f869f43"}, 1080, 564},
+    {"task_run", 620, {"10cafc74c3cf6c1a8a47f37b034031df7ae7a64d95bd9742cb200d6c8889f5ea", "ca97fd15c5413fd18de692897d57c1a0705cf938b13cb0d5d5eec83a3fa41fc3", "a2d0659b64c339b158f2a4d29c776ec51574463c4882e3e5ee2fccab7f56e1df"}, 624, 620},
+    {"task_error", 608, {"2c9a616789fe99d0d02bc53f4313dc98e889a003c701dac87f5faa7457f5e346", "f2793836e1d88ecbef9e7428412fd69b35325b0bee3a4408eded5478ea2f154b", "aad176c782146e7a12c6cf40755f93de02f1d9252caf82714b035ddaf246d512"}, 620, 692},
 };
 
 struct EyeCallContract { unsigned offset, role; };
@@ -119,6 +119,43 @@ static uint64_t eye_branch(uint64_t address,uint32_t word) {
     if(displacement&0x2000000)displacement-=0x4000000;
     return address+(uint64_t)(displacement*4);
 }
+static int eye_detector_layout(uint32_t *words) {
+    const unsigned valid=(words[0x18/4]>>10)&4095;
+    const unsigned scale=((words[0x3c/4]>>10)&4095)*8;
+    if(valid<0x15c||valid>=0x800||(valid&7)!=4||scale<8||scale>=0x800)return 0;
+    // Both eye paths must agree; the helper separately proves the axis/validity relationship.
+    static const struct {unsigned at,opcode,unit,canonical; int relative;} fields[]={
+        {0x18,0x39400288,1,0x35c,0}, {0x8c,0x39400288,1,0x35c,0},
+        {0x30,0xbd400280,4,0x2d0,-0x8c}, {0x50,0xbd000280,4,0x2d0,-0x8c},
+        {0xa4,0xbd400280,4,0x2d0,-0x8c}, {0xc4,0xbd000280,4,0x2d0,-0x8c},
+        {0x60,0xf9400295,8,0x4b8,0x15c}, {0x68,0xf9400296,8,0x4c0,0x164},
+    };
+    for(unsigned i=0;i<sizeof fields/sizeof *fields;i++) {
+        uint32_t word=words[fields[i].at/4];
+        if((word&~0x3ffc00u)!=fields[i].opcode||
+           ((word>>10)&4095)*fields[i].unit!=(unsigned)((int)valid+fields[i].relative))return 0;
+        words[fields[i].at/4]=fields[i].opcode|((fields[i].canonical/fields[i].unit)<<10);
+    }
+    for(unsigned at=0x3c;at<=0xb0;at+=0x74) {
+        uint32_t word=words[at/4];
+        if((word&~0x3ffc00u)!=0xfd400101||((word>>10)&4095)*8!=scale)return 0;
+        words[at/4]=0xfd400101|(0x60/8<<10);
+    }
+    return 1;
+}
+static int eye_filter_stride(uint32_t *words) {
+    const unsigned stride=(words[0x38/4]>>10)&4095;
+    if(stride<0x570||stride>0x1000||(stride&7))return 0;
+    static const unsigned offsets[]={0x38,0x68,0x9c,0xe0,0x10c,0x134};
+    for(unsigned i=0;i<sizeof offsets/sizeof *offsets;i++) {
+        unsigned at=offsets[i]/4;
+        uint32_t word=words[at];
+        unsigned reg=offsets[i]==0x9c?1:offsets[i]==0x134?22:9;
+        if((word&~0x3ffc00u)!=(0x91000000u|(reg<<5)|reg)||((word>>10)&4095)!=stride)return 0;
+        words[at]=(word&~0x3ffc00u)|(0x570<<10);
+    }
+    return 1;
+}
 static int eye_code_match_length(const struct EyeImage *image,uint64_t address,enum QftEyeCode id,uint64_t assertion,const struct EyeCodeContract *contract) {
     const unsigned char *code=eye_image_at(image,address,contract->length,PF_R|PF_X);if(!address||!code||(address&3))return 0;
     uint32_t normalized[1600];unsigned char pages[32]={0};
@@ -156,21 +193,27 @@ static int eye_code_match_length(const struct EyeImage *image,uint64_t address,e
             value=word&~(i*4==16?(127u<<15):0x3ffc00u);
         normalized[i]=value;
     }
+    if(id==QFT_DETECTOR&&!eye_detector_layout(normalized))return 0;
+    if(id==QFT_FILTER_PROCESS&&!eye_filter_stride(normalized))return 0;
     gchar *hash=g_compute_checksum_for_data(G_CHECKSUM_SHA256,(const guchar*)normalized,contract->length);
     int valid=!strcmp(hash,contract->hash[0])?1:(contract->hash[1]&&!strcmp(hash,contract->hash[1])?2:0);g_free(hash);
     return valid;
 }
 static int eye_code_matches(const struct EyeImage *image,uint64_t address,enum QftEyeCode id,uint64_t assertion) {
     const struct EyeCodeContract *contract=&eye_code_contracts[id];
-    int result=eye_code_match_length(image,address,id,assertion,contract);
-    if(result||!contract->alternate_length||contract->alternate_length==contract->length)return result;
-    struct EyeCodeContract alternate=*contract;alternate.length=contract->alternate_length;
-    alternate.hash[0]=contract->hash[1];alternate.hash[1]=NULL;
-    return eye_code_match_length(image,address,id,assertion,&alternate)?2:0;
+    const size_t lengths[]={contract->length,contract->alternate_length?contract->alternate_length:contract->length,contract->third_length};
+    for(unsigned i=0;i<3;i++) {
+        if(!contract->hash[i]||!lengths[i])continue;
+        struct EyeCodeContract candidate=*contract;
+        candidate.length=lengths[i];candidate.hash[0]=contract->hash[i];candidate.hash[1]=NULL;
+        if(eye_code_match_length(image,address,id,assertion,&candidate))return i+1;
+    }
+    return 0;
 }
 static size_t eye_code_length(const struct EyeImage *image,uint64_t address,enum QftEyeCode id,uint64_t assertion) {
     const struct EyeCodeContract *contract=&eye_code_contracts[id];
     int variant=eye_code_matches(image,address,id,assertion);
+    if(variant==3)return contract->third_length;
     return variant?(variant==2&&contract->alternate_length?contract->alternate_length:contract->length):0;
 }
 static uint64_t eye_called_code(const struct EyeImage *image,uint64_t caller,enum QftEyeCode caller_id,enum QftEyeCode wanted,uint64_t assertion) {
@@ -220,24 +263,34 @@ static int eye_call_relationships(const struct EyeImage *image,const struct QftE
     return 1;
 }
 static int eye_task_relationships(const struct EyeImage *image,const struct QftEyeProfile *profile) {
-    static const struct {unsigned caller,target,offset[2];} calls[]={
-        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0x21c,0x21c}},
-        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0x2a4,0x2a4}},
-        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0x3c4,0x3c4}},
-        {QFT_MODEL_STOP,QFT_TASK_DISPATCH,{0xd4,0xd0}},
-        {QFT_MODEL_STOP,QFT_TASK_DISPATCH,{0x210,0x20c}},
-        {QFT_TASK_DISPATCH,QFT_TASK_CONSTRUCT,{0xcc,0xd4}},
-        {QFT_TASK_DISPATCH,QFT_TASK_RUN,{0xd8,0xe0}},
-        {QFT_TASK_RUN,QFT_TASK_ERROR,{0x164,0x168}},
+    // Match argument setup to the callee; counting targets alone would permit swapped calls.
+    static const struct {unsigned caller,target;uint32_t arguments[2];} calls[]={
+        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0x528001c2,0xaa1f03e4}},
+        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0xaa1503e1,0x528002c4}},
+        {QFT_MODEL_PREPARE,QFT_TASK_DISPATCH,{0x528002a2,0xaa1f03e4}},
+        {QFT_MODEL_STOP,QFT_TASK_DISPATCH,{0xaa1503e1,0x528002a4}},
+        {QFT_MODEL_STOP,QFT_TASK_DISPATCH,{0x528001a2,0xaa1f03e4}},
+        {QFT_TASK_DISPATCH,QFT_TASK_CONSTRUCT,{0x390023eb,0xf90003ea}},
+        {QFT_TASK_DISPATCH,QFT_TASK_RUN,{0xf9401260,0x9100c3e1}},
+        {QFT_TASK_RUN,QFT_TASK_ERROR,{0xaa1403e0,0x2a1503e1}},
     };
     for(unsigned i=0;i<sizeof calls/sizeof *calls;i++) {
         uint64_t caller=profile->code[calls[i].caller];
-        int variant=eye_code_matches(image,caller,(enum QftEyeCode)calls[i].caller,profile->code[QFT_ASSERT]);
-        if(variant<1||variant>2)return 0;
-        uint64_t address=caller+calls[i].offset[variant-1];
-        const unsigned char* p=eye_image_at(image,address,4,PF_R|PF_X);if(!p)return 0;
-        uint32_t word=eye_word(p);
-        if((word&0xfc000000)!=0x94000000||eye_branch(address,word)!=profile->code[calls[i].target])return 0;
+        size_t length=eye_code_length(image,caller,(enum QftEyeCode)calls[i].caller,profile->code[QFT_ASSERT]);
+        const unsigned char *code=eye_image_at(image,caller,length,PF_R|PF_X);
+        if(!length||!code)return 0;
+        unsigned count=0;
+        for(size_t offset=8;offset<length;offset+=4) {
+            uint32_t word=eye_word(code+offset);
+            if((word&0xfc000000)!=0x94000000)continue;
+            uint32_t before=eye_word(code+offset-4);
+            if(calls[i].target==QFT_TASK_CONSTRUCT) {
+                if((before&~31u)!=0xf90003e0u)continue;
+            } else if(eye_word(code+offset-8)!=calls[i].arguments[0]||before!=calls[i].arguments[1])continue;
+            if(eye_branch(caller+offset,word)!=profile->code[calls[i].target])return 0;
+            count++;
+        }
+        if(count!=1)return 0;
     }
     return 1;
 }
@@ -289,8 +342,11 @@ static int eye_engine_compatible(const char *data,size_t length,int averaging_mo
         uint32_t a=eye_word(calls+0x168),b=eye_word(calls+0x184);
         if((a&0xfc000000)!=0x94000000||(b&0xfc000000)!=0x94000000)return 0;
         profile.code[QFT_FILTER_APPLY]=eye_branch(profile.code[QFT_FILTER_PROCESS]+0x168,a);
-        if(eye_branch(profile.code[QFT_FILTER_PROCESS]+0x184,b)!=profile.code[QFT_FILTER_APPLY]||
-           !eye_code_matches(&image,profile.code[QFT_FILTER_APPLY],QFT_FILTER_APPLY,0))return 0;
+        int apply_variant=eye_code_matches(&image,profile.code[QFT_FILTER_APPLY],QFT_FILTER_APPLY,0);
+        if(eye_branch(profile.code[QFT_FILTER_PROCESS]+0x184,b)!=profile.code[QFT_FILTER_APPLY]||!apply_variant)return 0;
+        // Permit appended record fields only when the validated helper's entire input still fits.
+        unsigned stride=(eye_word(calls+0x38)>>10)&4095;
+        if(stride<(apply_variant==3?0x5b8u:0x570u))return 0;
     } else {
         profile.backend_vtable=eye_vtable(&image,"N4bolt2nn13BoltNNBackendE");
         uint64_t execute=eye_vtable(&image,EYE_EXECUTE_TYPE);
