@@ -128,6 +128,7 @@ class PupilDilation:
         self.level = 0.
         self.result = "idle"
         self.samples = []
+        self.observations = []
         self.started = 0.0
         self.last_detection = -1.0
         self.last_valid = -1.0
@@ -157,6 +158,7 @@ class PupilDilation:
         self.level = 0.
         self.result = "running"
         self.samples = []
+        self.observations = []
         self.started = self.last_pair = time.monotonic()
         self.profile = None
         self.filtered = None
@@ -176,6 +178,7 @@ class PupilDilation:
         self.level = 0.
         if not paused:
             self.samples = []
+            self.observations = []
             self.started = self.last_pair = now
             self.phase = 0
             self.last_pupil_time = [-1e9, -1e9]
@@ -238,6 +241,10 @@ class PupilDilation:
             elapsed = now-self.started
             self.phase = min(2, int(max(0, elapsed-ADAPT)//CYCLE)+(elapsed >= ADAPT))
             self.level = stimulus(elapsed)
+            self.observations.append({"elapsedSeconds": elapsed, "requestedBrightness": float(self.level),
+                "detected": [[float(p.diameter_px), *map(float, p.ellipse[0]), float(min(p.ellipse[1])/max(p.ellipse[1]))]
+                             if p else None for p in measurements],
+                "accepted": [p is not None for p in pupils]})
             if any(pupils[i] is not None for i in self.selected):
                 self.last_pair = now
                 if elapsed >= ADAPT-15:
@@ -264,6 +271,9 @@ class PupilDilation:
                     self.result = "failed"
                     self.message = str(error)
                     print("PUPIL_CALIBRATION_FAILED " + str(error), flush=True)
+                report = self.save_diagnostics()
+                if report is not None and self.result == "failed":
+                    self.message = {"key": "GuidePupilFailureWithReport", "args": [self.message, str(report)]}
         values = relative_values(pupils, self.profile)
         if values is not None:
             dt = now-self.last_valid
@@ -274,6 +284,42 @@ class PupilDilation:
         else:
             self.filtered = None
             self.send(False)
+
+    def save_diagnostics(self):
+        per_eye = []
+        for eye in self.selected:
+            try:
+                profile = fit_calibration(self.samples, [eye])
+                per_eye.append({"eye": eye, "passed": True, "profile": profile})
+            except ValueError as error:
+                per_eye.append({"eye": eye, "passed": False, "reason": str(error)})
+        report = {"format": "qft-pupil-diagnostics-v1", "result": self.result, "reason": self.message,
+                  "sourceEyes": self.selected, "eyeResults": per_eye,
+                  "assumedResponseDelaySeconds": LAG,
+                  "stimulusSeconds": {"adapt": ADAPT, "ramp": RAMP, "bright": BRIGHT, "dark": DARK},
+                  "measurementColumns": ["diameterPixels", "centerXPixels", "centerYPixels", "ellipseRatio"],
+                  "samples": self.samples, "observations": self.observations}
+        # Missing detections use null so the report is valid JSON in other tools too.
+        def finite(value):
+            if isinstance(value, dict):
+                return {k: finite(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [finite(v) for v in value]
+            if isinstance(value, (float, np.floating)):
+                return float(value) if np.isfinite(value) else None
+            return value
+        path = self.path.with_suffix(".diagnostics.json")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pending = path.with_suffix(".tmp")
+            pending.write_text(json.dumps(finite(report), allow_nan=False), encoding="utf-8")
+            pending.replace(path)
+            print("PUPIL_CALIBRATION_DIAGNOSTICS " + str(path.resolve()), flush=True)
+            return path.resolve()
+        except OSError as error:
+            # A diagnostic write must not discard a valid calibration or hide its original failure.
+            print("PUPIL_DIAGNOSTICS_WRITE_FAILED " + str(error), flush=True)
+            return None
 
     def close(self):
         if self._closed:

@@ -4222,4 +4222,8 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="CalibrationTongueDirectionsNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated tongue directions.</value></data>
   <data name="CalibrationCheeksNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated cheek movements.</value></data>
   <data name="CalibrationNeutralFailure" xml:space="preserve"><value>The relaxed-face step failed. {0}</value><comment>{0} is the translated failure reason and recovery instruction.</comment></data>
+  <data name="GuidePupilFailureWithReport" xml:space="preserve">
+    <value>{0} Test details were saved to {1}.</value>
+    <comment>{0} is the translated calibration failure. {1} is the full path to the diagnostic file.</comment>
+  </data>
 </root>
