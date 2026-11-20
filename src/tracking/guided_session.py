@@ -266,6 +266,14 @@ def mouth_roi(strip):
     return strip[:, 800:1600].reshape(25, 16, 50, 16).mean((1, 3), dtype=np.float32)
 
 
+def normalized_mouth(rois):
+    """Compare shape at a fixed contrast, independently of each camera's exposure."""
+    cameras = rois.reshape(-1, 25, 2, 25)
+    centered = cameras - cameras.mean((1, 3), keepdims=True)
+    contrast = np.sqrt((centered * centered).mean((1, 3), keepdims=True))
+    return (centered * (32. / np.maximum(contrast, 1.))).reshape(rois.shape)
+
+
 class EnrollmentSession(GuidedSession):
     """Automatically collect and verify each hold, with bounded extensions and one retry before skipping."""
 
@@ -281,7 +289,11 @@ class EnrollmentSession(GuidedSession):
         if s.slot and self.elapsed >= s.ramp and not self.completed:
             roi = mouth_roi(strip)
             native = native and {**native, "TongueOut": tongue_out(native)}
-            self.observed.append((roi, native, frozen, float(roi.mean(dtype=np.float64))))
+            self.observed.append((roi, native, frozen, float(roi.mean(dtype=np.float64)), self.last_ns))
+            frames = [f for f in self.record["steps"][self.index].get("frames", []) if f[2]]
+            if len(frames) >= ENROLL_HOLD_FRAMES:
+                since = frames[-ENROLL_HOLD_FRAMES][1]
+                self.observed = [o for o in self.observed if o[4] >= since]
 
     def update(self, now_ns, paused):
         if not self.completed and not paused and self.current.slot:
@@ -295,6 +307,7 @@ class EnrollmentSession(GuidedSession):
                     self.steps[self.index] = replace(self.current, seconds=self.current.seconds+extra)
                     entry["plannedSeconds"] = self.current.seconds
                     entry["extensionSeconds"] = entry.get("extensionSeconds", 0.)+extra
+                    entry["waitingReason"] = gate["reason"]
         return super().update(now_ns, paused)
 
     def repeat(self, now_ns):
@@ -303,20 +316,24 @@ class EnrollmentSession(GuidedSession):
 
     def ui(self):
         state = super().ui()
-        if self.record["steps"][min(self.index, len(self.steps)-1)].get("extensionSeconds"):
-            state["instruction"] = {"key": "GuideWaitingForCleanSamples", "args": [self.current.instruction]}
+        entry = self.record["steps"][min(self.index, len(self.steps)-1)]
+        if entry.get("extensionSeconds"):
+            state["instruction"] = {"key": "GuideRetryInstruction", "args": [
+                entry.get("waitingReason", "GuideNeedMoreCalibrationImages"), self.current.instruction]}
         return state
 
     def evaluate(self, step):
         obs, result = self.observed, {"frames": len(self.observed)}
         if len(obs) < 3:
             return {**result, "passed": False, "reason": "GuideTheHeadsetCamerasDidnTSendImages"}
-        rois = np.stack([o[0] for o in obs])
+        raw = np.stack([o[0] for o in obs])
+        rois = normalized_mouth(raw)
         result["frozen"] = float(np.mean([o[2] for o in obs]))
         result["intensity"] = float(np.mean([o[3] for o in obs]))
         if result["frozen"] > .3:
             return {**result, "passed": False, "reason": "GuideTheCameraImageFroze"}
-        if not 10 <= result["intensity"] <= 230:
+        intensities = raw.reshape(-1, 25, 2, 25).mean((1, 3))
+        if np.any((intensities < 10) | (intensities > 230)):
             return {**result, "passed": False, "reason": "GuideTheMouthCamerasAreTooDarkOrTooBright"}
         reference = rois.mean(0) if step.slot == "neutral" else self.neutral_roi
         if reference is not None:
@@ -325,10 +342,11 @@ class EnrollmentSession(GuidedSession):
             result["spread"] = float(np.percentile(np.abs(rois-rois.mean(0)).mean((1, 2)), 90))
             if step.slot != "neutral" and result["distance"] < 3:
                 return {**result, "passed": False, "reason": "GuideYourFaceLookedTheSameAsWhenRelaxed"}
-            if result["spread"] > max(2.5, .5 * result["distance"]):
+            # A strong expression must not let a transition into the saved hold.
+            if result["spread"] > 2.5:
                 return {**result, "passed": False, "reason": "GuideTryToHoldStill"}
         for prefix, minimum in step.native.items():
-            values = [max(v for k, v in n.items() if k.startswith(prefix)) for _, n, _, _ in obs
+            values = [max(v for k, v in n.items() if k.startswith(prefix)) for _, n, _, _, _ in obs
                       if n and any(k.startswith(prefix) for k in n)]
             if values:
                 result.setdefault("native", {})[prefix] = float(np.median(values))
@@ -358,12 +376,15 @@ class EnrollmentSession(GuidedSession):
             gate = {"passed": False, "reason": "skipped"} if skipped else self.evaluate(step)
             entry["gate"] = gate
             if gate["passed"]:
+                held = [f for f in entry.get("frames", []) if f[2]]
+                for frame in held[:-ENROLL_HOLD_FRAMES]:
+                    frame[2] = False
                 if step.validation:
                     self.record["validatedSlots"] = sorted(set(self.record["validatedSlots"]) | {step.slot})
                 else:
-                    self.templates[step.slot] = np.stack([o[0] for o in self.observed]).mean(0)
+                    self.templates[step.slot] = normalized_mouth(np.stack([o[0] for o in self.observed])).mean(0)
             if gate["passed"] and step.slot == "neutral":
-                self.neutral_roi = np.stack([o[0] for o in self.observed]).mean(0)
+                self.neutral_roi = normalized_mouth(np.stack([o[0] for o in self.observed])).mean(0)
             attempt = (step.slot, step.validation)
             if not gate["passed"] and not skipped and attempt not in self.retried and elapsed_total < ENROLL_CAP_SECONDS - 10:
                 self.retried.add(attempt)

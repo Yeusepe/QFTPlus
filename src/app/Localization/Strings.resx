@@ -3631,10 +3631,10 @@
     <value>QFT+ did not receive camera images. Check the headset connection.</value>
   </data>
   <data name="GuideTheCameraImageFroze" xml:space="preserve">
-    <value>The camera image stopped updating. Check the headset connection.</value>
+    <value>The camera images stopped changing. Check the headset connection. Then repeat this step.</value>
   </data>
   <data name="GuideTheMouthCamerasAreTooDarkOrTooBright" xml:space="preserve">
-    <value>The mouth cameras are too dark or too bright.</value>
+    <value>The mouth camera image is too dark or too bright to check the pose. Adjust the headset fit.</value>
   </data>
   <data name="GuideRelaxAndLookAround" xml:space="preserve">
     <value>Relax and look around</value>
@@ -3655,10 +3655,10 @@
     <value>Keep it out. Your right, as you feel it.</value>
   </data>
   <data name="GuideYourFaceLookedTheSameAsWhenRelaxed" xml:space="preserve">
-    <value>QFT+ could not see the movement. Try again, or skip this step.</value>
+    <value>The recorded pose looks like your relaxed face. Make the requested movement as far as is comfortable.</value>
   </data>
   <data name="GuideTryToHoldStill" xml:space="preserve">
-    <value>Keep your face still.</value>
+    <value>The face shape changed during the hold. Relax your face. Then hold the requested expression until the step ends.</value>
   </data>
   <data name="GuideFillWithAirAndKeepYourLipsSealed" xml:space="preserve">
     <value>Fill with air and keep your lips sealed.</value>
@@ -3685,7 +3685,7 @@
     <value>Keep it out. Your left, as you feel it.</value>
   </data>
   <data name="GuideFaceTrackingDidnTSeeItClearly" xml:space="preserve">
-    <value>QFT+ could not see this movement. Try again, or skip this step.</value>
+    <value>Face tracking did not recognize the requested expression. Check the headset fit. Then repeat the movement.</value>
   </data>
   <data name="GuidePointYourTongueDown" xml:space="preserve">
     <value>Point your tongue down</value>
@@ -4149,7 +4149,7 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="CalibrationFaceDurationSlow" xml:space="preserve"><value>About 4 minutes</value></data>
   <data name="GuideRepeatToCheck" xml:space="preserve"><value>Repeat this movement: {0}</value></data>
   <data name="GuideCalibrationFirstHoldMissing" xml:space="preserve"><value>QFT+ could not record this movement. You can continue with the other steps.</value></data>
-  <data name="GuideCalibrationRepeatMismatch" xml:space="preserve"><value>QFT+ got different results. Relax your face. Then repeat the movement.</value></data>
+  <data name="GuideCalibrationRepeatMismatch" xml:space="preserve"><value>The repeated pose differs from the first hold. Relax your face. Then repeat the same expression.</value></data>
   <data name="GuidePupilPausedRestart" xml:space="preserve"><value>Paused. When you continue, the screen will go dark again. Both light tests will start again.</value></data>
   <data name="CalibrationPartialResult" xml:space="preserve"><value>Saved. Could not set up: {0}. The other face movements are ready.</value></data>
   <data name="CalibrationTongueDirection" xml:space="preserve"><value>Tongue direction</value></data>
@@ -4212,7 +4212,7 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="SmileEyeClosureHelp" xml:space="preserve"><value>Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</value></data>
   <data name="CalibrationFacePortConflict" xml:space="preserve"><value>Another app or module is using Steam Link face data. Close the other app or disable its Steam Link module. QFT+ will reconnect automatically.</value></data>
   <data name="CalibrationFaceDataUnavailable" xml:space="preserve"><value>Waiting for live face data from the QFT+ module in VRCFaceTracking. Live face data is required for calibration.</value></data>
-  <data name="GuideNeedMoreCalibrationImages" xml:space="preserve"><value>QFT+ needs more camera images for this pose. Keep holding it.</value></data>
+  <data name="GuideNeedMoreCalibrationImages" xml:space="preserve"><value>QFT+ has too few usable images for this pose. Keep the headset on and hold the requested expression.</value></data>
   <data name="CalibrationCameraDataUnavailable" xml:space="preserve"><value>Waiting for live camera images. Keep the headset on and connected.</value></data>
   <data name="CalibrationPartialSummary" xml:space="preserve"><value>Calibration was saved for the movements that passed. Open the details to see what needs attention.</value></data>
   <data name="CalibrationPoseFailure" xml:space="preserve"><value>{0}: {1}</value></data>
@@ -4221,4 +4221,5 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="CalibrationTonguePosesMissing" xml:space="preserve"><value>All five tongue poses must pass before tongue direction can work.</value></data>
   <data name="CalibrationTongueDirectionsNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated tongue directions.</value></data>
   <data name="CalibrationCheeksNotDistinct" xml:space="preserve"><value>QFT+ could not distinguish the repeated cheek movements.</value></data>
+  <data name="CalibrationNeutralFailure" xml:space="preserve"><value>The relaxed-face step failed. {0}</value><comment>{0} is the translated failure reason and recovery instruction.</comment></data>
 </root>

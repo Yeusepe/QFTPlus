@@ -554,6 +554,15 @@ internal sealed class Session
         {
             var key=anchors.Output.Split('\n',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries)
                 .LastOrDefault(line=>line.StartsWith("Guide",StringComparison.Ordinal));
+            if (key == "GuideTheRelaxedFacePartDidnTRecordCleanlyRunThe")
+            {
+                var steps = Read(prefix + ".qpsession.json")["steps"]?.AsArray();
+                var failed = steps?.OfType<JsonObject>().LastOrDefault(step =>
+                    step["condition"]?.GetValue<string>() is "neutral" or "validate:neutral" &&
+                    step["gate"]?["passed"]?.GetValue<bool>() == false);
+                if (failed?["gate"]?["reason"] is { } reason && reason.GetValue<string>() != "skipped")
+                    throw new IOException(Loc.Format("CalibrationNeutralFailure", Loc.Text(reason)));
+            }
             throw new IOException(Loc.Get(key??"CouldnTFinishThisStepTheComponentsLogInSettings"));
         }
         return prefix+".anchors.npz";

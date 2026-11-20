@@ -130,7 +130,7 @@
     <string name="new_receiver">New receiver</string>
     <string name="no_search_results">No results for “%1$s”</string>
     <string name="nose">Nose</string>
-    <string name="not_enough_fresh_samples_try_calibration_again">QFT+ could not record enough images. Run calibration again.</string>
+    <string name="not_enough_fresh_samples_try_calibration_again">QFT+ has too few usable images for this pose. Keep the headset on and hold the requested expression.</string>
     <string name="not_sent">Not sent</string>
     <string name="off">Off</string>
     <string name="offset">Offset</string>
@@ -551,13 +551,13 @@
     <string name="calibration_skip">Skip this step</string>
     <string name="pupil_pause_restart">When you continue, the screen will go dark again. Both light tests will start again.</string>
     <string name="face_pause_restart">When you continue, this step will start again. You will not need to repeat earlier steps.</string>
-    <string name="face_hold_too_similar">QFT+ could not see the movement. Try again, or skip this step.</string>
-    <string name="face_hold_unsteady">Keep your face still. Then try this step again.</string>
-    <string name="face_repeat_mismatch">QFT+ got different results. Relax your face. Then repeat the movement.</string>
+    <string name="face_hold_too_similar">The recorded pose looks like your relaxed face. Make the requested movement as far as is comfortable.</string>
+    <string name="face_hold_unsteady">The face shape changed during the hold. Relax your face. Then hold the requested expression until the step ends.</string>
+    <string name="face_repeat_mismatch">The repeated pose differs from the first hold. Relax your face. Then repeat the same expression.</string>
     <string name="face_calibration_partial">Saved. Could not set up: %1$s. The other face movements are ready.</string>
     <string name="calibration_tongue_direction">Tongue direction</string>
     <string name="calibration_cheek_separation">Puffing one cheek at a time</string>
-    <string name="face_camera_exposure">The camera image is too dark or too bright. Adjust the headset. Then try again.</string>
+    <string name="face_camera_exposure">The mouth camera image is too dark or too bright to check the pose. Adjust the headset fit.</string>
     <string name="calibration_pupil_source_about">Choose one eye if QFT+ cannot track the other eye. With one eye, both avatar pupils change size together.</string>
     <string name="calibration_waiting_samples">Hold your face still for a little longer.</string>
     <string name="calibration_cancel">Cancel</string>
@@ -580,4 +580,9 @@
     <string name="smile_eye_closure_help" formatted="false">Controls added eye closure from raised cheeks and tight eyelids. 0% turns it off. 100% keeps the full effect.</string>
     <string name="eye_mode_changing">Changing eye tracking</string>
     <string name="ocui_api_unavailable">This headset\'s Settings UI does not expose the controls QFT+ needs.</string>
+    <!-- %1$s is the pose name. %2$s is its translated failure reason and recovery instruction. -->
+    <string name="face_step_failure">%1$s\n%2$s</string>
+    <string name="face_step_skipped">This step was skipped. Repeat calibration to set up this movement.</string>
+    <!-- %1$s is a list of pose names and their translated failure reasons. -->
+    <string name="face_calibration_partial_details">Calibration saved for the movements that passed. The following steps need attention.\n\n%1$s</string>
 </resources>

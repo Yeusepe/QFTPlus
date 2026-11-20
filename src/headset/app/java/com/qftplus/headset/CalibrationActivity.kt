@@ -79,7 +79,7 @@ class CalibrationActivity : ComponentActivity() {
     private var done by mutableStateOf(false); private var failed by mutableStateOf(false); private var started by mutableStateOf(false)
     private var retrying by mutableStateOf(false); private var stimulus by mutableFloatStateOf(0f)
     private var paused by mutableStateOf(false); private var validating by mutableStateOf(false)
-    private var waitingForSamples by mutableStateOf(false)
+    private var calibrationFeedback by mutableStateOf("")
     private var pupilSource by mutableIntStateOf(3); private var slow by mutableStateOf(false)
     private var avatar by mutableIntStateOf(0)
     private var cursor by mutableStateOf<Offset?>(null)
@@ -176,7 +176,7 @@ class CalibrationActivity : ComponentActivity() {
         prompt = text; elapsed = t; done = calibration.done; failed = calibration.cancelled(); started = calibration.started()
         retrying = calibration.retrying(); stimulus = scene[0]
         validating = calibration.validating()
-        waitingForSamples = calibration.waitingForSamples()
+        calibrationFeedback = calibration.feedback()
         return 1
     }
     @Suppress("unused") private fun panelSurface(surface: Surface, width: Int, height: Int) = runOnUiThread {
@@ -295,7 +295,7 @@ class CalibrationActivity : ComponentActivity() {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ocui.Text(getString(Calibration.PROMPTS[step]), kind = "title", size = 40f)
                         if (validating) ocui.Text(getString(R.string.calibration_repeat_check), kind = "detail")
-                        if (waitingForSamples && phase >= 2 && phase < 5) ocui.Text(getString(R.string.calibration_waiting_samples), kind = "detail")
+                        if (calibrationFeedback.isNotEmpty()) ocui.Text(calibrationFeedback, kind = "detail")
                         ocui.Text(if (phase < 2) getString(R.string.get_ready) else if (phase < 5) getString(R.string.hold) else getString(R.string.relax), kind = "strong", size = 28f)
                         ocui.Progress((if (phase < 2) phase / 2 else if (phase < 5) (phase - 2) / 3 else 1.0).toFloat())
                         ocui.Text(getString(if (retrying) R.string.calibration_step_retry else R.string.calibration_step, step + 1), kind = "detail", size = 22f)

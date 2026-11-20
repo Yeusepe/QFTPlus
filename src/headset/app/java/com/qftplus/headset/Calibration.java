@@ -17,6 +17,8 @@ final class Calibration {
     private int pupilSource = 3;
     private int pace = 1;
     private int extensions;
+    private int feedbackReason;
+    private final int[] faceFailures = new int[12];
     private float peak;
     private String assessment = "";
     private final ArrayList<ArrayList<float[]>> holds = new ArrayList<>();
@@ -39,6 +41,7 @@ final class Calibration {
     synchronized void pace(boolean slow) { if(start==0)pace=slow?2:1; }
     synchronized boolean validating() { return validating; }
     synchronized boolean waitingForSamples() { return extensions>0; }
+    synchronized String feedback() { return feedbackReason == 0 ? "" : getString(feedbackReason); }
     synchronized boolean held() { return heldSince != 0; }
     synchronized void presented() { presented = true; }
     synchronized void heartbeat() { heartbeat = System.nanoTime(); }
@@ -87,15 +90,18 @@ final class Calibration {
     synchronized void repeat(long now) {
         if (done || pupils || start == 0) return;
         holds.get(faceStep).clear(); checks.get(faceStep).clear(); validating = false; retries = 0;
+        feedbackReason=faceFailures[faceStep]=0;
         start=now-faceStep*6000000000L*pace; lastFeature=0; peak=0; previousFeatures=null; holdVisible=false;extensions=0;
     }
     synchronized void repeat(int expected, long now) { if(expected==faceStep)repeat(now); }
     synchronized void skip(long now) {
         if (done || pupils || start == 0 || faceStep == 0) return;
+        faceFailures[faceStep]=R.string.face_step_skipped;
         holds.get(faceStep).clear(); checks.get(faceStep).clear(); nextFace(now);
     }
     synchronized void skip(int expected, long now) { if(expected==faceStep)skip(now); }
     private void nextFace(long now) {
+        feedbackReason=0;
         faceStep++; validating=false; retries=0; lastFeature=0; peak=0; previousFeatures=null; holdVisible=false;extensions=0;
         start=now-faceStep*6000000000L*pace;
         if (faceStep==12) { done=true; message=getString(R.string.checking_calibration); }
@@ -110,7 +116,11 @@ final class Calibration {
         for (int i=0;i<FEATURES;i++) { values[i] = bytes.getFloat(); if (!Float.isFinite(values[i])) { fail(getString(R.string.invalid_model_features)); return; } }
         if (Arrays.equals(previousFeatures, values)) return;
         previousFeatures=values;
-        (validating ? checks : holds).get(step).add(values); lastFeature = now;
+        ArrayList<float[]> frames = (validating ? checks : holds).get(step);
+        if (lastFeature != 0 && now-lastFeature > 500000000L) frames.clear();
+        frames.add(values);
+        if (frames.size() > 8) frames.remove(0);
+        lastFeature = now;
     }
     synchronized void sample(byte[] payload, long now) {
         if (done) return;
@@ -151,6 +161,7 @@ final class Calibration {
             if(phase>=5&&phase<6&&extensions<8){
                 ArrayList<float[]> frames=(validating?checks:holds).get(faceStep);
                 if(frames.size()<8 || faceProblem(faceStep)==R.string.face_hold_unsteady){
+                    feedbackReason=faceProblem(faceStep);
                     start+=500000000L*pace;extensions++;phase-=.5;
                 }
             }
@@ -166,13 +177,14 @@ final class Calibration {
                 int problem = faceProblem(faceStep);
                 assessment = "Pose " + (faceStep+1) + ", attempt " + (retries+1) + ": " + count + " valid samples; peak=" + peak;
                 if (problem != 0) {
+                    feedbackReason=faceFailures[faceStep]=problem;
                     (validating ? checks : holds).get(faceStep).clear();
                     if (++retries>=2) {
-                        if (faceStep==0) { fail(getString(problem)); return; }
+                        if (faceStep==0) { fail(getString(R.string.face_step_failure,getString(PROMPTS[0]),getString(problem))); return; }
                         holds.get(faceStep).clear();checks.get(faceStep).clear();nextFace(now);return;
                     }
-                } else if (!validating) { validating=true;retries=0; }
-                else { nextFace(now);return; }
+                } else if (!validating) { validating=true;retries=0;feedbackReason=faceFailures[faceStep]=0; }
+                else { faceFailures[faceStep]=0;nextFace(now);return; }
                 start=now-faceStep*6000000000L*pace; lastFeature=0; peak=0;extensions=0;
                 previousFeatures=null;holdVisible=false;
             }
@@ -180,8 +192,26 @@ final class Calibration {
     }
     private static double[] thumbnail(ArrayList<float[]> frames) {
         double[] mean=new double[512];
-        for(float[] frame:frames)for(int i=0;i<512;i++)mean[i]+=frame[999+i]/frames.size();
+        for(float[] frame:frames) {
+            double[] normalized=normalizedThumbnail(frame);
+            for(int i=0;i<512;i++)mean[i]+=normalized[i]/frames.size();
+        }
         return mean;
+    }
+    private static double[] normalizedThumbnail(float[] frame) {
+        double[] result=new double[512];
+        for(int camera=0;camera<2;camera++) {
+            int start=camera*256;
+            double mean=0,variance=0;
+            for(int i=start;i<start+256;i++)mean+=frame[999+i]/256.;
+            for(int i=start;i<start+256;i++) {
+                result[i]=frame[999+i]-mean;
+                variance+=result[i]*result[i]/256.;
+            }
+            double scale=(32./255)/Math.max(Math.sqrt(variance),1./255);
+            for(int i=start;i<start+256;i++)result[i]*=scale;
+        }
+        return result;
     }
     private static double distance(double[] a,double[] b) {
         double total=0;for(int i=0;i<a.length;i++)total+=Math.abs(a[i]-b[i]);return total/a.length;
@@ -190,25 +220,30 @@ final class Calibration {
         ArrayList<float[]> frames=(validating?checks:holds).get(step);
         if(frames.size()<8)return R.string.not_enough_fresh_samples_try_calibration_again;
         double[] mean=thumbnail(frames),neutral=step==0?mean:thumbnail(holds.get(0));
-        double intensity=Arrays.stream(mean).average().orElse(0);
-        if(intensity<10./255||intensity>230./255)return R.string.face_camera_exposure;
+        for(float[] frame:frames)for(int camera=0;camera<2;camera++) {
+            double intensity=0;
+            for(int i=0;i<256;i++)intensity+=frame[999+camera*256+i]/256.;
+            if(intensity<10./255||intensity>230./255)return R.string.face_camera_exposure;
+        }
         double movement=distance(mean,neutral);
         if(step!=0&&movement<3./255)return R.string.face_hold_too_similar;
         double[] deviations=new double[frames.size()];
         for(int j=0;j<frames.size();j++){
-            double[] thumb=new double[512];for(int i=0;i<512;i++)thumb[i]=frames.get(j)[999+i];
+            double[] thumb=normalizedThumbnail(frames.get(j));
             deviations[j]=distance(thumb,mean);
         }
-        if(percentile(deviations,.9)>Math.max(2.5/255,.5*movement))return R.string.face_hold_unsteady;
+        // A strong expression must not let a transition into the saved hold.
+        if(percentile(deviations,.9)>2.5/255)return R.string.face_hold_unsteady;
         if(validating&&distance(mean,thumbnail(holds.get(step)))>Math.max(3./255,.35*movement))return R.string.face_repeat_mismatch;
         return 0;
     }
     synchronized String faceResult(int capabilities) {
         ArrayList<String> skipped=new ArrayList<>();
-        for(int i=1;i<12;i++)if(holds.get(i).isEmpty())skipped.add(getString(PROMPTS[i]));
+        for(int i=1;i<12;i++)if(holds.get(i).isEmpty())skipped.add(getString(R.string.face_step_failure,
+            getString(PROMPTS[i]),getString(faceFailures[i]==0?R.string.not_enough_fresh_samples_try_calibration_again:faceFailures[i])));
         if((capabilities&1)==0)skipped.add(getString(R.string.calibration_tongue_direction));
         if((capabilities&2)==0)skipped.add(getString(R.string.calibration_cheek_separation));
-        return skipped.isEmpty()?getString(R.string.face_calibration_passed_and_saved):getString(R.string.face_calibration_partial,String.join(", ",skipped));
+        return skipped.isEmpty()?getString(R.string.face_calibration_passed_and_saved):getString(R.string.face_calibration_partial_details,String.join("\n\n",skipped));
     }
     synchronized int completedPoses() {
         int mask=0;for(int i=0;i<12;i++)if(holds.get(i).size()>=8&&checks.get(i).size()>=8)mask|=1<<i;return mask;
