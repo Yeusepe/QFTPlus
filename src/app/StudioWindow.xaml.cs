@@ -47,6 +47,7 @@ public partial class StudioWindow : Ui.FluentWindow
         DeviceGlow.Background = sidebarHero.Glow;
         this.preview = preview;
         session = new(root, config);
+        if (!preview) session.RestoreBenchmarkSettings();
         lipSync = new(root, () => session.Running && session.Use != "hands", () => new HeadsetMicrophone(session));
         if (!preview) lipSync.Apply(LipSync.Load(LipSyncPath));
         saveTimer.Tick += (_, _) => SaveNow();
@@ -286,6 +287,7 @@ public partial class StudioWindow : Ui.FluentWindow
         SavePlacement();
         try
         {
+            if (session.BenchmarkSwitch) await session.RestoreBenchmarkTracking(resumeTracking: false);
             await session.Stop();
             await session.GameVideo.Close();
             quitting = true;
@@ -377,6 +379,7 @@ public partial class StudioWindow : Ui.FluentWindow
 
     internal void Navigate(string name)
     {
+        if (switchingBenchmark || session.BenchmarkSwitch && name != page) return;
         if (recording)
         {
             if (name != page) Error(Loc.Get("FinishOrCancelCalibrationFirst"));
@@ -801,6 +804,12 @@ public partial class StudioWindow : Ui.FluentWindow
         session.DisableUncalibratedOutputs();
         FaceLogCheck.IsChecked = session.Config["faceLog"]?.GetValue<bool>() == true;
         testerCard.DataContext = new { IsTester = session.Tester, Id = session.TesterId };
+        void RefreshBenchmark()
+        {
+            var onHeadset = HeadsetModelExperiment.Standalone(session);
+            RecordBenchmarkButton.IsEnabled = UnlabeledBenchmarkButton.IsEnabled = !busy && !training;
+            BenchmarkHelp.Text = Loc.Get(onHeadset ? "BenchmarkTemporaryPC" : "RecordABenchmarkThenSendTheFileItMakes");
+        }
         TesterConsent.IsChecked = false;
         LogView.Open(session.Root, revealLog);
         var (useCard, useRefresh, _) = UseOptions(ShowFace);
@@ -832,6 +841,8 @@ public partial class StudioWindow : Ui.FluentWindow
         })
             Page.Children.Add(element);
         UninstallOptions();
+        trackingRefresh += RefreshBenchmark;
+        RefreshBenchmark();
         ShowFace(session.Use);
         if (revealLog is not null) Dispatcher.BeginInvoke(() => PageScroll.ScrollToVerticalOffset(LogView.TranslatePoint(new Point(), Page).Y), DispatcherPriority.Loaded);
         revealLog = null;

@@ -1615,8 +1615,16 @@
     <value>Record a benchmark</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
   </data>
+  <data name="BenchmarkRequiresPCTracking" xml:space="preserve"><value>Benchmarks require PC tracking. Stop pauses tracking and keeps your calibration. Turning off the experiment backs up your calibration before removing QFT+ Headset.</value></data>
   <data name="RecordWithoutFaceSetup" xml:space="preserve"><value>Record without face setup</value></data>
   <data name="RecordAgain" xml:space="preserve"><value>Record again</value></data>
+  <data name="BenchmarkTemporaryPC" xml:space="preserve"><value>Recording temporarily pauses headset tracking and uses the PC camera connection. Your previous tracking mode returns when recording ends.</value></data>
+  <data name="BenchmarkRestoreRequired" xml:space="preserve"><value>Restore the previous tracking mode before starting another benchmark.</value></data>
+  <data name="BenchmarkRestoreTracking" xml:space="preserve"><value>Restore headset tracking</value></data>
+  <data name="BenchmarkPreparing" xml:space="preserve"><value>Preparing PC recording…</value></data>
+  <data name="BenchmarkRestoring" xml:space="preserve"><value>Restoring headset tracking…</value></data>
+  <data name="BenchmarkHeadsetStopFailed" xml:space="preserve"><value>Headset tracking could not stop. Try again.</value></data>
+  <data name="BenchmarkCameraTimeout" xml:space="preserve"><value>The camera recording could not start. Check the headset connection and PC tracking components.</value></data>
   <data name="UnlabeledBenchmark" xml:space="preserve"><value>Unlabeled benchmark</value></data>
   <data name="RecordUnlabeledBenchmark" xml:space="preserve"><value>Record an unlabeled benchmark</value></data>
   <data name="UnlabeledBenchmarkInstructions" xml:space="preserve"><value>Record all five tracking cameras without pose prompts. Select Stop and save when you finish.</value></data>

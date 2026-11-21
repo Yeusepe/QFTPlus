@@ -15,11 +15,14 @@ public partial class StudioWindow
     internal long command;
     internal bool recording, training, cancelPending;
     bool slow, polling, reloadPending;
+    bool switchingBenchmark, restoreBenchmarkPending;
+    bool HeadsetBenchmark => HeadsetModelExperiment.Standalone(session) && kind.StartsWith("benchmark");
     long recordingCommand;
     DateTime heartbeat = DateTime.MinValue;
     (bool Passed, string Message)? calibrationResult;
     WindowState? restoreState;
     readonly Button repeatPose = new();
+    readonly Button restoreTracking = new();
     ComboBox? pupilSourcePicker;
     bool Unlabeled => kind == "benchmark-unlabeled";
     bool InputReady => kind == "pupils" || FreshState() && state[Unlabeled ? "cameraReady" : "faceReady"]?.GetValue<bool>() == true;
@@ -77,16 +80,16 @@ public partial class StudioWindow
 
     void RefreshCalibrationControls()
     {
-        foreach (ListBoxItem item in Navigation.Items) item.IsEnabled = !recording;
-        calibrationModes.IsEnabled = !recording && !training;
+        foreach (ListBoxItem item in Navigation.Items) item.IsEnabled = !recording && !switchingBenchmark;
+        calibrationModes.IsEnabled = !recording && !training && !switchingBenchmark;
         if (pupilSourcePicker is not null) pupilSourcePicker.IsEnabled = !recording && !training;
         slowMode.Visibility = Visible(kind == "enroll" && !recording && !training);
         begin.Visibility = Visible(!recording && !training);
-        begin.IsEnabled = InputReady;
+        begin.IsEnabled = !switchingBenchmark && (HeadsetBenchmark || InputReady);
         if (kind != "pupils" && InputReady &&
             (Notice.Text == Loc.Get("CalibrationFacePortConflict") || Notice.Text == Loc.Get("CalibrationFaceDataUnavailable") ||
              Notice.Text == Loc.Get("CalibrationCameraDataUnavailable"))) ClearNotice();
-        if (!recording && !training && !InputReady)
+        if (!recording && !training && !InputReady && !HeadsetBenchmark)
         {
             count.Text = Loc.Get(InputIssue);
             count.Visibility = Visibility.Visible;
@@ -96,13 +99,14 @@ public partial class StudioWindow
         pause.Visibility = Visible(recording && !Unlabeled);
         skip.Visibility = repeatPose.Visibility = Visible(recording && kind != "pupils" && !Unlabeled);
         cancel.Visibility = Visible(recording);
+        restoreTracking.Visibility = Visible(session.BenchmarkSwitch && !recording && !training && !switchingBenchmark);
         progress.Visibility = Visible(recording && !Unlabeled || training);
-        StartButton.IsEnabled = !recording;
+        StartButton.IsEnabled = !recording && !switchingBenchmark;
     }
 
     void Calibration()
     {
-        if (HeadsetModelExperiment.Standalone(session))
+        if (HeadsetModelExperiment.Standalone(session) && !kind.StartsWith("benchmark"))
         {
             Subtitle.Text = Loc.Get("RunsInQFTHeadsetWhereAnAvatarShowsEach");
             Subtitle.Visibility = Visibility.Visible;
@@ -158,7 +162,7 @@ public partial class StudioWindow
         else if (!benchmarksAvailable && kind.StartsWith("benchmark")) kind = "enroll";
         calibrationModes.SelectionChanged -= CalibrationModeChanged;
         calibrationModes.Items.Clear();
-        foreach (var (id, title) in new[] { ("enroll", Loc.Get("Face")), ("pupils", Loc.Get("Pupils")) }
+        foreach (var (id, title) in (HeadsetBenchmark || session.BenchmarkSwitch ? Array.Empty<(string, string)>() : new[] { ("enroll", Loc.Get("Face")), ("pupils", Loc.Get("Pupils")) })
                      .Concat(benchmarksAvailable ? [("benchmark-quick", Loc.Get("ShortBenchmark")), ("benchmark", Loc.Get("FullBenchmark")), ("benchmark-unlabeled", Loc.Get("UnlabeledBenchmark"))] : []))
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
@@ -166,6 +170,7 @@ public partial class StudioWindow
         poseTitle.Text = benchmark ? ((ComboBoxItem)calibrationModes.SelectedItem).Content.ToString() : Loc.Format("CalibrateGroup", GroupTitle(kind));
         var instructions = kind switch { "enroll" => "Face", "benchmark-quick" => "QuickBenchmark", "benchmark" => "Benchmark", _ => "Pupil" };
         poseDetail.Text = Loc.Get(Unlabeled ? "UnlabeledBenchmarkInstructions" : instructions + "CalibrationInstructions" + (SetupFirst ? "NeedsSetup" : ""));
+        if (HeadsetBenchmark) poseDetail.Text = Loc.Get("BenchmarkTemporaryPC");
         cue.Text = kind switch { "pupils" => Loc.Get("About80Seconds"), "benchmark" => Loc.Get("About18Minutes"), "benchmark-quick" => Loc.Get("About5Minutes"), "benchmark-unlabeled" => "", _ => EnrollLength };
         face.Visibility = Visible(!Unlabeled);
         CalibrationCard.Content = CalibrationGuide;
@@ -185,8 +190,11 @@ public partial class StudioWindow
         repeatPose.Content = Loc.Get("CalibrationRepeatPose"); repeatPose.Tag = "repeat";
         repeatPose.Click -= GuideCommand; repeatPose.Click += GuideCommand;
         Actions.Children.Clear();
+        restoreTracking.Content = Loc.Get("BenchmarkRestoreTracking");
+        restoreTracking.Click -= RestoreTrackingClick;
+        restoreTracking.Click += RestoreTrackingClick;
         repeatPose.Margin = new(8, 0, 0, 0);
-        foreach (var button in new[] { setUpFace, begin, pause, skip, repeatPose, cancel, review }) Actions.Children.Add(button);
+        foreach (var button in new[] { setUpFace, begin, pause, skip, repeatPose, cancel, review, restoreTracking }) Actions.Children.Add(button);
         ResizeGuide();
         RefreshCalibrationControls();
         if (training && !trainingKind.StartsWith("benchmark")) ShowWorking();
@@ -206,7 +214,7 @@ public partial class StudioWindow
         CalibrationReset();
     }
 
-    bool SetupFirst => kind is ("benchmark" or "benchmark-quick") && !File.Exists(session.Config["faceEnrollment"]?.GetValue<string>());
+    bool SetupFirst => !HeadsetBenchmark && !session.BenchmarkSwitch && kind is ("benchmark" or "benchmark-quick") && !File.Exists(session.Config["faceEnrollment"]?.GetValue<string>());
 
     void SetUpFaceFirst(object sender, RoutedEventArgs e)
     {
@@ -216,7 +224,45 @@ public partial class StudioWindow
     }
 
     string EnrollLength => slow ? Loc.Get("CalibrationFaceDurationSlow") : Loc.Get("CalibrationFaceDuration");
-    void BeginCalibration(object sender, RoutedEventArgs e) => Begin();
+    async void BeginCalibration(object sender, RoutedEventArgs e)
+    {
+        if (switchingBenchmark || recording || training) return;
+        if (!HeadsetBenchmark) { Begin(); return; }
+        if (busy) return;
+        switchingBenchmark = busy = true;
+        cue.Text = Loc.Get("BenchmarkPreparing");
+        RefreshCalibrationControls();
+        try
+        {
+            await session.PrepareBenchmarkTracking();
+            state = new();
+            runtimeId = "";
+            command = 0;
+            var deadline = DateTime.UtcNow.AddSeconds(120);
+            while (!FreshState() || session.State != "Connected" || !InputReady)
+            {
+                session.Poll();
+                state = Session.Read(Path.Combine(session.Root, "studio.state.json"));
+                runtimeId = state["runtimeId"]?.GetValue<string>() ?? "";
+                command = Ack;
+                if (!session.Running || session.State == "TrackingStopped") throw new IOException(session.Detail);
+                if (DateTime.UtcNow >= deadline) throw new IOException(Loc.Get("BenchmarkCameraTimeout"));
+                await Task.Delay(250);
+            }
+            Begin();
+            if (!recording) throw new IOException(Loc.Get("BenchmarkCameraTimeout"));
+        }
+        catch (Exception error)
+        {
+            Error(error.Message);
+            restoreBenchmarkPending = session.BenchmarkSwitch;
+        }
+        finally
+        {
+            switchingBenchmark = busy = false;
+            RefreshCalibrationControls();
+        }
+    }
     void GuideCommand(object sender, RoutedEventArgs e)
     {
         var action = (string)((Button)sender).Tag;
@@ -281,6 +327,11 @@ public partial class StudioWindow
         return true;
     }
 
+    void RestoreTrackingClick(object sender, RoutedEventArgs e)
+    {
+        if (!recording && !training && !switchingBenchmark) restoreBenchmarkPending = true;
+    }
+
     async Task Conclude(Func<Task<string>> work, string? title = null, string? detail = null)
     {
         (training, trainingKind) = (true, kind);
@@ -317,6 +368,7 @@ public partial class StudioWindow
 
     internal void Finished(bool passed, string message)
     {
+        if (session.BenchmarkSwitch && trainingKind.StartsWith("benchmark")) restoreBenchmarkPending = true;
         calibrationResult = (passed, message);
         if (page != "Calibration" || kind != trainingKind)
         {
@@ -392,6 +444,7 @@ public partial class StudioWindow
                 if (page == "Manual" && IsVisible) PublishManual();
                 else StopManual();
             }
+            if (switchingBenchmark) return;
             if (!busy) session.Poll();
             if (!preview) session.GameVideo.Poll();
             try { state = Session.Read(Path.Combine(session.Root, "studio.state.json")); }
@@ -402,6 +455,7 @@ public partial class StudioWindow
             if (FreshState() || !recording) lastFresh = DateTime.UtcNow;
             if (recording && (!session.Running || restarted || DateTime.UtcNow - lastFresh > TimeSpan.FromSeconds(15)))
             {
+                restoreBenchmarkPending = session.BenchmarkSwitch;
                 (recording, cancelPending) = (false, false);
                 Theme("System");
                 if (restoreState is { } before) (WindowState, restoreState) = (before, null);
@@ -427,7 +481,20 @@ public partial class StudioWindow
             if (IsVisible) adjustmentRefresh?.Invoke();
             if (Loc.Text(state["error"]) is { Length: > 0 } error && (recording ? Ack >= recordingCommand : page == "Calibration")) Error(error);
             if (page != "Tracking" && session.Hybrid is not null && !Session.Alive(session.Hybrid)) Error(Loc.Get("HybridHandsStoppedTheHybridHandsLogInSettings"));
-
+            if (restoreBenchmarkPending && !switchingBenchmark && !recording && !training)
+            {
+                restoreBenchmarkPending = false;
+                switchingBenchmark = busy = true;
+                if (page == "Calibration" && calibrationResult is null) cue.Text = Loc.Get("BenchmarkRestoring");
+                RefreshCalibrationControls();
+                try { await session.RestoreBenchmarkTracking(); }
+                finally
+                {
+                    switchingBenchmark = busy = false;
+                    UseChanged(session.Use);
+                    RefreshCalibrationControls();
+                }
+            }
         }
         catch (Exception error) { Error(error.Message); }
         finally { polling = false; }
@@ -464,6 +531,7 @@ public partial class StudioWindow
         if (restoreState is { } before) (WindowState, restoreState) = (before, null);
         if (state["phase"]!.GetValue<string>() != "complete")
         {
+            restoreBenchmarkPending = session.BenchmarkSwitch;
             CalibrationReset();
             return;
         }

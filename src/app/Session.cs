@@ -133,6 +133,84 @@ internal sealed class Session
         Saved();
     }
     void Saved() { lock (configLock) configCache = null; }
+    internal bool BenchmarkSwitch => Config["benchmarkTrackingRestore"] is JsonObject;
+
+    internal void SaveBenchmarkTracking()
+    {
+        if (BenchmarkSwitch) return;
+        var config = Config;
+        var restore = new JsonObject { ["resume"] = Running || App?["tracking"]?.GetValue<bool>() == true };
+        foreach (var key in new[] { "experimentalHeadsetModel", "headsetStandalone", "headsetReceiverEnabled", "headsetDirect", "setupOnStart", "independentGaze" })
+            restore[key] = config[key]?.DeepClone();
+        config["benchmarkTrackingRestore"] = restore;
+        CalibrationSettings.WriteJson(ConfigPath, config);
+        Saved();
+    }
+
+    internal void UseBenchmarkTracking()
+    {
+        var config = Config;
+        foreach (var key in new[] { "experimentalHeadsetModel", "headsetStandalone", "headsetReceiverEnabled", "headsetDirect", "setupOnStart", "independentGaze" })
+            config[key] = false;
+        CalibrationSettings.WriteJson(ConfigPath, config);
+        Saved();
+    }
+
+    internal bool RestoreBenchmarkSettings()
+    {
+        var config = Config;
+        if (config["benchmarkTrackingRestore"] is not JsonObject restore) return false;
+        var resume = restore["resume"]?.GetValue<bool>() == true;
+        foreach (var item in restore.Where(item => item.Key != "resume"))
+            config[item.Key] = item.Value?.DeepClone();
+        config.Remove("benchmarkTrackingRestore");
+        CalibrationSettings.WriteJson(ConfigPath, config);
+        Saved();
+        return resume;
+    }
+
+    internal async Task PrepareBenchmarkTracking()
+    {
+        if (BenchmarkSwitch) throw new IOException(Loc.Get("BenchmarkRestoreRequired"));
+        if (appPoll is not null) await appPoll;
+        App = await SendApp(CancellationToken.None);
+        if (HeadsetApp.Flag(App, "calibration", "running")) throw new IOException(Loc.Get("FinishOrCancelCalibrationFirst"));
+        SaveBenchmarkTracking();
+        try
+        {
+            await Stop();
+            if (State == "CleanupNeedsAttention") throw new IOException(Detail);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(70));
+            App = await SendApp(timeout.Token, ("tracking", false));
+            while (true)
+            {
+                // Android reports the service stopped before its native worker finishes releasing the cameras.
+                var worker = await Processes.RunAsync(Adb.Exe(Root),
+                    ["-s", Config["adbTarget"]?.GetValue<string>() ?? "", "shell", "pidof libqft_worker.so"], timeout.Token, 10);
+                if (worker.Code is not (0 or 1)) throw new IOException(Loc.Get("BenchmarkHeadsetStopFailed"));
+                if (App["running"]?.GetValue<bool>() == false && worker.Code == 1 && string.IsNullOrWhiteSpace(worker.Text)) break;
+                await Task.Delay(250, timeout.Token);
+                App = await SendApp(timeout.Token);
+            }
+            if (App["tracking"]?.GetValue<bool>() != false) throw new IOException(Loc.Get("BenchmarkHeadsetStopFailed"));
+            UseBenchmarkTracking();
+            await Start();
+        }
+        catch
+        {
+            await RestoreBenchmarkTracking();
+            throw;
+        }
+    }
+
+    internal async Task RestoreBenchmarkTracking(bool resumeTracking = true)
+    {
+        if (!BenchmarkSwitch) return;
+        await Stop();
+        if (State == "CleanupNeedsAttention") throw new IOException(Detail);
+        var resume = RestoreBenchmarkSettings();
+        if (resume && resumeTracking) await Start();
+    }
     internal void SetVergenceGain(double value)
     {
         if (!double.IsFinite(value) || value < 0 || value > 3) throw new ArgumentOutOfRangeException(nameof(value));

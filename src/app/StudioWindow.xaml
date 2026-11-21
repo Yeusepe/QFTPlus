@@ -333,7 +333,7 @@
        <StackPanel>
         <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsTester}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
         <TextBlock Text="{Binding Id, StringFormat={local:Loc TesterId}}" AutomationProperties.Name="{Binding Id, StringFormat={local:Loc TesterId}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
-        <TextBlock Text="{local:Loc RecordABenchmarkThenSendTheFileItMakes}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+        <TextBlock x:Name="BenchmarkHelp" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <WrapPanel Margin="0,8,0,0">
          <ui:Button x:Name="RecordBenchmarkButton" Content="{local:Loc RecordABenchmark}" Tag="benchmark-quick" Click="RecordBenchmark" Appearance="Primary" Margin="{DynamicResource ActionButtonSpacing}"/>
          <Button x:Name="UnlabeledBenchmarkButton" Content="{local:Loc RecordUnlabeledBenchmark}" Tag="benchmark-unlabeled" Click="RecordBenchmark" Margin="{DynamicResource ActionButtonSpacing}"/>
