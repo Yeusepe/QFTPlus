@@ -71,9 +71,11 @@ class CaptureWriter:
     def close(self, completed: bool = True) -> None:
         if self._file.closed:
             return
-        self._write_file_header(completed=completed)
-        self._file.flush()
-        self._file.close()
+        try:
+            self._write_file_header(completed=completed)
+            self._file.flush()
+        finally:
+            self._file.close()
 
 
 def scan_frames(path: Path, camera_mask: int = 0x1F) -> list[tuple[int, int, int, int]]:

@@ -1,5 +1,6 @@
 """Calibration on the existing camera stream; never starts a headset service."""
 import json
+from contextlib import ExitStack
 from pathlib import Path
 import time
 import uuid
@@ -92,19 +93,27 @@ class StudioCapture:
             if self.writer is not None or self.pupil is not None:
                 raise ValueError("GuideACalibrationIsAlreadyRecording")
             kind = command.get('kind')
-            if kind not in ('pupils', 'benchmark', 'benchmark-quick', 'enroll'):
+            if kind not in ('pupils', 'benchmark', 'benchmark-quick', 'benchmark-unlabeled', 'enroll'):
                 raise ValueError("GuideUnknownCalibration")
             self.kind = kind
             self.state['kind'] = kind
-            if kind != 'pupils' and (issue := self.data_issue(int(now * 1e9))):
+            if kind == 'benchmark-unlabeled':
+                if not self.camera_ready(int(now * 1e9)):
+                    raise ValueError("CalibrationCameraDataUnavailable")
+            elif kind != 'pupils' and (issue := self.data_issue(int(now * 1e9))):
                 raise ValueError(issue)
             self.prefix = self.root / 'captures' / (kind+'-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
             self.prefix.parent.mkdir(parents=True, exist_ok=True)
             self.paused = False
             self.waiting_for_face = False
             self.state = {'phase': 'recording', 'prefix': str(self.prefix), 'kind': kind}
-            if kind in ('benchmark', 'benchmark-quick', 'enroll'):
+            if kind != 'pupils':
                 self.writer = CaptureWriter(self.prefix.with_suffix('.qpcap'))
+                self.open_video()
+            if kind == 'benchmark-unlabeled':
+                self.started = now
+                self.preview_slot = -1
+            elif kind in ('benchmark', 'benchmark-quick', 'enroll'):
                 self.labels = self.prefix.with_suffix('.qplabel.jsonl').open('x', encoding='utf-8')
                 if kind.startswith('benchmark'):
                     seed = uuid.uuid4().int & 0xFFFFFFFF
@@ -117,10 +126,13 @@ class StudioCapture:
                 self.last_record = 0.
                 self.last_hash = None
                 self.label_sequence = self.label_schema = None
-                self.open_video()
             else:
                 self.pupil = PupilDilation(str(self.prefix)+'.pupils.json', enabled=False, asynchronous=True)
                 self.pupil.calibrate(command.get('sourceEyes', [0, 1]))
+        elif action == 'finish' and self.kind == 'benchmark-unlabeled' and self.writer:
+            if not self.writer.frame_count:
+                raise ValueError("BenchmarkNoCameraFrames")
+            self.finish(True)
         elif action == 'cancel':
             self.finish(False)
         elif action == 'pause':
@@ -143,6 +155,9 @@ class StudioCapture:
             if self.guided.completed:
                 self.finish(True)
 
+    def camera_ready(self, now_ns):
+        return self.last_stream_ns is not None and 0 <= now_ns - self.last_stream_ns <= 500_000_000
+
     def poll(self, monotonic_ns):
         now = monotonic_ns / 1e9
         if now-self.last_poll >= .1:
@@ -154,12 +169,19 @@ class StudioCapture:
             if isinstance(command, dict):
                 try:
                     self.command(command, now)
-                except (OSError, ValueError, KeyError, TypeError) as error:
+                except (OSError, ValueError, KeyError, TypeError, cv2.error) as error:
                     self.finish(False)
                     self.state['error'] = str(error)
         issue = self.data_issue(monotonic_ns)
-        self.state.update(faceReady=not issue, faceIssue=issue)
-        if not issue and self.state.get('error') in ('CalibrationFacePortConflict', 'CalibrationFaceDataUnavailable', 'CalibrationCameraDataUnavailable'):
+        self.state.update(faceReady=not issue, faceIssue=issue, cameraReady=self.camera_ready(monotonic_ns))
+        if self.kind == 'benchmark-unlabeled' and self.writer:
+            self.state['elapsed'] = int(max(0, now - self.started))
+            if now - self.last_ui > 15:
+                self.finish(False)
+                self.state['error'] = 'BenchmarkRecordingInterrupted'
+        if self.kind == 'benchmark-unlabeled' and self.state['cameraReady'] and self.state.get('error') == 'CalibrationCameraDataUnavailable':
+            self.state.pop('error', None)
+        elif not issue and self.state.get('error') in ('CalibrationFacePortConflict', 'CalibrationFaceDataUnavailable', 'CalibrationCameraDataUnavailable'):
             self.state.pop('error', None)
         if self.guided and issue:
             self.wait_for_data(monotonic_ns, issue)
@@ -178,6 +200,12 @@ class StudioCapture:
                 self.pupil_state(now)
             if self.guided:
                 self.update_guided(strip, header, payload, monotonic_ns, labels, now)
+            elif self.kind == 'benchmark-unlabeled' and self.writer:
+                self.writer.write(header, payload, monotonic_ns, time.time_ns())
+                slot = int((now - self.started) * 8)
+                if slot > self.preview_slot:
+                    self.video.write(cv2.cvtColor(cv2.resize(strip, (1000, 200)), cv2.COLOR_GRAY2BGR))
+                    self.preview_slot = slot
         except (OSError, ValueError, cv2.error) as error:
             self.finish(False)
             self.state['error'] = str(error)
@@ -254,13 +282,18 @@ class StudioCapture:
             self.state['cue'] = "GuidePaused"
 
     def finish(self, complete):
-        if self.guided:
-            self.guided.finish(complete)
-        if self.writer is not None: self.writer.close(completed=complete)
-        if self.labels is not None: self.labels.close()
-        if self.video is not None: self.video.release()
-        if self.pupil is not None: self.pupil.close()
-        self.writer = self.labels = self.video = self.pupil = self.guided = None
+        try:
+            with ExitStack() as closing:
+                if self.pupil is not None: closing.callback(self.pupil.close)
+                if self.video is not None: closing.callback(self.video.release)
+                if self.labels is not None: closing.callback(self.labels.close)
+                if self.writer is not None: closing.callback(self.writer.close, completed=complete)
+                if self.guided: self.guided.finish(complete)
+        except (OSError, cv2.error):
+            complete = False
+            self.state['error'] = 'GuideCouldnTSaveTheRecordingMakeSureThisPCHas'
+        finally:
+            self.writer = self.labels = self.video = self.pupil = self.guided = None
         self.state.update(phase='complete' if complete else 'cancelled', completed=complete)
 
     def close(self):

@@ -21,6 +21,9 @@ public partial class StudioWindow
     WindowState? restoreState;
     readonly Button repeatPose = new();
     ComboBox? pupilSourcePicker;
+    bool Unlabeled => kind == "benchmark-unlabeled";
+    bool InputReady => kind == "pupils" || FreshState() && state[Unlabeled ? "cameraReady" : "faceReady"]?.GetValue<bool>() == true;
+    string InputIssue => Unlabeled ? "CalibrationCameraDataUnavailable" : state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable";
     int PupilSource => session.Config["pupilCalibrationSource"]?.GetValue<int>() is 1 ? 1 : session.Config["pupilCalibrationSource"]?.GetValue<int>() is 2 ? 2 : 3;
 
     Ui.CardExpander PupilSourceChoice()
@@ -79,22 +82,21 @@ public partial class StudioWindow
         if (pupilSourcePicker is not null) pupilSourcePicker.IsEnabled = !recording && !training;
         slowMode.Visibility = Visible(kind == "enroll" && !recording && !training);
         begin.Visibility = Visible(!recording && !training);
-        var faceReady = kind == "pupils" || FreshState() && state["faceReady"]?.GetValue<bool>() == true;
-        begin.IsEnabled = faceReady;
-        if (FreshState() && state["faceReady"]?.GetValue<bool>() == true &&
+        begin.IsEnabled = InputReady;
+        if (kind != "pupils" && InputReady &&
             (Notice.Text == Loc.Get("CalibrationFacePortConflict") || Notice.Text == Loc.Get("CalibrationFaceDataUnavailable") ||
              Notice.Text == Loc.Get("CalibrationCameraDataUnavailable"))) ClearNotice();
-        if (!recording && !training && !faceReady)
+        if (!recording && !training && !InputReady)
         {
-            count.Text = Loc.Get(state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable");
+            count.Text = Loc.Get(InputIssue);
             count.Visibility = Visibility.Visible;
         }
         else if (!recording && !training && kind != "pupils") count.Text = Loc.Get("RecordingsStayOnThisPC");
         setUpFace.Visibility = Visible(SetupFirst && !recording && !training);
-        pause.Visibility = Visible(recording);
-        skip.Visibility = repeatPose.Visibility = Visible(recording && kind != "pupils");
+        pause.Visibility = Visible(recording && !Unlabeled);
+        skip.Visibility = repeatPose.Visibility = Visible(recording && kind != "pupils" && !Unlabeled);
         cancel.Visibility = Visible(recording);
-        progress.Visibility = Visible(recording || training);
+        progress.Visibility = Visible(recording && !Unlabeled || training);
         StartButton.IsEnabled = !recording;
     }
 
@@ -151,26 +153,31 @@ public partial class StudioWindow
             foreach (var element in new UIElement[] { list, note, status, pupilOptions }) Page.Children.Add(element);
             return;
         }
+        var benchmarksAvailable = session.Tester || session.Config["benchmarkMode"]?.GetValue<bool>() == true;
         if (training) kind = trainingKind;
+        else if (!benchmarksAvailable && kind.StartsWith("benchmark")) kind = "enroll";
         calibrationModes.SelectionChanged -= CalibrationModeChanged;
         calibrationModes.Items.Clear();
         foreach (var (id, title) in new[] { ("enroll", Loc.Get("Face")), ("pupils", Loc.Get("Pupils")) }
-                     .Concat(session.Config["benchmarkMode"]?.GetValue<bool>() == true ? [("benchmark-quick", Loc.Get("ShortBenchmark")), ("benchmark", Loc.Get("FullBenchmark"))] : []))
+                     .Concat(benchmarksAvailable ? [("benchmark-quick", Loc.Get("ShortBenchmark")), ("benchmark", Loc.Get("FullBenchmark")), ("benchmark-unlabeled", Loc.Get("UnlabeledBenchmark"))] : []))
             calibrationModes.Items.Add(new ComboBoxItem { Content = title, Tag = id, IsSelected = kind == id });
         calibrationModes.SelectionChanged += CalibrationModeChanged;
-        poseTitle.Text = Loc.Format("CalibrateGroup", GroupTitle(kind));
+        var benchmark = kind.StartsWith("benchmark");
+        poseTitle.Text = benchmark ? ((ComboBoxItem)calibrationModes.SelectedItem).Content.ToString() : Loc.Format("CalibrateGroup", GroupTitle(kind));
         var instructions = kind switch { "enroll" => "Face", "benchmark-quick" => "QuickBenchmark", "benchmark" => "Benchmark", _ => "Pupil" };
-        poseDetail.Text = Loc.Get(instructions + "CalibrationInstructions" + (SetupFirst ? "NeedsSetup" : ""));
-        cue.Text = kind switch { "pupils" => Loc.Get("About80Seconds"), "benchmark" => Loc.Get("About18Minutes"), "benchmark-quick" => Loc.Get("About5Minutes"), _ => EnrollLength };
+        poseDetail.Text = Loc.Get(Unlabeled ? "UnlabeledBenchmarkInstructions" : instructions + "CalibrationInstructions" + (SetupFirst ? "NeedsSetup" : ""));
+        cue.Text = kind switch { "pupils" => Loc.Get("About80Seconds"), "benchmark" => Loc.Get("About18Minutes"), "benchmark-quick" => Loc.Get("About5Minutes"), "benchmark-unlabeled" => "", _ => EnrollLength };
+        face.Visibility = Visible(!Unlabeled);
         CalibrationCard.Content = CalibrationGuide;
         (progress.IsIndeterminate, progress.Value) = (false, 0);
         count.Text = kind == "pupils" ? "" : Loc.Get("RecordingsStayOnThisPC");
         count.Visibility = Visible(kind != "pupils");
         slowMode.IsChecked = slow;
-        begin.Content = SetupFirst ? Loc.Get("StartWithoutSetup") : Loc.Get("StartCalibration");
+        begin.Content = Loc.Get(SetupFirst ? "RecordWithoutFaceSetup" : benchmark ? "RecordABenchmark" : "StartCalibration");
         begin.Appearance = SetupFirst ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         pause.Content = Loc.Get("Pause");
         cancel.IsEnabled = true;
+        cancel.Content = Loc.Get(Unlabeled ? "StopAndSaveRecording" : "Cancel");
         review.Visibility = Visibility.Collapsed;
         foreach (var element in new UIElement[] { CalibrationAreaLabel, calibrationModes }) Page.Children.Add(element);
         foreach (var element in new UIElement[] { CalibrationCard, slowMode }) Page.Children.Add(element);
@@ -199,7 +206,7 @@ public partial class StudioWindow
         CalibrationReset();
     }
 
-    bool SetupFirst => kind.StartsWith("benchmark") && !File.Exists(session.Config["faceEnrollment"]?.GetValue<string>());
+    bool SetupFirst => kind is ("benchmark" or "benchmark-quick") && !File.Exists(session.Config["faceEnrollment"]?.GetValue<string>());
 
     void SetUpFaceFirst(object sender, RoutedEventArgs e)
     {
@@ -228,7 +235,7 @@ public partial class StudioWindow
     {
         cancelPending = true;
         cancel.IsEnabled = false;
-        cue.Text = Loc.Get("StoppingCalibration");
+        cue.Text = Loc.Get(Unlabeled ? "SavingRecording" : "StoppingCalibration");
     }
 
     internal void Begin()
@@ -241,8 +248,7 @@ public partial class StudioWindow
         }
         if (!session.Running) Error(Loc.Get("StartTrackingThenStartCalibration"));
         else if (runtimeId.Length == 0 || session.State != "Connected" || !FreshState()) Error(Loc.Get("WaitingForTheHeadsetCamerasMakeSureTheHeadset"));
-        else if (kind != "pupils" && state["faceReady"]?.GetValue<bool>() != true)
-            Error(Loc.Get(state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable"));
+        else if (!InputReady) Error(Loc.Get(InputIssue));
         else
         {
             ClearNotice();
@@ -288,6 +294,7 @@ public partial class StudioWindow
             result = trainingKind.StartsWith("benchmark") ? (true, Loc.Format("BenchmarkPrepareFailure", error.Message)) : (false, error.Message);
         }
         training = false;
+        if (page == "Settings") trackingRefresh?.Invoke();
         progress.IsIndeterminate = false;
         Finished(result.Passed, result.Message);
     }
@@ -330,7 +337,7 @@ public partial class StudioWindow
         ResultLines.ItemsSource = lines.Skip(1);
         ResultDetailsHost.Children.Clear();
         if (lines.Length > 1 && (!passed || partial)) ResultDetailsHost.Children.Add(ResultFindings);
-        begin.Content = passed && !partial ? Loc.Get("CalibrateAgain") : Loc.Get("TryAgain");
+        begin.Content = Loc.Get(benchmark ? "RecordAgain" : passed && !partial ? "CalibrateAgain" : "TryAgain");
         begin.Appearance = passed && !partial ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         RefreshCalibrationControls();
         review.Visibility = Visible(File.Exists(prefix + ".avi"));
@@ -402,7 +409,7 @@ public partial class StudioWindow
                 Error(Loc.Get("CalibrationStoppedBecauseTrackingStoppedOrTheCameraFeed"));
             }
             var settled = FreshState() && Ack >= command;
-            if (cancelPending && settled && Send("cancel"))
+            if (cancelPending && settled && Send(Unlabeled ? "finish" : "cancel"))
             {
                 (cancelPending, recordingCommand) = (false, command);
                 ClearNotice();
@@ -420,14 +427,14 @@ public partial class StudioWindow
             if (IsVisible) adjustmentRefresh?.Invoke();
             if (Loc.Text(state["error"]) is { Length: > 0 } error && (recording ? Ack >= recordingCommand : page == "Calibration")) Error(error);
             if (page != "Tracking" && session.Hybrid is not null && !Session.Alive(session.Hybrid)) Error(Loc.Get("HybridHandsStoppedTheHybridHandsLogInSettings"));
+
         }
         catch (Exception error) { Error(error.Message); }
         finally { polling = false; }
     }
 
-    void UpdateGuide()
+    void UpdatePose()
     {
-        if (cancelPending || !FreshState() || Ack < recordingCommand || state["kind"]?.GetValue<string>() != kind) return;
         if (state["title"] is { } title) poseTitle.Text = Loc.Text(title);
         poseDetail.Text = Loc.Text(state["instruction"]);
         cue.Text = kind == "pupils" || state["cue"]?.GetValue<string>() == "SecondsRemaining"
@@ -440,6 +447,17 @@ public partial class StudioWindow
         pause.Content = state["paused"]?.GetValue<bool>() == true ? Loc.Get("Resume") : Loc.Get("Pause");
         repeatPose.IsEnabled = state["waitingForFace"]?.GetValue<bool>() != true;
         skip.IsEnabled = repeatPose.IsEnabled && (kind != "enroll" || state["condition"]?.GetValue<string>() is string condition && condition is not ("neutral" or "validate:neutral"));
+    }
+
+    void UpdateGuide()
+    {
+        if (cancelPending || !FreshState() || Ack < recordingCommand || state["kind"]?.GetValue<string>() != kind) return;
+        if (Unlabeled)
+        {
+            cue.Text = Loc.Format("BenchmarkElapsed", TimeSpan.FromSeconds(state["elapsed"]?.GetValue<long>() ?? 0));
+            count.Text = Loc.Get(state["cameraReady"]?.GetValue<bool>() == true ? "RecordingsStayOnThisPC" : "CalibrationCameraDataUnavailable");
+        }
+        else UpdatePose();
         if (state["phase"]?.GetValue<string>() is not ("complete" or "cancelled")) return;
         recording = false;
         Theme("System");
@@ -474,6 +492,11 @@ public partial class StudioWindow
                     Apply("enroll");
                     return message;
                 });
+        }
+        else if (Unlabeled)
+        {
+            (candidate, trainingKind) = (prefix + ".qpcap", kind);
+            Finished(true, Loc.Format("BenchmarkRecordedFiles", Path.GetFileName(prefix), Path.GetDirectoryName(prefix)));
         }
         else if (!session.Tester)
         {

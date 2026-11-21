@@ -1615,6 +1615,16 @@
     <value>Record a benchmark</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Content</comment>
   </data>
+  <data name="RecordWithoutFaceSetup" xml:space="preserve"><value>Record without face setup</value></data>
+  <data name="RecordAgain" xml:space="preserve"><value>Record again</value></data>
+  <data name="UnlabeledBenchmark" xml:space="preserve"><value>Unlabeled benchmark</value></data>
+  <data name="RecordUnlabeledBenchmark" xml:space="preserve"><value>Record an unlabeled benchmark</value></data>
+  <data name="UnlabeledBenchmarkInstructions" xml:space="preserve"><value>Record all five tracking cameras without pose prompts. Select Stop and save when you finish.</value></data>
+  <data name="StopAndSaveRecording" xml:space="preserve"><value>Stop and save</value></data>
+  <data name="SavingRecording" xml:space="preserve"><value>Saving recording…</value></data>
+  <data name="BenchmarkElapsed" xml:space="preserve"><value>Recording · {0:g}</value></data>
+  <data name="BenchmarkNoCameraFrames" xml:space="preserve"><value>No camera frames arrived. Check the camera feed and try again.</value></data>
+  <data name="BenchmarkRecordingInterrupted" xml:space="preserve"><value>The recording stopped because the PC app stopped responding.</value></data>
   <data name="RecordABenchmarkThenSendTheFileItMakes" xml:space="preserve">
     <value>Record a test. Send the file to the QFT+ developer.</value>
     <comment>QFT+ Windows app. StudioWindow.xaml: Text</comment>

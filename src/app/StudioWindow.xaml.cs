@@ -1048,7 +1048,8 @@ public partial class StudioWindow : Ui.FluentWindow
 
     void RecordBenchmark(object sender, RoutedEventArgs e)
     {
-        kind = "benchmark-quick";
+        if (busy || recording || training) return;
+        (kind, candidate, prefix, calibrationResult) = ((string)((Button)sender).Tag, "", "", null);
         Navigate("Calibration");
     }
 

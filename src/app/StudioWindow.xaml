@@ -335,7 +335,8 @@
         <TextBlock Text="{Binding Id, StringFormat={local:Loc TesterId}}" AutomationProperties.Name="{Binding Id, StringFormat={local:Loc TesterId}}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <TextBlock Text="{local:Loc RecordABenchmarkThenSendTheFileItMakes}" FontSize="{DynamicResource Font13}" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
         <WrapPanel Margin="0,8,0,0">
-         <ui:Button Content="{local:Loc RecordABenchmark}" Click="RecordBenchmark" Appearance="Primary" Margin="{DynamicResource ActionButtonSpacing}"/>
+         <ui:Button x:Name="RecordBenchmarkButton" Content="{local:Loc RecordABenchmark}" Tag="benchmark-quick" Click="RecordBenchmark" Appearance="Primary" Margin="{DynamicResource ActionButtonSpacing}"/>
+         <Button x:Name="UnlabeledBenchmarkButton" Content="{local:Loc RecordUnlabeledBenchmark}" Tag="benchmark-unlabeled" Click="RecordBenchmark" Margin="{DynamicResource ActionButtonSpacing}"/>
          <Button Content="{local:Loc MessageOnDiscord}" Click="MessageOnDiscord" Margin="{DynamicResource ActionButtonSpacing}"/>
          <Button Content="{local:Loc StopBeingATester}" Click="LeaveTesting" AutomationProperties.HelpText="{local:Loc BenchmarkIsRemovedFromCalibrationRecordingsAlreadyOnThis}" Margin="{DynamicResource ActionButtonSpacing}"/>
         </WrapPanel>
