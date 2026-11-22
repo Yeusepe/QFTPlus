@@ -4093,6 +4093,11 @@ To see this window in the headset, open the desktop in the Steam overlay.</value
   <data name="MicrophoneRepairAbout" xml:space="preserve"><value>Restart the headset after changes.</value></data>
   <data name="MicrophoneRepairModuleName" xml:space="preserve"><value>QFT+ microphone repair</value></data>
   <data name="MicrophoneRepairCheck" xml:space="preserve"><value>Check headset</value></data>
+  <data name="MicrophoneRepairNow" xml:space="preserve"><value>Fix microphone now</value></data>
+  <data name="MicrophoneRepairNowAbout" xml:space="preserve"><value>Unmute the microphone now. No headset restart is needed.</value></data>
+  <data name="MicrophoneRepairNowWorking" xml:space="preserve"><value>Unmuting the microphone...</value></data>
+  <data name="MicrophoneRepairNowDone" xml:space="preserve"><value>Microphone unmuted. Test it in your app.</value></data>
+  <data name="MicrophoneRepairNowFailed" xml:space="preserve"><value>Could not unmute the microphone. Keep the headset awake. Try again.</value></data>
   <data name="MicrophoneRepairConnect" xml:space="preserve"><value>Connect the headset.</value></data>
   <data name="MicrophoneRepairApplying" xml:space="preserve"><value>Changing the repair...</value></data>
   <data name="MicrophoneRepairActive" xml:space="preserve"><value>Repair active.</value></data>

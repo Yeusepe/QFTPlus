@@ -4,6 +4,34 @@ internal static class MicrophoneRepair
 {
     internal sealed record State(bool Enabled, bool CanChange, string Message);
 
+    internal static async Task UnmuteAsync(Session session, string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) throw new IOException(Loc.Get("MicrophoneRepairConnect"));
+        var controller = Path.Combine(session.Root, "qft-microphone-control.jar");
+        if (!File.Exists(controller)) throw new IOException(Loc.Get("MicrophoneSettingsMissing"));
+        var adb = Adb.Exe(session.Root);
+        await Adb.EnsureAsync(adb, target);
+        var remote = $"/data/local/tmp/qft-microphone-repair-{Guid.NewGuid():N}.jar";
+        try
+        {
+            if ((await Processes.RunAsync(adb, ["-s", target, "push", controller, remote], seconds: 30)).Code != 0)
+                throw new IOException(Loc.Get("MicrophoneRepairNowFailed"));
+            var command = "if [ \"$(id -u)\" != 0 ]; then echo 'QFT_MIC_UNMUTE root_required'; exit 1; fi\n" +
+                $"CLASSPATH={Adb.Quote(remote)} app_process /system/bin MicrophoneControl --unmute";
+            var result = await Processes.RunAsync(adb, Adb.Su(target, command), seconds: 15);
+            Session.Log(Path.Combine(session.Root, "microphone-repair.log"), result.Text);
+            var lines = result.Text.Split('\n', StringSplitOptions.TrimEntries);
+            if (lines.Contains("QFT_MIC_UNMUTE root_required")) throw new IOException(Loc.Get("MicrophoneRepairRootRequired"));
+            if (result.Code != 0 || !lines.Contains("QFT_MIC_UNMUTE ok"))
+                throw new IOException(Loc.Get("MicrophoneRepairNowFailed"));
+        }
+        finally
+        {
+            try { await Processes.RunAsync(adb, ["-s", target, "shell", "rm", "-f", remote], seconds: 5); }
+            catch (IOException error) { Session.Log(Path.Combine(session.Root, "microphone-repair.log"), error.Message); }
+        }
+    }
+
     internal static State Parse(string result) => result switch
     {
         "active" => new(true, true, "MicrophoneRepairActive"),

@@ -151,6 +151,17 @@ public final class MicrophoneControl {
     }
 
     static void run(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("--unmute")) {
+            Class<?> audio = type("android.media.AudioSystem");
+            // Bypass the delayed framework callback that can leave the native input muted.
+            int result = (Integer) call(audio, null, "muteMicrophone", new Class<?>[]{boolean.class}, false);
+            if (result != 0) throw new IOException("Microphone unmute failed: " + result);
+            Thread.sleep(1000);
+            if ((Boolean) call(audio, null, "isMicrophoneMuted", new Class<?>[0]))
+                throw new IOException("Microphone stayed muted");
+            System.out.println("QFT_MIC_UNMUTE ok");
+            return;
+        }
         if (args.length == 1 && args[0].equals("--probe")) { System.out.println(sessions()); return; }
         if (args.length != 1) throw new IllegalArgumentException("Module directory required");
         File directory = new File(args[0]);

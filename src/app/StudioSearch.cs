@@ -138,6 +138,7 @@ public partial class StudioWindow
         yield return new(Loc.Get("SuperSecretSettings"), null, "Settings");
         yield return new(Loc.Get("RepairControllers"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("ControllerRepairSearch"));
         yield return new(Loc.Get("MicrophoneRepairOption"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("MicrophoneRepairSearch"));
+        yield return new(Loc.Get("MicrophoneRepairNow"), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("MicrophoneRepairSearch"));
         foreach (var key in new[] { "MicrophoneNoiseOff", "MicrophoneGateAdjust", "MicrophoneGateThreshold" })
             yield return new(Loc.Get(key), Loc.Get("SuperSecretSettings"), "Settings", Loc.Get("MicrophoneSettingsSearch"));
         if (face)
