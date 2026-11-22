@@ -4249,4 +4249,13 @@ With one eye, both avatar pupils change size together.</value></data>
     <value>{0} Test details were saved to {1}.</value>
     <comment>{0} is the translated calibration failure. {1} is the full path to the diagnostic file.</comment>
   </data>
+  <data name="EyeTrackingRepairHeading" xml:space="preserve"><value>Eye tracking repair</value></data>
+  <data name="EyeTrackingRepairNow" xml:space="preserve"><value>Fix eye tracking now</value></data>
+  <data name="EyeTrackingRepairAbout" xml:space="preserve"><value>Turn on eye tracking for the active headset profile.</value></data>
+  <data name="EyeTrackingRepairConnect" xml:space="preserve"><value>Connect the headset.</value></data>
+  <data name="EyeTrackingRepairWorking" xml:space="preserve"><value>Turning on eye tracking...</value></data>
+  <data name="EyeTrackingRepairDone" xml:space="preserve"><value>Eye tracking enabled. Reopen your tracking app.</value></data>
+  <data name="EyeTrackingRepairFailed" xml:space="preserve"><value>Could not enable eye tracking. Keep the headset awake. Try again.</value></data>
+  <data name="EyeTrackingRepairRootRequired" xml:space="preserve"><value>Root access is required to enable eye tracking.</value></data>
+  <data name="EyeTrackingRepairSearch" xml:space="preserve"><value>eyes gaze enable repair</value></data>
 </root>

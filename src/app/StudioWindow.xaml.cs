@@ -825,6 +825,7 @@ public partial class StudioWindow : Ui.FluentWindow
         var secretSettings = new StackPanel { Style = (Style)FindResource("ExpandedSettingsLayout") };
         secretSettings.Children.Add(ControllerRepairOptions());
         secretSettings.Children.Add(MicrophoneRepairOptions());
+        secretSettings.Children.Add(EyeTrackingRepairOptions());
         secretSettings.Children.Add(Face(HeadsetModelOptions()));
         foreach (var element in new[]
         {
