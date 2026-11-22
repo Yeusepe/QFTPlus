@@ -13,7 +13,19 @@ internal static class Processes
         return processes.Length > 0;
     }
 
-    internal static ProcessStartInfo Info(string exe, IEnumerable<string> args) => new(exe, args) { CreateNoWindow = true };
+    internal static ProcessStartInfo Info(string exe, IEnumerable<string> args)
+    {
+        var info = new ProcessStartInfo(exe, args) { CreateNoWindow = true };
+        if (string.Equals(Path.GetFileName(exe), "adb.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            // ADB aborts if its inherited temp folder contains an inaccessible adb.log.
+            // Keep its server log outside both Windows Temp and disposable session folders.
+            var temp = Directory.CreateDirectory(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QFTPlus", "adb-temp")).FullName;
+            info.Environment["TEMP"] = info.Environment["TMP"] = temp;
+        }
+        return info;
+    }
 
     internal static Task<(int Code, string Text)> RunAsync(string exe, IEnumerable<string> args, CancellationToken token = default, int seconds = 15, string? successPrefix = null) =>
         RunAsync(Info(exe, args), token, seconds, successPrefix);
