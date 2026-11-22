@@ -13,13 +13,14 @@
 
 static QftEyeProfile profile{};
 static uintptr_t engine;
-static_assert(sizeof(QftEyeProfile)==(QFT_EYE_CODE_COUNT+6)*8);
+static_assert(sizeof(QftEyeProfile)==(QFT_EYE_CODE_COUNT*2+7)*8);
 template<class T> static T& field(void* p,size_t offset) {return *reinterpret_cast<T*>(static_cast<char*>(p)+offset);}
 static void retain(void* p) {reinterpret_cast<uint64_t(*)(uint64_t,void*)>(engine+profile.code[QFT_RETAIN])(1,static_cast<char*>(p)+8);}
 static void release(void* p) {reinterpret_cast<void(*)(void*)>(engine+profile.code[QFT_RELEASE])(p);}
 extern "C" __attribute__((visibility("default"))) int qft_eye_configure(
     uintptr_t base,size_t module_size,const QftEyeProfile* candidate,size_t length) noexcept {
     if(!base||!candidate||length!=sizeof(*candidate))return 0;
+    if(candidate->task_options_size!=24&&candidate->task_options_size!=32)return 0;
     for(unsigned i:{QFT_RETAIN,QFT_RELEASE,QFT_MODEL_PREPARE,QFT_MODEL_STOP})
         if(!candidate->code[i]||candidate->code[i]>=module_size)return 0;
     if(!candidate->backend_vtable||candidate->backend_vtable>=module_size||!candidate->model_vtable||candidate->model_vtable>=module_size)return 0;
@@ -62,7 +63,8 @@ static thread_local Transition* transition;
 extern "C" __attribute__((visibility("default"))) int qft_eye_task_options(const void* original,void* copy) noexcept {
     if(!transition||!original||!copy)return 0;
     // Return SDK errors normally so its watchdog and our rollback can finish.
-    std::memcpy(copy,original,32);
+    std::memset(copy,0,32);
+    std::memcpy(copy,original,profile.task_options_size);
     field<uint8_t>(copy,0x11)=1;
     return 1;
 }

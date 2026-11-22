@@ -297,7 +297,8 @@ static gchar *engine_configuration(gchar *config,const char *engine,size_t lengt
         uint64_t offset=eye_discovered_profile.code[i];json_array_add_int_element(code,(gint64)offset);
         if(!offset)continue;
         const struct EyeCodeContract *contract=&eye_code_contracts[i];
-        size_t code_length=eye_code_length(&image,offset,(enum QftEyeCode)i,eye_discovered_profile.code[QFT_ASSERT]);
+        size_t code_length=eye_discovered_profile.lengths[i];
+        if(!code_length)code_length=eye_code_length(&image,offset,(enum QftEyeCode)i,eye_discovered_profile.code[QFT_ASSERT]);
         const unsigned char *bytes=code_length?eye_image_at(&image,offset,code_length,PF_R|PF_X):NULL;
         if(!bytes){g_object_unref(parser);json_object_unref(profile);json_object_unref(functions);json_array_unref(code);json_array_unref(trace);json_array_unref(bindings);return NULL;}
         json_object_set_int_member(functions,contract->name,(gint64)offset);
@@ -316,6 +317,10 @@ static gchar *engine_configuration(gchar *config,const char *engine,size_t lengt
     json_object_set_int_member(profile,"filterVtable",(gint64)eye_discovered_profile.filter_vtable);
     json_object_set_int_member(profile,"axis",(gint64)eye_discovered_profile.axis);
     json_object_set_int_member(profile,"modelVtable",(gint64)eye_discovered_profile.model_vtable);
+    JsonArray *lengths=json_array_new();
+    for(unsigned i=0;i<QFT_EYE_CODE_COUNT;i++)json_array_add_int_element(lengths,(gint64)eye_discovered_profile.lengths[i]);
+    json_object_set_array_member(profile,"lengths",lengths);
+    json_object_set_int_member(profile,"taskOptionsSize",(gint64)eye_discovered_profile.task_options_size);
     json_object_set_object_member(root,"profile",profile);json_object_set_array_member(root,"bindings",bindings);
     JsonGenerator *generator=json_generator_new();json_generator_set_root(generator,json_parser_get_root(parser));
     gchar *result=json_generator_to_data(generator,NULL);g_object_unref(generator);g_object_unref(parser);return result;

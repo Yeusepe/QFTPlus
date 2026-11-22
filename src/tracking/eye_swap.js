@@ -144,7 +144,8 @@ function fatal(error) {if(!stopped){stopped=true;finishFailure(error);}}
 async function initialize() {
     try {
         engine=Process.getModuleByName('libtrackingengines.so');
-        if(!profile||!Array.isArray(profile.code)||profile.code.length!==14||!Array.isArray(qftEyeConfig.bindings)||qftEyeConfig.bindings.length!==11)throw new Error('engine_profile');
+        if(!profile||!Array.isArray(profile.code)||profile.code.length!==14||!Array.isArray(profile.lengths)||profile.lengths.length!==14||
+            ![24,32].includes(profile.taskOptionsSize)||!Array.isArray(qftEyeConfig.bindings)||qftEyeConfig.bindings.length!==profile.code.filter(Boolean).length)throw new Error('engine_profile');
         for(const binding of qftEyeConfig.bindings) {
             if(!Number.isSafeInteger(binding.offset)||binding.offset<=0||!Number.isSafeInteger(binding.length)||binding.length<=0||binding.offset+binding.length>engine.size||
                 Checksum.compute('sha256',engine.base.add(binding.offset).readByteArray(binding.length))!==binding.sha256)throw new Error('loaded_code_changed');
@@ -162,7 +163,7 @@ async function initialize() {
             return address;
         };
         const configure=new NativeFunction(exported('qft_eye_configure'),'int',['pointer','ulong','pointer','ulong']);
-        const values=[...profile.code,profile.backendVtable,profile.filterVtable,...profile.trace,profile.axis,profile.modelVtable];
+        const values=[...profile.code,profile.backendVtable,profile.filterVtable,...profile.trace,profile.axis,profile.modelVtable,...profile.lengths,profile.taskOptionsSize];
         const offsets=Memory.alloc(values.length*8);
         values.forEach((value,i)=>offsets.add(i*8).writeU64(value));
         if(configure(engine.base,engine.size,offsets,values.length*8)!==1)throw new Error('native_profile');

@@ -20,4 +20,5 @@ enum QftEyeCode {
 struct QftEyeProfile {
     uint64_t code[QFT_EYE_CODE_COUNT];
     uint64_t backend_vtable, filter_vtable, trace[2], axis, model_vtable;
+    uint64_t lengths[QFT_EYE_CODE_COUNT], task_options_size;
 };
