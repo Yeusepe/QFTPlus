@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources></resources>
+<resources>
+    <!-- %1$s is the pose name. %2$s is its translated failure reason and recovery instruction. -->
+    <!-- %1$s is a list of pose names and their translated failure reasons. -->
+</resources>
