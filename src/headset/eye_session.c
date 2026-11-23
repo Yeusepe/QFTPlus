@@ -72,7 +72,13 @@ int qft_eye_broker_main(void) {
     if(entropy<0||read(entropy,random,sizeof random)!=sizeof random)return 3;
     close(entropy);
     for(unsigned i=0;i<sizeof random;i++)snprintf(token+i*2,3,"%02x",random[i]);
-    frida_init();GError *error=NULL;
+    // The broker owns a GLib loop. A second Frida loop can race socket type
+    // registration against control-service construction and deadlock startup.
+    signal(SIGALRM,SIG_DFL);
+    sigset_t alarms;sigemptyset(&alarms);sigaddset(&alarms,SIGALRM);sigprocmask(SIG_UNBLOCK,&alarms,NULL);
+    alarm(8);
+    frida_init_with_runtime(FRIDA_RUNTIME_GLIB);GError *error=NULL;
+    g_main_context_push_thread_default(g_main_context_default());
     FridaStaticAuthenticationService *auth=frida_static_authentication_service_new(token);
     FridaEndpointParameters *endpoint=frida_endpoint_parameters_new("127.0.0.1",27381,NULL,NULL,FRIDA_AUTHENTICATION_SERVICE(auth),NULL);
     FridaControlServiceOptions *options=frida_control_service_options_new();
@@ -84,13 +90,14 @@ int qft_eye_broker_main(void) {
     int fd=open(CONTROL_DIR "/token",O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC|O_NOFOLLOW,0600);
     if(fd<0||write(fd,token,64)!=64)_exit(4);
     close(fd);
+    alarm(0);
     loop=g_main_loop_new(NULL,FALSE);unsigned idle=0;
     signal(SIGTERM,signal_stop);signal(SIGHUP,signal_stop);signal(SIGINT,signal_stop);
     g_timeout_add_seconds(1,broker_idle,&idle);g_main_loop_run(loop);
     unlink(CONTROL_DIR "/token");
     // Frida teardown can block after closing the listener. No feature owns a session here.
     signal(SIGALRM,SIG_DFL);
-    sigset_t alarms;sigemptyset(&alarms);sigaddset(&alarms,SIGALRM);sigprocmask(SIG_UNBLOCK,&alarms,NULL);
+    sigprocmask(SIG_UNBLOCK,&alarms,NULL);
     alarm(3);
     frida_control_service_stop_sync(service,NULL,&error);
     _exit(error?5:0);
