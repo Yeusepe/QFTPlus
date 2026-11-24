@@ -454,6 +454,7 @@ internal sealed class Session
         {
             headsetSession = true;
             Save("headsetReceiverEnabled", true);
+            StartThumbrest();
             if (Config["openVrApps"]?.GetValue<bool>() ?? true) OpenVrApps(face: HeadsetApp.UsesVrcft(App));
         }
         if (headsetSession) NotifyApp();
@@ -504,6 +505,7 @@ internal sealed class Session
     }
     void StartThumbrest()
     {
+        if (thumbrest is not null) return;
         if (Config["steamvrDriver"]?.GetValue<bool>() == true && Config["adbTarget"]?.GetValue<string>() is { Length: > 0 } target)
             thumbrest = (Thumbrest.StartAsync(this, target), target);
     }
