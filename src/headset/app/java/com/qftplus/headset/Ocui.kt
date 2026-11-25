@@ -224,12 +224,14 @@ internal class Ocui(private val host: Context) {
         })
     }
 
-    @Composable fun Dropdown(options: List<String>, selected: Int, choose: (Int) -> Unit, label: String, modifier: Modifier = Modifier) {
+    @Composable fun Dropdown(options: List<String>, selected: Int, choose: (Int) -> Unit, label: String, modifier: Modifier = Modifier,
+                             compact: Boolean = false) {
         val changed by rememberUpdatedState(choose)
-        val select = remember(options) {
+        val select = remember(options, compact) {
             view("popup.OCSelect").apply {
                 contentDescription = label
                 configureSelect(this, options) { changed(it) }
+                if (compact) sizeSelect(this)
             }
         }
         DisposableEffect(select) {
@@ -237,7 +239,7 @@ internal class Ocui(private val host: Context) {
             overlays.add(close)
             onDispose { close(); overlays.remove(close) }
         }
-        key(select) { AndroidView(modifier = modifier.heightIn(min = 60.dp), factory = { select }, update = { selected(it, selected) }) }
+        key(select) { AndroidView(modifier = modifier.heightIn(min = if (compact) 44.dp else 60.dp), factory = { select }, update = { selected(it, selected) }) }
     }
 
     @Composable fun Navigation(pages: List<String>, icons: List<String>, selected: Int, choose: (Int) -> Unit, modifier: Modifier = Modifier) {
@@ -288,9 +290,15 @@ internal class Ocui(private val host: Context) {
                 configureSelect(this, options) { current(it) }
                 val close = { closeSelect(this); Unit }
                 overlays.add(close)
-                ((this as ViewGroup).getChildAt(0) as TextView).apply { layoutParams = layoutParams.apply { height = px(44) }; minHeight = px(44) }
+                sizeSelect(this)
             }
         }) { current = choose; selected(it, selected) }
+    }
+    private fun sizeSelect(select: View) {
+        ((select as ViewGroup).getChildAt(0) as TextView).apply {
+            layoutParams = layoutParams.apply { height = px(44) }
+            minHeight = px(44)
+        }
     }
     fun slider(value: Float, label: String, change: (Float) -> Unit): Slot {
         var current: (Float) -> Unit = change
@@ -401,7 +409,7 @@ internal class Ocui(private val host: Context) {
     }
 
     private fun px(dp: Int) = (dp * context.resources.displayMetrics.density).toInt()
-    private val surface = 0x0EFFFFFF
+    val surface = 0x0EFFFFFF
     private val secondaryText by lazy { (part(rowPrototype, "list_item_subtitle") as TextView).currentTextColor }
     private val highlight = 0x2AFFFFFF
     val sidebar = 0x0CFFFFFF

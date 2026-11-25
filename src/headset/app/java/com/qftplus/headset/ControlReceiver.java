@@ -26,6 +26,9 @@ public final class ControlReceiver extends BroadcastReceiver {
         }
         SharedPreferences settings = context.getSharedPreferences("settings", 0);
         int capabilities = capabilities(context);
+        String mode = intent.getStringExtra("calibrate");
+        boolean redo = "faceStage".equals(mode);
+        int stage = intent.getIntExtra("stage", -1);
         String problem = intent.hasExtra("rate") && java.util.Arrays.stream(RATES).noneMatch(r -> r == intent.getIntExtra("rate", -1)) ? context.getString(R.string.choose_an_update_rate_of_0_fastest_30_or_20)
             : intent.hasExtra("pupilSource") && (intent.getIntExtra("pupilSource", 0)<1 || intent.getIntExtra("pupilSource", 0)>3) ? context.getString(R.string.invalid_pupil_source)
             : intent.hasExtra("metaGazeAveraging") && (intent.getIntExtra("metaGazeAveraging", 0)<1 || intent.getIntExtra("metaGazeAveraging", 0)>25) ? context.getString(R.string.meta_gaze_averaging_invalid)
@@ -33,7 +36,9 @@ public final class ControlReceiver extends BroadcastReceiver {
             : intent.hasExtra("output") && !java.util.Arrays.asList("pc", "vrchat", "raw").contains(intent.getStringExtra("output")) ? context.getString(R.string.choose_qft_on_your_pc_vrchat_or_osc_apps)
             : intent.hasExtra("oscHost") && !String.valueOf(intent.getStringExtra("oscHost")).matches("((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)") ? context.getString(R.string.enter_the_receiver_s_ipv4_address_like_192_168_1)
             : intent.hasExtra("oscPort") && (intent.getIntExtra("oscPort", 0) < 1 || intent.getIntExtra("oscPort", 0) > 65535) ? context.getString(R.string.choose_a_port_from_1_to_65535)
-            : intent.hasExtra("calibrate") && !java.util.Arrays.asList("face", "pupils").contains(intent.getStringExtra("calibrate")) ? context.getString(R.string.choose_face_or_pupil_calibration)
+            : intent.hasExtra("calibrate") && !java.util.Arrays.asList("face", "pupils", "faceStage").contains(mode) ? context.getString(R.string.choose_face_or_pupil_calibration)
+            : redo && (stage < 0 || stage >= FaceCalibrationStages.COUNT) ? context.getString(R.string.calibration_stage_invalid)
+            : redo && FaceCalibrationStages.savedStages(new File(context.getFilesDir(), "model")) == 0 ? context.getString(R.string.calibration_stages_run_full)
             : intent.getBooleanExtra("tongue", false) && (capabilities & 1) == 0 ? context.getString(R.string.calibrate_your_face_in_qft_headset_to_use_tongue_direction)
             : intent.getBooleanExtra("pupils", false) && (capabilities & 8) == 0 ? context.getString(R.string.calibrate_your_pupils_in_qft_headset_to_use_pupil_dilation) : null;
         byte[] adjustments = null;
@@ -77,7 +82,7 @@ public final class ControlReceiver extends BroadcastReceiver {
             }
         if (intent.hasExtra("calibrate")) {
             String refused;
-            try { refused = CalibrationActivityKt.startCalibration(context, intent.getStringExtra("calibrate").equals("pupils")); }
+            try { refused = CalibrationActivityKt.startCalibration(context, "pupils".equals(mode), redo ? stage : -1); }
             catch (RuntimeException notAllowed) { refused = context.getString(R.string.the_headset_didn_t_let_qft_headset_start_calibration_from); }
             if (refused != null) { setResultCode(2); setResultData(refused); return; }
         }
@@ -132,7 +137,8 @@ public final class ControlReceiver extends BroadcastReceiver {
             .put("calibrated", new JSONObject().put("face", (capabilities & 4) != 0).put("pupils", (capabilities & 8) != 0)
                 .put("tongueDirection",(capabilities&1)!=0).put("cheekSeparation",(capabilities&2)!=0)
                 .put("facePartial",(capabilities&4)!=0&&((capabilities&3)!=3||settings.getInt("faceCalibrationPoses",4095)!=4095)))
-            .put("calibration", new JSONObject().put("running", TrackingService.calibrating).put("result", TrackingService.lastCalibration))
+            .put("calibration", new JSONObject().put("running", TrackingService.calibrating).put("result", TrackingService.lastCalibration)
+                .put("stageMask", (capabilities & 4) == 0 ? 0 : FaceCalibrationStages.savedStages(new File(context.getFilesDir(), "model"))))
             .put("adjustments", hash(TrackingService.adjustmentsFile(context)));
     }
 

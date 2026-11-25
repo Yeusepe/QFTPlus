@@ -8,6 +8,8 @@ final class Calibration {
     static final int FEATURES = 999 + 512;
     static final int[] PROMPTS = {R.string.relax_and_look_ahead, R.string.open_your_mouth_wide, R.string.push_your_lips_forward_into_a_kiss, R.string.puff_both_cheeks, R.string.puff_only_your_left_cheek, R.string.puff_only_your_right_cheek, R.string.stick_your_tongue_straight_out, R.string.point_your_tongue_up, R.string.point_your_tongue_down, R.string.point_your_tongue_left, R.string.point_your_tongue_right, R.string.suck_in_both_cheeks};
     private final boolean pupils;
+    private final int redoStage;
+    private boolean stagesLoaded;
     private long start;
     private long lastFeature, heartbeat = System.nanoTime();
     private long lastSample, heldSince;
@@ -35,8 +37,46 @@ final class Calibration {
     private final long[] previousTime = new long[2];
     private final android.content.Context context;
     private String getString(int id, Object... args) { return context.getString(id, args); }
-    Calibration(android.content.Context context, boolean pupils) { this.context = context; this.pupils = pupils; waiting = getString(R.string.waiting_for_eye_and_face_cameras); for (int i=0;i<12;i++) { holds.add(new ArrayList<>()); checks.add(new ArrayList<>()); } }
+    Calibration(android.content.Context context, boolean pupils) { this(context, pupils, -1); }
+    Calibration(android.content.Context context, boolean pupils, int redoStage) {
+        this.context = context;
+        this.pupils = pupils;
+        this.redoStage = redoStage;
+        faceStep = Math.max(0, redoStage);
+        waiting = getString(R.string.waiting_for_eye_and_face_cameras);
+        for (int i = 0; i < FaceCalibrationStages.COUNT; i++) {
+            holds.add(new ArrayList<>());
+            checks.add(new ArrayList<>());
+        }
+    }
     boolean isPupils() { return pupils; }
+    boolean isStageRedo() { return redoStage >= 0; }
+    synchronized boolean loadStages(File directory) {
+        if (!isStageRedo() || stagesLoaded) return true;
+        ByteBuffer capture = FaceCalibrationStages.read(directory);
+        if (capture == null) return false;
+        capture.position(Long.BYTES);
+        int[] counts = new int[2 * FaceCalibrationStages.COUNT];
+        for (int i = 0; i < counts.length; i++) counts[i] = capture.getInt();
+        for (int i = 0; i < counts.length; i++) {
+            int stage = i % FaceCalibrationStages.COUNT;
+            ArrayList<float[]> frames = (i < FaceCalibrationStages.COUNT ? holds : checks).get(stage);
+            if (stage == redoStage) {
+                capture.position(capture.position() + counts[i] * FEATURES * Float.BYTES);
+                continue;
+            }
+            for (int j = 0; j < counts[i]; j++) {
+                float[] frame = new float[FEATURES];
+                for (int k = 0; k < FEATURES; k++) {
+                    frame[k] = capture.getFloat();
+                    if (!Float.isFinite(frame[k])) return false;
+                }
+                frames.add(frame);
+            }
+        }
+        stagesLoaded = true;
+        return true;
+    }
     synchronized void source(int mask) { if (start == 0 && mask >= 1 && mask <= 3) pupilSource = mask; }
     synchronized void pace(boolean slow) { if(start==0)pace=slow?2:1; }
     synchronized boolean validating() { return validating; }
@@ -95,16 +135,19 @@ final class Calibration {
     }
     synchronized void repeat(int expected, long now) { if(expected==faceStep)repeat(now); }
     synchronized void skip(long now) {
-        if (done || pupils || start == 0 || faceStep == 0) return;
+        if (done || pupils || start == 0 || faceStep == 0 || isStageRedo()) return;
         faceFailures[faceStep]=R.string.face_step_skipped;
         holds.get(faceStep).clear(); checks.get(faceStep).clear(); nextFace(now);
     }
     synchronized void skip(int expected, long now) { if(expected==faceStep)skip(now); }
     private void nextFace(long now) {
         feedbackReason=0;
-        faceStep++; validating=false; retries=0; lastFeature=0; peak=0; previousFeatures=null; holdVisible=false;extensions=0;
-        start=now-faceStep*6000000000L*pace;
-        if (faceStep==12) { done=true; message=getString(R.string.checking_calibration); }
+        if (isStageRedo() || faceStep == FaceCalibrationStages.COUNT - 1) {
+            done = true; message = getString(R.string.checking_calibration);
+        } else {
+            faceStep++; validating=false; retries=0; lastFeature=0; peak=0; previousFeatures=null; holdVisible=false;extensions=0;
+            start=now-faceStep*6000000000L*pace;
+        }
     }
     synchronized void features(byte[] payload, long now) {
         if (done || pupils || start == 0 || heldSince != 0 || now-lastFeature < 250000000L || !holdVisible || now-lastSample > 100000000L) return;
@@ -125,7 +168,7 @@ final class Calibration {
     synchronized void sample(byte[] payload, long now) {
         if (done) return;
         if (heldSince == 0 && now-heartbeat > 3000000000L) { fail(getString(R.string.calibration_stopped_because_the_app_was_closed)); return; }
-        if (!presented || heldSince != 0) return;
+        if (!presented || heldSince != 0 || (isStageRedo() && !stagesLoaded)) return;
         lastSample = now;
         ByteBuffer b = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         if (start == 0) {
@@ -136,7 +179,7 @@ final class Calibration {
             } else if ((b.getInt(288)&1)==0) {
                 waiting = getString(R.string.cameras_are_active_but_meta_face_tracking_is); return;
             }
-            start = now;
+            start = now - faceStep * 6000000000L * pace;
         }
         double t = (now-start)/1e9/(pupils?1:pace);
         if (pupils && t>=55+pupilRound*25) { finishPupilRound(now); return; }
@@ -180,7 +223,7 @@ final class Calibration {
                     feedbackReason=faceFailures[faceStep]=problem;
                     (validating ? checks : holds).get(faceStep).clear();
                     if (++retries>=2) {
-                        if (faceStep==0) { fail(getString(R.string.face_step_failure,getString(PROMPTS[0]),getString(problem))); return; }
+                        if (faceStep==0 || isStageRedo()) { fail(getString(R.string.face_step_failure,getString(PROMPTS[faceStep]),getString(problem))); return; }
                         holds.get(faceStep).clear();checks.get(faceStep).clear();nextFace(now);return;
                     }
                 } else if (!validating) { validating=true;retries=0;feedbackReason=faceFailures[faceStep]=0; }
@@ -238,6 +281,7 @@ final class Calibration {
         return 0;
     }
     synchronized String faceResult(int capabilities) {
+        if (isStageRedo()) return getString(R.string.calibration_stage_saved, getString(PROMPTS[redoStage]));
         ArrayList<String> skipped=new ArrayList<>();
         for(int i=1;i<12;i++)if(holds.get(i).isEmpty())skipped.add(getString(R.string.face_step_failure,
             getString(PROMPTS[i]),getString(faceFailures[i]==0?R.string.not_enough_fresh_samples_try_calibration_again:faceFailures[i])));
@@ -301,10 +345,15 @@ final class Calibration {
     synchronized boolean save(File directory) throws IOException {
         if (failed) return false;
         if (!pupils) {
+            if (isStageRedo() && (!done || !stagesLoaded || holds.get(redoStage).size() < FaceCalibrationStages.SAMPLES
+                    || checks.get(redoStage).size() < FaceCalibrationStages.SAMPLES)) {
+                fail(getString(R.string.not_enough_fresh_samples_try_calibration_again));
+                return false;
+            }
             if(holds.get(0).size()<8||checks.get(0).size()<8){fail(getString(R.string.not_enough_fresh_samples_try_calibration_again));return false;}
-            for(int i=1;i<12;i++)if(checks.get(i).size()<8)holds.get(i).clear();
-            ByteBuffer data=ByteBuffer.allocate(8+24*4+holds.stream().mapToInt(h->h.size()*FEATURES*4).sum()+checks.stream().mapToInt(h->h.size()*FEATURES*4).sum()).order(ByteOrder.LITTLE_ENDIAN);
-            data.putLong(0x3330304c41434651L);
+            for(int i=1;i<12;i++)if(checks.get(i).size()<8){holds.get(i).clear();checks.get(i).clear();}
+            ByteBuffer data=ByteBuffer.allocate(FaceCalibrationStages.CAPTURE_HEADER+holds.stream().mapToInt(h->h.size()*FEATURES*4).sum()+checks.stream().mapToInt(h->h.size()*FEATURES*4).sum()).order(ByteOrder.LITTLE_ENDIAN);
+            data.putLong(FaceCalibrationStages.CAPTURE_FORMAT);
             for(ArrayList<float[]> hold:holds)data.putInt(hold.size());
             for(ArrayList<float[]> hold:checks)data.putInt(hold.size());
             for(ArrayList<float[]> hold:holds)for(float[] frame:hold)for(float v:frame)data.putFloat(v);

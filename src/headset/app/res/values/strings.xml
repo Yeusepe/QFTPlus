@@ -41,6 +41,14 @@
     <string name="calibration_space">Calibration space</string>
     <string name="calibration_step">%1$d of 12</string>
     <string name="calibration_step_retry">%1$d of 12. Try this step again.</string>
+    <string name="calibration_stages">Calibration stages</string>
+    <string name="calibration_stage">Face movement</string>
+    <string name="redo_calibration_stage">Redo one movement</string>
+    <string name="calibration_stage_not_saved">%1$s (not saved)</string>
+    <string name="calibration_stage_invalid">Choose a face movement to record again.</string>
+    <string name="calibration_stages_run_full">Complete face and tongue calibration once to redo individual movements.</string>
+    <string name="calibration_stage_saved">Movement saved: %1$s</string>
+    <string name="calibration_stage_fit_failed">This movement did not fit your other saved movements. Your previous calibration is still active.</string>
     <string name="calibration_stopped_because_the_app_was_closed">Calibration stopped because the app was closed.</string>
     <string name="calibration_ui_couldn_t_open_previous_calibration_retained">Calibration UI couldn\'t open. Previous calibration retained.</string>
     <string name="cameras_are_active_but_meta_face_tracking_is">Cameras are active, but Meta face tracking is unavailable</string>

@@ -35,11 +35,14 @@ import java.io.File
 import kotlin.math.ceil
 import kotlin.math.min
 
-internal fun startCalibration(context: android.content.Context, pupils: Boolean): String? {
+internal fun startCalibration(context: android.content.Context, pupils: Boolean): String? =
+    startCalibration(context, pupils, -1)
+
+internal fun startCalibration(context: android.content.Context, pupils: Boolean, stage: Int): String? {
     if (TrackingService.calibrating) return context.getString(R.string.calibration_is_already_running_in_the_headset)
     val task = returnTask() ?: return context.getString(R.string.root_needed)
     context.startActivity(Intent(context, CalibrationActivity::class.java).setAction(Intent.ACTION_MAIN)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", task))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("pupils", pupils).putExtra("returnTask", task).putExtra("stage", stage))
     TrackingService.lastCalibration = ""
     return null
 }
@@ -82,6 +85,7 @@ class CalibrationActivity : ComponentActivity() {
     private var calibrationFeedback by mutableStateOf("")
     private var pupilSource by mutableIntStateOf(3); private var slow by mutableStateOf(false)
     private var avatar by mutableIntStateOf(0)
+    private var stage = -1
     private var cursor by mutableStateOf<Offset?>(null)
     private var pointerDown = false; private var downTime = 0L
 
@@ -105,7 +109,9 @@ class CalibrationActivity : ComponentActivity() {
         if (resumed && renderer == null) launch()
     }
     private fun launch() {
-        calibration = Calibration(this, intent.getBooleanExtra("pupils", false))
+        val forPupils = intent.getBooleanExtra("pupils", false)
+        stage = intent.getIntExtra("stage", -1).takeIf { !forPupils && it in Calibration.PROMPTS.indices } ?: -1
+        calibration = Calibration(this, forPupils, stage)
         val preferences = getSharedPreferences("settings", 0)
         pupilSource = preferences.getInt("pupilSource", 3).coerceIn(1, 3)
         slow = preferences.getBoolean("calibrationSlow", false)
@@ -256,7 +262,12 @@ class CalibrationActivity : ComponentActivity() {
                     }
                     !armed || !started -> {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ocui.Text(if (pupil) getString(R.string.pupil_calibration) else getString(R.string.face_calibration), kind = "title")
+                        ocui.Text(getString(when {
+                            pupil -> R.string.pupil_calibration
+                            stage >= 0 -> R.string.redo_calibration_stage
+                            else -> R.string.face_calibration
+                        }), kind = "title")
+                        if (stage >= 0) ocui.Text(getString(Calibration.PROMPTS[stage]), kind = "strong")
                         if (!armed) {
                             if (!pupil) ocui.Dropdown(listOf(getString(R.string.calibration_standard_pace), getString(R.string.calibration_more_time)), if (slow) 1 else 0, { index ->
                                 slow = index == 1; calibration.pace(slow)
@@ -298,12 +309,13 @@ class CalibrationActivity : ComponentActivity() {
                         if (calibrationFeedback.isNotEmpty()) ocui.Text(calibrationFeedback, kind = "detail")
                         ocui.Text(if (phase < 2) getString(R.string.get_ready) else if (phase < 5) getString(R.string.hold) else getString(R.string.relax), kind = "strong", size = 28f)
                         ocui.Progress((if (phase < 2) phase / 2 else if (phase < 5) (phase - 2) / 3 else 1.0).toFloat())
-                        ocui.Text(getString(if (retrying) R.string.calibration_step_retry else R.string.calibration_step, step + 1), kind = "detail", size = 22f)
+                        if (stage < 0)
+                            ocui.Text(getString(if (retrying) R.string.calibration_step_retry else R.string.calibration_step, step + 1), kind = "detail", size = 22f)
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             ocui.Button(label = getString(R.string.calibration_pause), onClick = { paused = true; calibration.hold(true, System.nanoTime()) })
                             ocui.Button(label = getString(R.string.calibration_repeat), onClick = { calibration.repeat(step, System.nanoTime()) })
-                            ocui.Button(label = getString(R.string.calibration_skip), onClick = { calibration.skip(step, System.nanoTime()) }, enabled = step > 0)
+                            if (stage < 0) ocui.Button(label = getString(R.string.calibration_skip), onClick = { calibration.skip(step, System.nanoTime()) }, enabled = step > 0)
                             Spacer(Modifier.weight(1f))
                             ocui.Button(label = getString(R.string.calibration_cancel), onClick = ::leave)
                         }

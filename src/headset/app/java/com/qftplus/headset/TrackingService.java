@@ -205,6 +205,7 @@ public final class TrackingService extends Service {
             try (InputStream input = getAssets().open("model/profile.bin")) { fresh = input.readAllBytes(); }
             fresh = retainPupilCalibration(fresh, old);
             OutputAdjustments.write(profile, fresh);
+            FaceCalibrationStages.remove(directory);
             if (old != null) settings.edit().putBoolean("tongue", false).remove("faceCalibrationPoses").apply();
         }
         File ort = new File(directory, "libonnxruntime.so");
@@ -362,6 +363,11 @@ public final class TrackingService extends Service {
             while (!stopping) {
                 if (eyes != null) eyes.check();
                 Calibration c = calibration;
+                if (c != null && !c.loadStages(directory)) {
+                    c.fail(getString(R.string.calibration_stages_run_full));
+                    if (calibration == c) calibration = null;
+                    c = null;
+                }
                 int options = 1 | 8 | 16;
                 if ((capabilities & 1) != 0 && settings.getBoolean("tongue", false)) options |= 2;
                 if ((capabilities & 8) != 0 && settings.getBoolean("pupils", false)) options |= 4;
@@ -439,11 +445,21 @@ public final class TrackingService extends Service {
                                     c.fail(getString(R.string.calibration_fit_failed));
                                 }
                                 synchronized (c) {
-                                    if (c.cancelled()) Files.deleteIfExists(new File(directory, "profile.pending").toPath());
-                                    else {
-                                        Files.move(new File(directory, "profile.pending").toPath(), new File(directory, "profile.bin").toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                                        settings.edit().putBoolean("tongue", (ControlReceiver.capabilities(this)&1)!=0).putInt("faceCalibrationPoses",c.completedPoses()).apply();
-                                        c.saved(c.faceResult(ControlReceiver.capabilities(this)));
+                                    if (!c.cancelled()) {
+                                        try {
+                                            if (FaceCalibrationStages.commit(directory, c.isStageRedo())) {
+                                                int fitted = ControlReceiver.capabilities(this);
+                                                var edit = settings.edit().putInt("faceCalibrationPoses", c.completedPoses());
+                                                if (!c.isStageRedo()) edit.putBoolean("tongue", (fitted & 1) != 0);
+                                                edit.apply();
+                                                c.saved(c.faceResult(fitted));
+                                            } else {
+                                                c.fail(getString(R.string.calibration_stage_fit_failed));
+                                            }
+                                        } catch (IOException save) {
+                                            android.util.Log.w("QFT", "Calibration save failed", save);
+                                            c.fail(getString(R.string.calibration_fit_failed));
+                                        }
                                     }
                                 }
                             } else settings.edit().putBoolean("pupils", true).apply();
@@ -495,6 +511,7 @@ public final class TrackingService extends Service {
         synchronized (runtimeLock) {
             File dir = new File(context.getFilesDir(), "model");
             for (String name : new String[]{"profile.bin", "profile.pending", "calibration.bin"}) Files.deleteIfExists(new File(dir, name).toPath());
+            FaceCalibrationStages.remove(dir);
             context.getSharedPreferences("settings", 0).edit().putBoolean("tongue", false).putBoolean("pupils", false).remove("faceCalibrationPoses").commit();
         }
     }

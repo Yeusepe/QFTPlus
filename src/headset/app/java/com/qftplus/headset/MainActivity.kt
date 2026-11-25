@@ -85,9 +85,9 @@ class MainActivity : ComponentActivity() {
     private fun restartTracking() { if (settings.getBoolean("enabled", false)) { stop(); start() } }
     private val rates = listOf(0, 30, 20)
     private val rateNames get() = listOf(getString(R.string.fastest), getString(R.string.text_30_per_second), getString(R.string.text_20_per_second))
-    private fun begin(pupils: Boolean) {
+    private fun begin(pupils: Boolean, stage: Int = -1) {
         if (resetting) return
-        startCalibration(this, pupils)?.let { notice = it; return }
+        startCalibration(this, pupils, stage)?.let { notice = it; return }
         finishAndRemoveTask()
     }
 
@@ -169,6 +169,7 @@ class MainActivity : ComponentActivity() {
             Hit(getString(R.string.resume_after_restart), getString(R.string.features), 0, words = getString(R.string.boot_startup_reboot_automatically)),
             Hit(getString(R.string.update_rate), getString(R.string.performance), 0, words = getString(R.string.fps_frame_rate_speed_latency_smooth_battery_heat)),
             Hit(getString(R.string.face_and_tongue), null, 2, words = getString(R.string.calibrate_mouth_avatar_expressions)),
+            Hit(getString(R.string.redo_calibration_stage), getString(R.string.calibration_stages), 2),
             Hit(getString(R.string.pupil_dilation), null, 2, words = getString(R.string.calibrate_eyes_pupils)),
             Hit(getString(R.string.avatar_distance), getString(R.string.calibration_space), 2),
             Hit(getString(R.string.reduce_motion), getString(R.string.calibration_space), 2, words = getString(R.string.animation)),
@@ -406,15 +407,67 @@ class MainActivity : ComponentActivity() {
         else if (!settings.getBoolean("enabled", false)) Group(null, null, row(getString(R.string.meta_gaze_averaging_when_tracking)))
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable private fun CalibrationPage() {
         var confirm by remember { mutableStateOf(false) }
+        var savedStages by remember { mutableStateOf<Int?>(null) }
+        var stage by rememberSaveable { mutableIntStateOf(0) }
         var distance by remember { mutableFloatStateOf(settings.getFloat("guideDistance", .75f).coerceIn(.5f, 1.2f)) }
         val reduceMotion = preference("reduceMotion")
+        LaunchedEffect(resumed, resetting) {
+            if (resumed && !resetting) savedStages = withContext(Dispatchers.IO) {
+                FaceCalibrationStages.savedStages(java.io.File(filesDir, "model"))
+            }
+        }
         Group(null, getString(R.string.calibrate_after_changing_how_the_headset_fits_your),
             row(getString(R.string.face_and_tongue), getString(R.string.copy_12_expressions_from_a_meta_avatar_about), "oc_icon_face_tracking_on_filled_24",
                 ocui.button(getString(R.string.calibrate), "PRIMARY", !resetting) { begin(false) }),
             row(getString(R.string.pupil_dilation), getString(R.string.follow_a_dot_as_the_space_darkens_and), "adjust",
                 ocui.button(getString(R.string.calibrate), enabled = !resetting) { begin(true) }))
+        when (val mask = savedStages) {
+            null -> Unit
+            0 -> Group(getString(R.string.calibration_stages), null, row(getString(R.string.calibration_stages_run_full)))
+            else -> {
+                val choices = Calibration.PROMPTS.mapIndexed { index, prompt ->
+                    val movement = getString(prompt)
+                    if (mask and (1 shl index) != 0) movement else getString(R.string.calibration_stage_not_saved, movement)
+                }
+                val stageLabel = getString(R.string.calibration_stage)
+                val picker: @Composable (Modifier) -> Unit = { modifier ->
+                    ocui.Dropdown(choices, stage, { stage = it }, stageLabel, modifier, compact = true)
+                }
+                val redo: @Composable () -> Unit = {
+                    ocui.Button(getString(R.string.redo_calibration_stage), { begin(false, stage) }, enabled = !resetting)
+                }
+                val requester = remember { BringIntoViewRequester() }
+                if (focus == getString(R.string.redo_calibration_stage))
+                    LaunchedEffect(Unit) { delay(150); requester.bringIntoView() }
+                ocui.Section(getString(R.string.calibration_stages)) {
+                    Box(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(ocui.surface))
+                        .bringIntoViewRequester(requester)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ocui.Text(stageLabel, kind = "strong")
+                            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                if (maxWidth < 420.dp) {
+                                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        picker(Modifier.fillMaxWidth())
+                                        redo()
+                                    }
+                                } else {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        picker(Modifier.weight(1f))
+                                        redo()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Group(getString(R.string.calibration_space), getString(R.string.each_calibration_shows_a_different_meta_preset_avatar),
             numberRow(getString(R.string.avatar_distance), distance, .5f..1.2f, { getString(R.string.distance_metres, it) }) {
                 distance = it; settings.edit().putFloat("guideDistance", it).apply()
