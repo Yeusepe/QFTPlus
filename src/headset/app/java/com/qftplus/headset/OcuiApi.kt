@@ -31,7 +31,7 @@ internal class OcuiApi(private val host: Context, private val loader: ClassLoade
     fun fields(type: Class<*>): List<Field> = generateSequence(type) { it.superclass }
         .flatMap { it.declaredFields.asSequence() }
         .filter { Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers) && !it.isSynthetic }
-        .distinctBy { it.name }.toList()
+        .toList()
 
     private fun <T : ReflectiveMember> unique(role: String, candidates: List<T>): T {
         if (candidates.size == 1) return candidates[0]
@@ -40,7 +40,8 @@ internal class OcuiApi(private val host: Context, private val loader: ClassLoade
     }
 
     fun property(obj: Any, matches: (Field) -> Boolean): Field =
-        unique("${obj.javaClass.name} field", fields(obj.javaClass).filter(matches))
+        // Filter by role before resolving hidden fields: obfuscation reuses names across unrelated fields.
+        unique("${obj.javaClass.name} field", fields(obj.javaClass).filter(matches).distinctBy { it.name to it.type })
 
     fun method(obj: Any, result: Class<*>, vararg parameters: Class<*>): Method {
         val candidates = methods(obj.javaClass).filter {
@@ -72,7 +73,7 @@ internal class OcuiApi(private val host: Context, private val loader: ClassLoade
         val typed = candidates.filter { field ->
             (field.genericType as? ParameterizedType)?.actualTypeArguments?.firstOrNull()?.let(::accepts) == true
         }
-        return unique("${obj.javaClass.name} ${container.name} items", typed.ifEmpty { candidates })
+        return unique("${obj.javaClass.name} ${container.name} items", typed.ifEmpty { candidates }.distinctBy { it.name to it.type })
     }
 
     fun namedMethod(obj: Any, name: String, vararg args: Any?): Method {
