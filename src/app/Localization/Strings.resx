@@ -4258,4 +4258,10 @@ With one eye, both avatar pupils change size together.</value></data>
   <data name="EyeTrackingRepairFailed" xml:space="preserve"><value>Could not enable eye tracking. Keep the headset awake. Try again.</value></data>
   <data name="EyeTrackingRepairRootRequired" xml:space="preserve"><value>Root access is required to enable eye tracking.</value></data>
   <data name="EyeTrackingRepairSearch" xml:space="preserve"><value>eyes gaze enable repair</value></data>
+  <data name="CalibrationStages" xml:space="preserve"><value>Calibration stages</value></data>
+  <data name="CalibrationStageMovement" xml:space="preserve"><value>Face movement</value></data>
+  <data name="CalibrationRedoMovement" xml:space="preserve"><value>Redo one movement</value></data>
+  <data name="CalibrationStageNotSaved" xml:space="preserve"><value>{0} (not saved)</value><comment>{0} is the face movement.</comment></data>
+  <data name="CalibrationStagesRunFull" xml:space="preserve"><value>Complete face and tongue calibration once to redo individual movements.</value></data>
+  <data name="CalibrationStagesUpdateHeadset" xml:space="preserve"><value>Update QFT+ Headset to redo individual movements.</value></data>
 </root>

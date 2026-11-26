@@ -28,6 +28,13 @@ public partial class StudioWindow
     bool InputReady => kind == "pupils" || FreshState() && state[Unlabeled ? "cameraReady" : "faceReady"]?.GetValue<bool>() == true;
     string InputIssue => Unlabeled ? "CalibrationCameraDataUnavailable" : state["faceIssue"]?.GetValue<string>() is { Length: > 0 } issue ? issue : "CalibrationFaceDataUnavailable";
     int PupilSource => session.Config["pupilCalibrationSource"]?.GetValue<int>() is 1 ? 1 : session.Config["pupilCalibrationSource"]?.GetValue<int>() is 2 ? 2 : 3;
+    // Order matches the pose IDs used by the headset calibration capture.
+    static readonly string[] HeadsetStageLabels =
+    [
+        "GuideRelaxAndLookAhead", "GuideOpenYourMouthWide", "GuidePushYourLipsForwardIntoAKiss", "GuidePuffBothCheeks",
+        "GuidePuffOnlyYourLeftCheek", "GuidePuffOnlyYourRightCheek", "GuideStickYourTongueOut", "GuidePointYourTongueUp",
+        "GuidePointYourTongueDown", "GuidePointYourTongueLeft", "GuidePointYourTongueRight", "GuideSuckInYourCheeks"
+    ];
 
     Ui.CardExpander PupilSourceChoice()
     {
@@ -113,48 +120,99 @@ public partial class StudioWindow
             var status = Muted("", live: true);
             var list = new StackPanel();
             var rows = new List<(TextBlock Value, string Kind, string About)>();
+            var starts = new List<Button>();
             var pupilOptions = PupilSourceChoice();
             var watching = false;
+            var launching = false;
+            Action? refresh = null;
+            async Task Launch(params (string Key, object Value)[] request)
+            {
+                if (launching) return;
+                launching = true;
+                refresh?.Invoke();
+                try
+                {
+                    session.App = await session.SendApp(CancellationToken.None, request);
+                    watching = true;
+                    status.Text = Loc.Get("CalibrationStartedInTheHeadsetPutItOnAnd");
+                }
+                catch (IOException error) { status.Text = error.Message; }
+                finally { launching = false; refresh?.Invoke(); }
+            }
             foreach (var (kind, title, icon, about, primary) in new[] {
                          ("face", Loc.Get("FaceAndTongue"), "sentiment_satisfied", Loc.Get("Copy12ExpressionsFromAMetaAvatarAbout75"), true),
                          ("pupils", Loc.Get("PupilDilation"), "adjust", Loc.Get("FollowADotAsTheSpaceDarkensAndBrightens"), false) })
             {
-                var start = AsyncButton(Loc.Get("Calibrate_9604ba0c"), async () =>
-                {
-                    try
-                    {
-                        session.App = await session.SendApp(CancellationToken.None, ("calibrate", kind), ("pupilSource", PupilSource));
-                        watching = true;
-                        status.Text = Loc.Get("CalibrationStartedInTheHeadsetPutItOnAnd");
-                    }
-                    catch (IOException error) { status.Text = error.Message; }
-                });
+                var start = AsyncButton(Loc.Get("Calibrate_9604ba0c"), () => kind == "pupils"
+                    ? Launch(("calibrate", kind), ("pupilSource", PupilSource)) : Launch(("calibrate", kind)));
                 start.Appearance = primary ? Ui.ControlAppearance.Primary : Ui.ControlAppearance.Secondary;
                 AutomationProperties.SetName(start, Loc.Format("CalibrateGroup", title));
                 var value = Text("", 14, true);
                 list.Children.Add(ActionRow(title, value, icon, start));
                 rows.Add((value, kind, about));
+                starts.Add(start);
             }
             RoundEnds(list);
-            trackingRefresh += () =>
+            var movement = Loc.Get("CalibrationStageMovement");
+            var label = Text(movement);
+            var picker = new ComboBox { Margin = new(6, 0, 6, 0) };
+            AutomationProperties.SetName(picker, movement);
+            AutomationProperties.SetLabeledBy(picker, label);
+            var redoButton = AsyncButton(Loc.Get("CalibrationRedoMovement"), () => picker.SelectedIndex >= 0 && picker.SelectedIndex < HeadsetStageLabels.Length
+                ? Launch(("calibrate", "faceStage"), ("stage", picker.SelectedIndex)) : Task.CompletedTask);
+            AutomationProperties.SetName(redoButton, Loc.Get("CalibrationRedoMovement"));
+            redoButton.Margin = new(16, 0, 0, 0);
+            redoButton.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(redoButton, Dock.Right);
+            var stageActions = new DockPanel();
+            stageActions.Children.Add(redoButton);
+            stageActions.Children.Add(picker);
+            var stageCard = new Border { Child = Stack(label, stageActions), CornerRadius = new(16), Padding = new(24, 16, 20, 16) };
+            stageCard.SetResourceReference(Border.BackgroundProperty, "Surface");
+            var stageHelp = Muted("");
+            var stages = Stack(Heading(Loc.Get("CalibrationStages")), stageCard, stageHelp);
+            stages.Margin = new(0, 16, 0, 16);
+            int? shownMask = null;
+            void Refresh()
             {
-                pupilOptions.IsEnabled = session.App?["calibration"]?["running"]?.GetValue<bool>() != true;
+                var headset = session.App?["calibration"];
+                var running = headset?["running"]?.GetValue<bool>() == true;
+                var connected = session.App is not null && session.AppProblem.Length == 0;
+                pupilOptions.IsEnabled = !launching && !running;
+                foreach (var start in starts) start.IsEnabled = !launching && !running;
+                var mask = headset?["stageMask"]?.GetValue<int>();
+                if (mask is > 0 && shownMask != mask)
+                {
+                    var selected = Math.Max(0, picker.SelectedIndex);
+                    picker.ItemsSource = HeadsetStageLabels.Select((key, index) => (mask.Value & (1 << index)) != 0
+                        ? Loc.Get(key) : Loc.Format("CalibrationStageNotSaved", Loc.Get(key))).ToArray();
+                    picker.SelectedIndex = selected;
+                }
+                shownMask = mask;
+                stages.Visibility = Visible(session.App is not null);
+                stageCard.Visibility = Visible(mask is > 0);
+                stageHelp.Visibility = Visible(mask is null or 0);
+                stageHelp.Text = Loc.Get(mask is null ? "CalibrationStagesUpdateHeadset" : "CalibrationStagesRunFull");
+                stageCard.IsEnabled = connected && !launching && !running;
                 foreach (var (value, kind, about) in rows)
                     value.Text = session.App is not { } app ? about : Loc.Format("CalibrationStatusDetails",
                         Loc.Get(kind == "face" && HeadsetApp.Flag(app,"calibrated","facePartial") ? "CalibrationPartiallyCalibrated" : HeadsetApp.Flag(app, "calibrated", kind) ? "Calibrated" : "NotCalibrated"), about);
                 if (session.App is null) status.Text = session.AppProblem.Length > 0 ? session.AppProblem : Loc.Get("ReadingCalibrationFromTheHeadset");
-                else if (session.App["calibration"] is JsonObject headset)
+                else if (headset is not null)
                 {
                     var calibrating = Loc.Get("CalibratingInTheHeadset");
                     var result = headset["result"]?.GetValue<string>() ?? "";
-                    if (headset["running"]?.GetValue<bool>() == true) (status.Text, watching) = (calibrating, true);
+                    if (running) (status.Text, watching) = (calibrating, true);
                     else if (watching && (result.Length > 0 || status.Text == calibrating)) (status.Text, watching) = (result, false);
                 }
-            };
-            trackingRefresh();
+                status.Visibility = Visible(status.Text.Length > 0);
+            }
+            refresh = Refresh;
+            trackingRefresh += Refresh;
+            Refresh();
             var note = Muted(Loc.Get("CalibrateAfterChangingHowTheHeadsetFitsYourSaved"));
             note.Margin = new(0, 8, 0, 8);
-            foreach (var element in new UIElement[] { list, note, status, pupilOptions }) Page.Children.Add(element);
+            foreach (var element in new UIElement[] { list, note, status, stages, pupilOptions }) Page.Children.Add(element);
             return;
         }
         var benchmarksAvailable = session.Tester || session.Config["benchmarkMode"]?.GetValue<bool>() == true;

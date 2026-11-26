@@ -85,6 +85,7 @@ public partial class StudioWindow
             if (onHeadset)
             {
                 yield return new(Loc.Get("FaceAndTongue"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibrateFaceExpressionsCheeks"));
+                yield return new(Loc.Get("CalibrationStages"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibrationRedoMovement"));
                 yield return new(Loc.Get("PupilDilation"), Loc.Get("HeadsetAppName"), "Calibration", Loc.Get("CalibratePupilsEyes"));
             }
             else
